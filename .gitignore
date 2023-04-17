@@ -1,0 +1,7 @@
+.idea
+bin
+.vscode
+target
+Cargo.lock
+**/src/api/*
+!**/src/api/mod.rs

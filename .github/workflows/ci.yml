@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '0 0 * * *' # Every day at midnight
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1.1.2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install WasmEdge
+        run: curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install.sh | bash >> /dev/null
+      - name: Check
+        run: |
+          pushd vmm && cargo check --examples --tests --all-features && popd
+          pushd shim && cargo check --examples --tests --all-features && popd
+          pushd wasm && cargo check --examples --tests --all-features && popd
+          pushd quark && cargo check --examples --tests --all-features && popd
+      - name: Nightly fmt
+        run: |
+          rustup toolchain install nightly --component rustfmt
+          pushd vmm && cargo +nightly fmt --all -- --check --files-with-diff && popd
+          pushd shim && cargo +nightly fmt --all -- --check --files-with-diff && popd
+          pushd wasm && cargo +nightly fmt --all -- --check --files-with-diff && popd
+          pushd quark && cargo +nightly fmt --all -- --check --files-with-diff && popd
+      - name: Clippy
+        run: |
+          pushd vmm && cargo clippy --all-features && popd
+          pushd shim && cargo clippy --all-features && popd
+          pushd wasm && cargo clippy --all-features && popd
+          pushd quark && cargo clippy --all-features && popd
+  tests:
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1.1.2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install WasmEdge
+        run: curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install.sh | bash >> /dev/null
+      - name: Test
+        run: |
+          pushd vmm && sudo -E $(command -v cargo) test --all-features && popd
+          pushd shim && sudo -E $(command -v cargo) test --all-features && popd
+          pushd wasm && sudo -E $(command -v cargo) test --all-features && popd
+          pushd quark && sudo -E $(command -v cargo) test --all-features && popd

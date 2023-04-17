@@ -1,0 +1,20 @@
+[package]
+name = "containerd-shim-kuasar-v2"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[features]
+
+[dependencies]
+async-trait = "0.1"
+containerd-sandbox = {git = "https://github.com/kuasar-io/rust-extensions.git"}
+containerd-shim = {git = "https://github.com/kuasar-io/rust-extensions.git", features = ["sandbox"]}
+lazy_static = "1.4.0"
+log = "0.4"
+nix = "0.24.1"
+prost-types = "0.10.1"
+serde_json = "1.0.78"
+tokio = {version = "1", features = ["full"]}
+tonic = "0.7.2"
+tower = {version = "0.4"}

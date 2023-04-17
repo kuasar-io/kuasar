@@ -1,0 +1,17 @@
+[sandbox]
+[hypervisor]
+path = "/usr/local/bin/cloud-hypervisor"
+vcpus = 1
+memory_in_mb = 1024
+kernel_path = "/var/lib/kuasar/vmlinux.bin"
+image_path = "/var/lib/kuasar/kuasar.img"
+initrd_path = ""
+kernel_params = ""
+hugepages = false
+entropy_source = "/dev/urandom"
+debug = true
+[hypervisor.virtiofsd]
+path = "/usr/local/bin/virtiofsd"
+log_level = "info"
+cache = "never"
+thread_pool_size = 4

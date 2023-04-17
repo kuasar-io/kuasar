@@ -1,0 +1,44 @@
+# Copyright 2022 The Kuasar Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Plot parallel boot data for the paper
+#
+# invoke with:
+# gnuplot -e "base='<dir>'" boot-parallel.gpl
+# where <dir> is the platform directory
+
+
+kata_dat = "./kata-memtest.dat"
+kuasar_dat = "./kuasar-memtest.dat"
+
+out_file = "./mem-test.pdf"
+
+set terminal pdf color solid enhanced font ',16' size 5,4
+set output out_file
+
+set xlabel 'Number of Pods'
+set ylabel 'Pss(MB)'
+
+set xrange [0:55]
+set yrange [0:1000]
+set offsets graph 0, 0, 0.01, 0.01
+
+set key top left
+
+set mytics 4
+set grid ytics mytics xtics mxtics
+
+plot \
+     kata_dat     index 0 using 1:2 t 'Kata' linetype 7 linecolor 1 ps 0.5 with linespoints, \
+     kuasar_dat     index 0 using 1:2 t 'Kuasar' lt 7 lc 2 ps 0.5 w lp, \

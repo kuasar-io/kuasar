@@ -1,0 +1,109 @@
+/*
+Copyright 2022 The Kuasar Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+syntax = "proto3";
+
+package grpc;
+
+import "google/protobuf/empty.proto";
+
+service SandboxService {
+	// networking
+	rpc UpdateInterfaces(UpdateInterfacesRequest) returns (google.protobuf.Empty);
+	rpc UpdateRoutes (UpdateRoutesRequest) returns (google.protobuf.Empty);
+
+	// vm
+	rpc Check(CheckRequest) returns (google.protobuf.Empty);
+	rpc ExecVMProcess (ExecVMProcessRequest) returns (ExecVMProcessResponse);
+	rpc SyncClock (SyncClockPacket) returns (SyncClockPacket);
+}
+
+message CheckRequest {
+	string service = 1;
+}
+
+message ExecVMProcessRequest {
+	string command = 1;
+	bytes stdin = 2;
+}
+
+message ExecVMProcessResponse {
+	string out = 1;
+}
+
+// SyncClockPacket is the data struct for time syncing ttrpc call
+// SyncClock is a two step ttrpc call, the first call with a zero delta,
+// is to determine the time offset between host and guest,
+// client will calculate the offset and set it to Delta, call SyncClock again,
+// process inside the vm will set the guest time to add the Delta to the current time
+// the ClientSendTime/ClientArriveTime/ServerSendTime/ServerArriveTime are all in nanosecond.
+message SyncClockPacket {
+	int64 ClientSendTime = 1;
+	int64 ClientArriveTime = 2;
+	int64 ServerSendTime = 3;
+	int64 ServerArriveTime = 4;
+	int64 Delta = 5;
+}
+
+//
+// Copyright 2017 HyperHQ Inc.
+// Copyright (c) 2019-2020 Ant Group
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+
+enum IPFamily {
+	v4 = 0;
+	v6 = 1;
+}
+
+message IPAddress {
+	IPFamily family = 1;
+	string address = 2;
+	string mask = 3;
+}
+
+message Interface {
+	string device = 1;
+	string name = 2;
+	repeated IPAddress IPAddresses = 3;
+	uint64 mtu = 4;
+	string hwAddr = 5;
+
+	// Type defines the type of interface described by this structure.
+	// The expected values are the one that are defined by the netlink
+	// library, regarding each type of link. Here is a non exhaustive
+	// list: "veth", "macvtap", "vlan", "macvlan", "tap", ...
+	string type = 6;
+	uint32 raw_flags = 7;
+}
+
+message Route {
+	string dest = 1;
+	string gateway = 2;
+	string device = 3;
+	string source = 4;
+	uint32 scope = 5;
+	IPFamily family = 6;
+}
+
+message UpdateInterfacesRequest {
+	repeated Interface interfaces = 1;
+}
+
+message UpdateRoutesRequest {
+	repeated Route routes = 1;
+}
