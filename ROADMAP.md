@@ -22,6 +22,8 @@
 
 + Support runC container
 + Support Wasmtime
++ Support DRA(Dynamic Resource Allocation) API
++ Support CDI(Container Device Interface) API
 + Start the process of donating projects to CNCF
 
 ## 2024
