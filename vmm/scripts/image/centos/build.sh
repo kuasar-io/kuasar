@@ -71,6 +71,17 @@ case "${CONTAINER_RUNTIME}" in
 			${IMAGE_NAME} \
 			bash -x /kuasar/vmm/scripts/image/centos/build_rootfs.sh
 		;;
+	isulad)
+		isula run \
+			--network host \
+			--env http_proxy=${http_proxy} \
+			--env https_proxy=${https_proxy} \
+			--env ROOTFS_DIR=/tmp/kuasar-rootfs \
+			-v "${REPO_DIR}":/kuasar \
+			-v "${ROOTFS_DIR}":"/tmp/kuasar-rootfs" \
+			${IMAGE_NAME} \
+			bash -x /kuasar/vmm/scripts/image/centos/build_rootfs.sh
+		;;
 	*)
 		echo "${CONTAINER_RUNTIME} is not supported yet"
 		exit 1
