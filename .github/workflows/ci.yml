@@ -25,20 +25,23 @@ jobs:
         run: curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install.sh | bash -s -- -v 0.11.2 >> /dev/null
       - name: Check
         run: |
-          pushd vmm && cargo check --examples --tests --all-features && popd
+          pushd vmm/sandbox && cargo check --examples --tests --all-features && popd
+          pushd vmm/task && cargo check --examples --tests --all-features && popd
           pushd shim && cargo check --examples --tests --all-features && popd
           pushd wasm && cargo check --examples --tests --all-features && popd
           pushd quark && cargo check --examples --tests --all-features && popd
       - name: Nightly fmt
         run: |
           rustup toolchain install nightly --component rustfmt
-          pushd vmm && cargo +nightly fmt --all -- --check --files-with-diff && popd
+          pushd vmm/sandbox && cargo +nightly fmt --all -- --check --files-with-diff && popd
+          pushd vmm/task && cargo +nightly fmt --all -- --check --files-with-diff && popd
           pushd shim && cargo +nightly fmt --all -- --check --files-with-diff && popd
           pushd wasm && cargo +nightly fmt --all -- --check --files-with-diff && popd
           pushd quark && cargo +nightly fmt --all -- --check --files-with-diff && popd
       - name: Clippy
         run: |
-          pushd vmm && cargo clippy --all-features && popd
+          pushd vmm/sandbox && cargo clippy --all-features && popd
+          pushd vmm/task && cargo clippy --all-features && popd
           pushd shim && cargo clippy --all-features && popd
           pushd wasm && cargo clippy --all-features && popd
           pushd quark && cargo clippy --all-features && popd
@@ -57,7 +60,8 @@ jobs:
         run: curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install.sh | bash -s -- -v 0.11.2 >> /dev/null
       - name: Test
         run: |
-          pushd vmm && sudo -E $(command -v cargo) test --all-features && popd
+          pushd vmm/sandbox && sudo -E $(command -v cargo) test --all-features && popd
+          pushd vmm/task && sudo -E $(command -v cargo) test --all-features && popd
           pushd shim && sudo -E $(command -v cargo) test --all-features && popd
           pushd wasm && sudo -E $(command -v cargo) test --all-features && popd
           pushd quark && sudo -E $(command -v cargo) test --all-features && popd

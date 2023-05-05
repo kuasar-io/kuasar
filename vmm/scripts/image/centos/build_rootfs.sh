@@ -36,9 +36,11 @@ make_vmm_task() {
 
     # install rust to compile vmm-task
     pushd ${repo_dir}
+    ARCH=`uname -m`
+
     source vmm/scripts/image/install_rust.sh
 
-    make bin/vmm-task
+    make bin/vmm-task ARCH=${ARCH}
     popd
 }
 

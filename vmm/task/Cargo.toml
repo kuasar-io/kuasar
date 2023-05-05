@@ -1,9 +1,11 @@
 [package]
 name = "vmm-task"
 version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
 
-edition.workspace = true
-license.workspace = true
+[profile.release]
+panic = 'abort'
 
 [dependencies]
 vmm-common = {path = "../common"}
