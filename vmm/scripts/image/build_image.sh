@@ -281,7 +281,7 @@ setup_loop_device() {
 	major=$(cat /proc/devices | grep loop | awk '{print$1}')
 	device=/dev/loop236
 	mknod $device b $major 236
-	losetup $device ${image}
+	losetup -P $device ${image}
 
 	#Refresh partition table
 	partprobe -s "${device}" > /dev/null
@@ -451,9 +451,9 @@ install_prerequisites() {
 	fi
 	case "${os_distro}" in
 		ubuntu) apt-get install -y qemu-utils parted ;;
-		centos) yum install qemu-img parted ;;
-		euleros) yum install qemu-img parted ;;
-		openeuler) yum install qemu-img parted ;;
+		centos) yum install -y qemu-img parted ;;
+		euleros) yum install -y qemu-img parted ;;
+		openEuler) yum install -y qemu-img parted ;;
 		*) 
 			error "${os_distro} is not supported" 
 			exit 1
