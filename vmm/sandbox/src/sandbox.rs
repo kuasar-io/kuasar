@@ -242,11 +242,12 @@ where
     }
 
     async fn delete(&self, id: &str) -> Result<()> {
-        if let Some(sb_mutex) = self.sandboxes.read().await.get(id) {
+        let sb_clone = self.sandboxes.read().await.clone();
+        if let Some(sb_mutex) = sb_clone.get(id) {
             let mut sb = sb_mutex.lock().await;
             sb.stop(true).await?;
             cleanup_mounts(&sb.base_dir).await?;
-            remove_dir_all(&sb.base_dir).await?
+            remove_dir_all(&sb.base_dir).await?;
         }
         self.sandboxes.write().await.remove(id);
         Ok(())
