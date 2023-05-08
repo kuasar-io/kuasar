@@ -2,18 +2,19 @@ HYPERVISOR ?= cloud_hypervisor
 GUESTOS_IMAGE ?= centos
 WASM_RUNTIME ?= wasmedge
 KERNEL_VERSION ?= 6.2
+ARCH ?= x86_64
 
 .PHONY: vmm wasm quark clean all install-vmm install-wasm install-quark install 
 
 all: vmm quark wasm
 
 bin/vmm-sandboxer:
-	@cd vmm && cargo build --release --features=${HYPERVISOR}
-	@mkdir -p bin && cp vmm/target/release/vmm-sandboxer bin/vmm-sandboxer 
+	@cd vmm/sandbox && cargo build --release --features=${HYPERVISOR}
+	@mkdir -p bin && cp vmm/sandbox/target/release/vmm-sandboxer bin/vmm-sandboxer
 
 bin/vmm-task:
-	@cd vmm/task && cargo build --release --target=x86_64-unknown-linux-musl
-	@mkdir -p bin && cp vmm/target/x86_64-unknown-linux-musl/release/vmm-task bin/vmm-task
+	@cd vmm/task && cargo build --release --target=${ARCH}-unknown-linux-musl
+	@mkdir -p bin && cp vmm/task/target/${ARCH}-unknown-linux-musl/release/vmm-task bin/vmm-task
 
 bin/vmlinux.bin:
 	@bash -x vmm/scripts/kernel/${HYPERVISOR}/build.sh ${KERNEL_VERSION}
@@ -46,7 +47,8 @@ endif
 
 clean:
 	@rm -rf bin
-	@cd vmm && cargo clean
+	@cd vmm/sandbox && cargo clean
+	@cd vmm/task && cargo clean
 	@cd wasm && cargo clean
 	@cd quark && cargo clean
 
