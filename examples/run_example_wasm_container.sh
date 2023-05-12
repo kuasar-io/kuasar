@@ -15,17 +15,22 @@
 
 set -e
 
+RUNWASI_PATH="/tmp/runwasi"
+
 build_wasm_image() {
-  git clone https://github.com/containerd/runwasi.git
-  pushd runwasi
+  rustup target add wasm32-wasi
+  if [ -e $RUNWASI_PATH ]; then
+    rm -rf $RUNWASI_PATH
+  fi
+  git clone https://github.com/containerd/runwasi.git $RUNWASI_PATH
+  pushd $RUNWASI_PATH
   make CONTAINERD_NAMESPACE="k8s.io" load
   popd
-  rm -rf runwasi
+  rm -rf $RUNWASI_PATH
 }
 
-# Build the wasi-demo-app image and import it to containerd.
-rustup target add wasm32-wasi
-crictl -r unix:///run/containerd/containerd.sock images -v | grep ghcr.io/containerd/runwasi/wasi-demo-app:latest || build_wasm_image
+# Build the wasi-demo-app image and import it to containerd if not exist.
+crictl -r unix:///run/containerd/containerd.sock images -v | grep ghcr.io/containerd/runwasi/wasi-demo-app:latest >> /dev/null || build_wasm_image
 
 # Prepare for the wasm Pod and Container config file.
 touch pod.json container.json
