@@ -79,7 +79,7 @@ Please also note that Quark requires a Linux kernel version >= 5.15.
 + MicroVM: To launch a microVM-based sandbox, a hypervisor must be installed on the host. 
   + It is recommended to install Cloud Hypervisor by default. You can find Cloud Hypervisor installation instructions [here](https://github.com/cloud-hypervisor/cloud-hypervisor/blob/main/docs/building.md).
   + If you want to run kuasar with iSulad container engine and StratoVirt hypervisor, you can refer to this guide [how-to-run-kuasar-with-isulad-and-stratovirt](docs/vmm/how-to-run-kuasar-with-isulad-and-stratovirt.md).
-+ Quark: To use Quark, please refer to the installation instructions [here](https://chat.openai.com/chat/docs/quark/README.md).
++ Quark: To use Quark, please refer to the installation instructions [here](docs/quark/README.md).
 + WasmEdge: To start WebAssembly sandboxes, you need to install WasmEdge v0.11.2. Instructions for installing WasmEdge can be found in [install.html](https://wasmedge.org/book/en/quick_start/install.html).
 
 ### 3. containerd
