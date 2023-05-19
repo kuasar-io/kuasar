@@ -17,6 +17,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+      - name: Deny
+        run: |
+          pushd vmm/sandbox && cargo install cargo-deny && cargo deny -L debug --all-features check && popd
+          pushd vmm/task && cargo deny -L debug --all-features check && popd
+          pushd shim && cargo deny -L debug --all-features check && popd
+          pushd wasm && cargo deny -L debug --all-features check && popd
+          pushd quark && cargo deny -L debug --all-features check && popd
       - name: Install Protoc
         uses: arduino/setup-protoc@v1.1.2
         with:
@@ -40,11 +47,11 @@ jobs:
           pushd quark && cargo +nightly fmt --all -- --check --files-with-diff && popd
       - name: Clippy
         run: |
-          pushd vmm/sandbox && cargo clippy --all-features && popd
-          pushd vmm/task && cargo clippy --all-features && popd
-          pushd shim && cargo clippy --all-features && popd
-          pushd wasm && cargo clippy --all-features && popd
-          pushd quark && cargo clippy --all-features && popd
+          pushd vmm/sandbox && cargo clippy --all-features -- -D warnings && popd
+          pushd vmm/task && cargo clippy --all-features -- -D warnings && popd
+          pushd shim && cargo clippy --all-features -- -D warnings && popd
+          pushd wasm && cargo clippy --all-features -- -D warnings && popd
+          pushd quark && cargo clippy --all-features -- -D warnings && popd
   tests:
 
     runs-on: ubuntu-latest
