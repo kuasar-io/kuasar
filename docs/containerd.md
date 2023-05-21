@@ -4,7 +4,9 @@ Kuasar has make some changes on official containerd v1.7.0 based on commit:`1f23
 
 ## Building and installing containerd
 
-`git` clone the codes of containerd fork version from kuasar repository.
+- Please note that for compatibility with Containerd, it is recommended to use Go version 1.19 or later.
+
+- `git` clone the codes of containerd fork version from kuasar repository.
 
 ```bash
 git clone https://github.com/kuasar-io/containerd.git
