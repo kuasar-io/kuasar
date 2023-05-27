@@ -78,7 +78,7 @@ where
         tokio::fs::remove_file(&io_file_path)
             .await
             .unwrap_or_default();
-        let mut container = sandbox.container_mut(&self.container_id)?;
+        let container = sandbox.container_mut(&self.container_id)?;
         container.io_devices = vec![];
         container.data.io = None;
         Ok(())

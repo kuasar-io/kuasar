@@ -58,7 +58,9 @@ impl CharDevice {
 }
 
 mod tests {
+    #[allow(unused_imports)]
     use super::CharDevice;
+    #[allow(unused_imports)]
     use crate::param::ToCmdLineParams;
 
     #[test]

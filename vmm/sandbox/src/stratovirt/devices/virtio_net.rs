@@ -96,38 +96,74 @@ impl_device_no_bus!(VirtioNetDevice);
 impl_set_get_device_addr!(VirtioNetDevice);
 
 impl VirtioNetDevice {
-    pub fn new(
-        id: &str,
-        name: Option<String>,
-        mac_address: &str,
-        transport: Transport,
-        fds: Vec<RawFd>,
-        enable_vhost: bool,
-        vhostfds: Vec<RawFd>,
-        bus: Option<String>,
-    ) -> Self {
-        let driver = transport.to_driver(VIRTIO_NET_DRIVER);
-        let multi_queue = !fds.is_empty();
-        Self {
+    pub fn new() -> Self {
+        VirtioNetDevice {
             r#type: NetType::Tap,
-            transport,
-            driver,
-            id: id.to_string(),
-            device_id: format!("virtio-net-{}", id),
-            vhost: enable_vhost,
-            vhostfds,
-            fds,
-            ifname: name,
-            pci_bus: bus,
+            transport: Transport::Pci,
+            driver: "".to_string(),
+            id: "".to_string(),
+            device_id: "".to_string(),
+            vhost: false,
+            vhostfds: vec![],
+            fds: vec![],
+            ifname: None,
+            pci_bus: None,
             addr: "".to_string(),
             script: None,
             down_script: None,
-            mac_address: mac_address.to_string(),
-            multi_queue,
+            mac_address: "".to_string(),
+            multi_queue: false,
             disable_modern: None,
             romfile: None,
             queues: None,
         }
+    }
+
+    pub fn id(mut self, id: &str) -> Self {
+        self.id = id.to_string();
+        self.device_id = format!("virtio-net-{}", self.id);
+        self
+    }
+
+    pub fn name(mut self, name: &str) -> Self {
+        self.ifname = Some(name.to_string());
+        self
+    }
+
+    pub fn mac_address(mut self, mac_address: &str) -> Self {
+        self.mac_address = mac_address.to_string();
+        self
+    }
+
+    pub fn transport(mut self, transport: Transport) -> Self {
+        self.transport = transport;
+        self.driver = self.transport.to_driver(VIRTIO_NET_DRIVER);
+        self
+    }
+
+    pub fn fds(mut self, fds: Vec<RawFd>) -> Self {
+        self.fds = fds;
+        self.multi_queue = !self.fds.is_empty();
+        self
+    }
+
+    pub fn vhost(mut self, vhost: bool) -> Self {
+        self.vhost = vhost;
+        self
+    }
+
+    pub fn vhostfds(mut self, vhostfds: Vec<RawFd>) -> Self {
+        self.vhostfds = vhostfds;
+        self
+    }
+
+    pub fn bus(mut self, bus: Option<String>) -> Self {
+        self.pci_bus = bus;
+        self
+    }
+
+    pub fn build(self) -> VirtioNetDevice {
+        self
     }
 }
 

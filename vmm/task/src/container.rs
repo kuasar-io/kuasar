@@ -205,7 +205,7 @@ impl KuasarFactory {
         // pivot_root could not work with initramfs
         match get_mount_type("/") {
             Ok(m_type) => {
-                if m_type == "rootfs".to_string() {
+                if m_type == *"rootfs" {
                     no_pivot_root = true;
                 }
             }

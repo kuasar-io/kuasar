@@ -67,7 +67,7 @@ pub async fn write_file_atomic<P: AsRef<Path>>(path: P, s: &[u8]) -> Result<()> 
         .map_err(|e| anyhow!("failed to rename file:{}, {}", tmp_path.display(), e).into())
 }
 
-pub fn bind_socket(socket_path: &str) -> Result<RawFd> {
+pub fn _bind_socket(socket_path: &str) -> Result<RawFd> {
     let fd = socket(
         AddressFamily::Unix,
         SockType::Stream,

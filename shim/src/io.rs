@@ -133,11 +133,11 @@ impl VsockIO {
 
 impl ToString for VsockIO {
     fn to_string(&self) -> String {
-        return if self.sock_path.is_empty() {
+        if self.sock_path.is_empty() {
             String::new()
         } else {
             format!("{}{}:{}", HVSOCK_PREFIX, self.sock_path, self.port)
-        };
+        }
     }
 }
 

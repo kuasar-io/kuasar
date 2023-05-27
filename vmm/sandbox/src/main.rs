@@ -16,8 +16,6 @@ limitations under the License.
 
 use std::path::Path;
 
-use log::info;
-
 use crate::{
     config::Config,
     kata_config::KataConfig,
@@ -108,6 +106,7 @@ async fn main() -> anyhow::Result<()> {
         .format_timestamp_micros()
         .init();
     #[cfg(feature = "qemu")]
+    #[allow(unused_variables)]
     let sandboxer: KuasarSandboxer<QemuVMFactory, QemuHooks> = {
         // for compatible of kata config
         let config_path = std::env::var("KATA_CONFIG_PATH").unwrap_or_else(|_| {
@@ -125,10 +124,10 @@ async fn main() -> anyhow::Result<()> {
     };
 
     #[cfg(feature = "stratovirt")]
+    #[allow(unused_variables)]
     let sandboxer: KuasarSandboxer<StratoVirtVMFactory, StratoVirtHooks> = {
         let os_args: Vec<_> = std::env::args_os().collect();
         let mut config_path = "/var/lib/kuasar/config_stratovirt.toml".to_string();
-        let mut dir = None;
         for i in 0..os_args.len() {
             if os_args[i].to_str().unwrap() == "--config" {
                 config_path = os_args[i + 1].to_str().unwrap().to_string()
@@ -138,7 +137,6 @@ async fn main() -> anyhow::Result<()> {
                 if !Path::new(&dir_path).exists() {
                     tokio::fs::create_dir_all(&dir_path).await.unwrap();
                 }
-                dir = Some(dir_path);
             }
         }
         let path = Path::new(&config_path);
@@ -152,6 +150,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     #[cfg(feature = "cloud_hypervisor")]
+    #[allow(unused_variables)]
     let sandboxer: KuasarSandboxer<CloudHypervisorVMFactory, CloudHypervisorHooks> = {
         let os_args: Vec<_> = std::env::args_os().collect();
 

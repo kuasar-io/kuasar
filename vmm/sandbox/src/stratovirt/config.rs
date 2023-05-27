@@ -27,6 +27,7 @@ use crate::{
 pub(crate) const MACHINE_TYPE_Q35: &str = "q35";
 #[allow(dead_code)]
 pub(crate) const MACHINE_TYPE_PC: &str = "pc";
+#[allow(dead_code)]
 pub(crate) const MACHINE_TYPE_VIRT: &str = "virt";
 #[allow(dead_code)]
 pub(crate) const MACHINE_TYPE_PSERIES: &str = "pseries";
@@ -101,11 +102,8 @@ impl StratoVirtVMConfig {
         if self.common.kernel_params.is_empty() {
             result.kernel.kernel_params = DEFAULT_KERNEL_PARAMS.to_string();
         } else {
-            result.kernel.kernel_params = format!(
-                "{} {}",
-                DEFAULT_KERNEL_PARAMS,
-                self.common.kernel_params.to_string()
-            );
+            result.kernel.kernel_params =
+                format!("{} {}", DEFAULT_KERNEL_PARAMS, self.common.kernel_params);
         }
 
         result.global_params = vec![Global {
@@ -150,7 +148,7 @@ pub struct QmpSocket {
 impl ToCmdLineParams for QmpSocket {
     fn to_cmdline_params(&self, hyphen: &str) -> Vec<String> {
         vec![
-            format!("{}{}", hyphen, self.param_key.to_string()),
+            format!("{}{}", hyphen, self.param_key),
             format!("{}:{},server,nowait", self.r#type, self.name,),
         ]
     }

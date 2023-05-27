@@ -44,7 +44,9 @@ impl VirtConsole {
 }
 
 mod tests {
+    #[allow(unused_imports)]
     use super::VirtConsole;
+    #[allow(unused_imports)]
     use crate::{
         device::Transport,
         param::ToCmdLineParams,

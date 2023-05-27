@@ -52,7 +52,7 @@ impl VSockDevice {
         Self {
             driver: transport.to_driver(VHOST_VSOCK_DRIVER),
             id: format!("vsock-{}", context_id),
-            context_id: context_id,
+            context_id,
             bus: bus.to_string(),
             addr: "".to_string(),
             vhostfd: vhost_fd,

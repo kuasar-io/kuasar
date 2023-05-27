@@ -26,6 +26,7 @@ pub struct PhysicalDevice {
 
 impl_device_no_bus!(PhysicalDevice);
 
+#[allow(dead_code)]
 impl PhysicalDevice {
     pub fn new(path: &str, id: &str) -> Self {
         Self {

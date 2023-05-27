@@ -53,7 +53,9 @@ use crate::{
 
 const DEVICE_DRIVER_VFIO: &str = "vfio-pci";
 
+#[allow(dead_code)]
 const SIOCETHTOOL: u64 = 0x8946;
+#[allow(dead_code)]
 const ETHTOOL_GDRVINFO: u32 = 0x00000003;
 
 const TUNSETIFF: u64 = 0x400454ca;
@@ -62,12 +64,14 @@ const TUNSETPERSIST: u64 = 0x400454cb;
 ioctl_write_ptr_bad!(ioctl_tun_set_iff, TUNSETIFF, ifreq);
 ioctl_write_ptr_bad!(ioctl_tun_set_persist, TUNSETPERSIST, u64);
 
+#[allow(dead_code)]
 #[repr(C)]
 pub struct Ifreq {
     ifr_name: [u8; 16],
     ifr_data: *mut libc::c_void,
 }
 
+#[allow(dead_code)]
 #[repr(C)]
 pub struct EthtoolDrvInfo {
     cmd: u32,
@@ -227,13 +231,11 @@ impl NetworkInterface {
                     for info in infos {
                         if let Info::Data(d) = info {
                             intf.r#type = d.into();
-                        } else if let Info::Kind(k) = info {
+                        } else if let Info::Kind(InfoKind::Veth) = info {
                             // for veth, there is no Info::Data, but SlaveKind and SlaveData
                             // so we have to get the type from Info::Kind
-                            if let InfoKind::Veth = k {
-                                intf.queue = queue;
-                                intf.r#type = LinkType::Veth
-                            }
+                            intf.queue = queue;
+                            intf.r#type = LinkType::Veth;
                         }
                     }
                 }
@@ -409,6 +411,7 @@ impl NetworkInterface {
     }
 }
 
+#[allow(dead_code)]
 fn get_bdf_for_eth(if_name: &str) -> Result<String> {
     if if_name.len() > 16 {
         return Err(anyhow!("the interface name length is larger than 16").into());
@@ -541,6 +544,7 @@ fn create_tap_device(tap_name: &str, mut queue: u32) -> Result<Vec<OwnedFd>> {
     Ok(fds)
 }
 
+#[allow(dead_code)]
 async fn get_pci_driver(bdf: &str) -> Result<String> {
     let driver_path = format!("/sys/bus/pci/devices/{}/driver", bdf);
     let driver_dest = tokio::fs::read_link(driver_path).await?;

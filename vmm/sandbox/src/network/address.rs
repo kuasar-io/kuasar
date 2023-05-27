@@ -35,10 +35,9 @@ pub struct CniIPAddress {
     pub mask: String,
 }
 
-impl Into<String> for &mut CniIPAddress {
-    // TODO: support family for ipv6
-    fn into(self) -> String {
-        format!("{}/{}", self.address, self.mask)
+impl From<&mut CniIPAddress> for String {
+    fn from(ip: &mut CniIPAddress) -> String {
+        format!("{}/{}", ip.address, ip.mask)
     }
 }
 
@@ -69,9 +68,9 @@ impl From<String> for IpNet {
     }
 }
 
-impl Into<String> for IpNet {
-    fn into(self) -> String {
-        format!("{}/{}", self.addr_string(), self.prefix_len)
+impl From<IpNet> for String {
+    fn from(ip_net: IpNet) -> String {
+        format!("{}/{}", ip_net.addr_string(), ip_net.prefix_len)
     }
 }
 

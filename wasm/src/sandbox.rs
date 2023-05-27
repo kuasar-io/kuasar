@@ -44,7 +44,7 @@ pub struct WasmSandboxer {
 }
 
 pub struct WasmSandbox {
-    pub(crate) id: String,
+    pub(crate) _id: String,
     pub(crate) base_dir: String,
     pub(crate) data: SandboxData,
     pub(crate) status: SandboxStatus,
@@ -63,7 +63,7 @@ impl Sandboxer for WasmSandboxer {
 
     async fn create(&self, id: &str, s: SandboxOption) -> Result<()> {
         let sandbox = WasmSandbox {
-            id: id.to_string(),
+            _id: id.to_string(),
             base_dir: s.base_dir,
             data: s.sandbox,
             status: SandboxStatus::Created,

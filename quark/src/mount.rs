@@ -25,8 +25,8 @@ use lazy_static::lazy_static;
 use log::debug;
 use nix::{errno::Errno, libc, mount::MsFlags, NixPath};
 
-pub const MNT_NOFOLLOW: i32 = 0x8;
-pub const MNT_OPTION_MAX_LEN: usize = 4096;
+pub const _MNT_NOFOLLOW: i32 = 0x8;
+pub const _MNT_OPTION_MAX_LEN: usize = 4096;
 
 struct Flag {
     clear: bool,
@@ -224,7 +224,7 @@ lazy_static! {
     static ref MS_BIND_RO: MsFlags = MsFlags::MS_BIND.bitor(MsFlags::MS_RDONLY);
 }
 
-pub fn mount(
+pub fn _mount(
     fs_type: Option<&str>,
     source: Option<&str>,
     options: &[String],
@@ -233,7 +233,7 @@ pub fn mount(
     let (flags, data) = parse_options(options);
 
     let opt = data.join(",");
-    if opt.len() > MNT_OPTION_MAX_LEN {
+    if opt.len() > _MNT_OPTION_MAX_LEN {
         return Err(anyhow!("mount option is too long"));
     }
 
@@ -324,7 +324,7 @@ pub async fn bind_mount<T: AsRef<Path>>(source: T, target: &str, options: &[Stri
     Ok(())
 }
 
-pub fn unmount(target: &str, flags: i32) -> Result<()> {
+pub fn _unmount(target: &str, flags: i32) -> Result<()> {
     let res = target
         .with_nix_path(|cstr| unsafe { libc::umount2(cstr.as_ptr(), flags) })
         .map_err(|e| anyhow!("failed to umount {}, {}", target, e))?;
