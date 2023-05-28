@@ -16,7 +16,7 @@ stratovirt = ["qapi/qmp", "qapi/async-tokio-all", "unshare", "os_pipe"]
 [dependencies]
 tokio = { version = "1.19.2", features = ["full"] }
 containerd-sandbox = {git="https://github.com/kuasar-io/rust-extensions.git"}
-containerd-shim = {git="https://github.com/kuasar-io/rust-extensions.git"}
+containerd-shim = { git="https://github.com/kuasar-io/rust-extensions.git", features=["async"] }
 vmm-common = { path = "../common" }
 bytefmt = "0.1.7"
 async-trait = "0.1.56"
