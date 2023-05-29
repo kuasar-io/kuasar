@@ -91,6 +91,8 @@ pub struct HypervisorCommonConfig {
     pub initrd_path: String,
     #[serde(default)]
     pub kernel_params: String,
+    #[serde(default)]
+    pub enable_mem_prealloc: bool,
 }
 
 impl Default for HypervisorCommonConfig {
@@ -103,6 +105,7 @@ impl Default for HypervisorCommonConfig {
             image_path: "/var/lib/kuasar/kuasar.img".to_string(),
             initrd_path: "".to_string(),
             kernel_params: "".to_string(),
+            enable_mem_prealloc: false,
         }
     }
 }

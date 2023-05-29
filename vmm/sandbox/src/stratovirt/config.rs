@@ -113,6 +113,7 @@ impl StratoVirtVMConfig {
         result.knobs = Knobs {
             daemonize: true,
             disable_seccomp: true,
+            prealloc: self.common.enable_mem_prealloc,
         };
 
         Ok(result)
@@ -178,6 +179,8 @@ pub struct Knobs {
     pub daemonize: bool,
     #[param(key = "disable-seccomp")]
     pub disable_seccomp: bool,
+    #[param(key = "mem-prealloc")]
+    pub prealloc: bool,
 }
 
 #[derive(CmdLineParamSet, Default, Clone)]
@@ -227,6 +230,7 @@ mod tests {
 
         stratovirt_config.knobs.daemonize = true;
         stratovirt_config.knobs.disable_seccomp = true;
+        stratovirt_config.knobs.prealloc = true;
 
         stratovirt_config.name = "sandbox-1".to_string();
         stratovirt_config.log_file = Some("/path/to/log".to_string());
@@ -260,6 +264,7 @@ mod tests {
             "pcie-root-port.fast-unplug=1",
             "-daemonize",
             "-disable-seccomp",
+            "-mem-prealloc",
         ];
         let expected_params_into_string: Vec<String> =
             expected_params.iter().map(|&s| s.to_string()).collect();
