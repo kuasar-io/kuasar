@@ -36,7 +36,7 @@ impl StratoVirtHooks {
 
 #[async_trait]
 impl Hooks<StratoVirtVM> for StratoVirtHooks {
-    async fn pre_start(&self, sandbox: &mut KuasarSandbox<StratoVirtVM>) -> Result<()> {
+    async fn pre_start(&self, _sandbox: &mut KuasarSandbox<StratoVirtVM>) -> Result<()> {
         // TODO
         Ok(())
     }

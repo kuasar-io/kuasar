@@ -51,7 +51,7 @@ pub struct QuarkSandboxer {
 }
 
 pub struct QuarkSandbox {
-    pub(crate) id: String,
+    pub(crate) _id: String,
     pub(crate) base_dir: String,
     pub(crate) data: SandboxData,
     pub(crate) status: SandboxStatus,
@@ -69,7 +69,7 @@ impl Sandboxer for QuarkSandboxer {
 
     async fn create(&self, id: &str, s: SandboxOption) -> Result<()> {
         let mut sandbox = QuarkSandbox {
-            id: id.to_string(),
+            _id: id.to_string(),
             base_dir: s.base_dir,
             data: s.sandbox,
             status: SandboxStatus::Created,
@@ -524,7 +524,7 @@ impl QuarkSandboxer {
     }
 }
 
-pub(crate) fn to_any(spec: &JsonSpec) -> Result<Any> {
+pub(crate) fn _to_any(spec: &JsonSpec) -> Result<Any> {
     let spec_vec =
         serde_json::to_vec(spec).map_err(|e| anyhow!("failed to parse sepc to json, {}", e))?;
     Ok(Any {

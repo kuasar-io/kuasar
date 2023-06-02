@@ -65,12 +65,12 @@ pub struct ExecFactory {}
 pub struct WasmEdgeExecLifecycle {}
 
 pub struct WasmEdgeInitLifecycle {
-    opts: Options,
-    bundle: String,
+    _opts: Options,
+    _bundle: String,
     spec: Spec,
     prototype_vm: Vm,
     netns: String,
-    exit_signal: Arc<ExitSignal>,
+    _exit_signal: Arc<ExitSignal>,
 }
 
 pub struct WasmEdgeContainerFactory {
@@ -131,9 +131,9 @@ impl ContainerFactory<WasmEdgeContainer> for WasmEdgeContainerFactory {
             req.id(),
             stdio,
             WasmEdgeInitLifecycle {
-                opts: Default::default(),
-                bundle: req.bundle.to_string(),
-                exit_signal,
+                _opts: Default::default(),
+                _bundle: req.bundle.to_string(),
+                _exit_signal: exit_signal,
                 spec,
                 prototype_vm: self.prototype_vm.clone(),
                 netns,

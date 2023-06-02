@@ -19,7 +19,9 @@ use netlink_packet_core::{NetlinkMessage, NLM_F_ACK, NLM_F_CREATE, NLM_F_EXCL, N
 use netlink_packet_route::{RtnlMessage, TcMessage};
 use rtnetlink::{try_nl, Error, Handle};
 
+#[allow(dead_code)]
 const HANDLE_INGRESS: u32 = 0xfffffff1;
+#[allow(dead_code)]
 const HANDLE_TC_FILTER: u32 = 0xffff0000;
 
 pub struct QDiscAddRequest {
@@ -27,6 +29,7 @@ pub struct QDiscAddRequest {
     message: TcMessage,
 }
 
+#[allow(dead_code)]
 impl QDiscAddRequest {
     pub(crate) fn new(handle: Handle) -> Self {
         QDiscAddRequest {
@@ -62,11 +65,13 @@ impl QDiscAddRequest {
     }
 }
 
+#[allow(dead_code)]
 pub struct TrafficFilterSetRequest {
     handle: Handle,
     message: TcMessage,
 }
 
+#[allow(dead_code)]
 impl TrafficFilterSetRequest {
     pub(crate) fn new(handle: Handle, ifindex: i32) -> Self {
         let mut message = TcMessage::default();

@@ -179,16 +179,16 @@ impl VM for StratoVirtVM {
                     fd_ints.push(index as i32);
                 }
 
-                let virtio_net_device = VirtioNetDevice::new(
-                    &tap_info.id,
-                    Some(tap_info.name),
-                    &tap_info.mac_address,
-                    Transport::Pci,
-                    fd_ints,
-                    false,
-                    vec![],
-                    Some(DEFAULT_PCIE_BUS.to_string()),
-                );
+                let virtio_net_device = VirtioNetDevice::new()
+                    .id(&tap_info.id)
+                    .name(&tap_info.name)
+                    .mac_address(&tap_info.mac_address)
+                    .transport(Transport::Pci)
+                    .fds(fd_ints)
+                    .vhost(false)
+                    .vhostfds(vec![])
+                    .bus(Some(DEFAULT_PCIE_BUS.to_string()))
+                    .build();
                 self.attach_to_pcie_rootbus(virtio_net_device)?;
             }
             _ => {
@@ -203,7 +203,7 @@ impl VM for StratoVirtVM {
             DeviceInfo::Block(blk_info) => {
                 let device = VirtioBlockDevice::new(
                     "",
-                    &*blk_info.id,
+                    &blk_info.id,
                     Some(blk_info.path),
                     Some(blk_info.read_only),
                 );
@@ -226,7 +226,7 @@ impl VM for StratoVirtVM {
         };
     }
 
-    async fn hot_detach(&mut self, id: &str) -> Result<()> {
+    async fn hot_detach(&mut self, _id: &str) -> Result<()> {
         Ok(())
     }
 
@@ -237,7 +237,7 @@ impl VM for StratoVirtVM {
     }
 
     fn socket_address(&self) -> String {
-        return self.agent_socket.to_string();
+        self.agent_socket.to_string()
     }
 
     async fn wait_channel(&self) -> Option<Receiver<(u32, i128)>> {
@@ -341,7 +341,7 @@ impl StratoVirtVM {
             // because the direct child process is not the actual running qemu process,
             // so we have to read pid from the qemu.pid file,
             // NOTE: it is hard to eliminate the race condition when pid reused.
-            if let Ok(pid) = detect_pid(&*pid_file, &*path).await {
+            if let Ok(pid) = detect_pid(&pid_file, &path).await {
                 let wait_result = wait_pid(pid as i32).await;
                 tx.send(wait_result).unwrap_or_default();
             } else {
@@ -360,7 +360,7 @@ impl StratoVirtVM {
             .as_ref()
             .map(|x| x.name.to_string())
             .ok_or_else(|| anyhow!("failed to get qmp socket path"))?;
-        QmpClient::new(&*socket_addr).await
+        QmpClient::new(&socket_addr).await
     }
 
     fn get_client(&self) -> Result<&QmpClient> {
@@ -413,9 +413,9 @@ impl StratoVirtVM {
             }
         }
 
-        Err(Error::ResourceExhausted(format!(
-            "slots of pcie.0 root bus is full"
-        )))
+        Err(Error::ResourceExhausted(
+            "slots of pcie.0 root bus is full".to_string(),
+        ))
     }
 
     fn attach_to_pcie_rootbus<T: StratoVirtDevice + Sync + Send + 'static>(
@@ -483,7 +483,7 @@ impl StratoVirtVM {
             }
         }
 
-        Err(Error::ResourceExhausted(format!("slot of rootport")))
+        Err(Error::ResourceExhausted("slot of rootport".to_string()))
     }
 
     fn create_vitiofs_daemon(&mut self, daemon_path: &str, base_dir: &str) {

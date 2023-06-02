@@ -101,7 +101,7 @@ impl Bus {
 
     #[allow(dead_code)]
     pub fn attach<T: Device>(&mut self, device: &T) -> Result<usize> {
-        for (index, mut s) in self.slots.iter_mut().enumerate() {
+        for (index, s) in self.slots.iter_mut().enumerate() {
             if let SlotStatus::Empty = s.status {
                 s.status = SlotStatus::Occupied(device.id());
                 return Ok(index);

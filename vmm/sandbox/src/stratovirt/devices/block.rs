@@ -33,6 +33,7 @@ use crate::{
     stratovirt::{devices::HotAttachable, qmp_client::QmpClient},
 };
 
+#[allow(dead_code)]
 pub const VIRTIO_BLK_DRIVER: &str = "virtio-blk";
 
 #[derive(CmdLineParams, Debug, Clone)]
@@ -98,7 +99,7 @@ impl HotAttachable for VirtioBlockDevice {
     async fn execute_hot_detach(&self, client: &QmpClient) -> Result<()> {
         debug!("hot detach device {}", self.id);
         let device_id = format!("virtio-{}", self.id());
-        client.delete_device(&*device_id).await?;
+        client.delete_device(&device_id).await?;
         client.execute(self.to_blockdev_del()).await?;
         Ok(())
     }
@@ -150,7 +151,7 @@ impl VirtioBlockDevice {
     fn to_device_add(&self, rp_id: &str) -> device_add {
         let mut args = Dictionary::new();
         args.insert("drive".to_string(), Value::from(self.id()));
-        let addr = format!("0x0");
+        let addr = "0x0".to_string();
         args.insert("addr".to_string(), Value::from(addr));
 
         let driver = "virtio-blk-pci".to_string();

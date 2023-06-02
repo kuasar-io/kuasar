@@ -116,7 +116,7 @@ impl VMFactory for StratoVirtVMFactory {
         let virtiofs_chardev = CharDevice::new("socket", &chardev_id, &absolute_virtiofs_sock);
         vm.attach_device(virtiofs_chardev);
         let vhost_user_fs_device = VhostUserFs::new(
-            &*format!("vhost-user-fs-{}", id),
+            &format!("vhost-user-fs-{}", id),
             Transport::Pci,
             &chardev_id,
             DEFAULT_MOUNT_TAG_NAME,

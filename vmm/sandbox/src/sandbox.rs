@@ -44,7 +44,7 @@ use crate::{
 
 pub const KUASAR_GUEST_SHARE_DIR: &str = "/run/kuasar/storage/containers/";
 
-macro_rules! monitor {
+macro_rules! _monitor {
     ($sb:ident) => {
         tokio::spawn(async move {
             let mut rx = {
@@ -465,9 +465,9 @@ pub struct SandboxConfig {}
 #[serde(deny_unknown_fields)]
 pub struct StaticDeviceSpec {
     #[serde(default)]
-    pub(crate) host_path: Vec<String>,
+    pub(crate) _host_path: Vec<String>,
     #[serde(default)]
-    pub(crate) bdf: Vec<String>,
+    pub(crate) _bdf: Vec<String>,
     #[allow(dead_code)]
     #[deprecated]
     #[serde(default)]

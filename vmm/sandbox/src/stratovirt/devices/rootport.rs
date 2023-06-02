@@ -48,7 +48,7 @@ impl RootPort {
             addr: "".to_string(),
             multi_function: multi_func,
             device_id: "".to_string(),
-            index: index,
+            index,
         }
     }
 }
@@ -56,21 +56,11 @@ impl RootPort {
 impl_device_no_bus!(RootPort);
 impl_set_get_device_addr!(RootPort);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PCIERootPorts {
     pub(crate) id: String,
     pub(crate) bus: Bus,
     pub(crate) root_ports: Vec<RootPort>,
-}
-
-impl Default for PCIERootPorts {
-    fn default() -> PCIERootPorts {
-        PCIERootPorts {
-            id: Default::default(),
-            bus: Bus::default(),
-            root_ports: Default::default(),
-        }
-    }
 }
 
 impl_device!(PCIERootPorts);
