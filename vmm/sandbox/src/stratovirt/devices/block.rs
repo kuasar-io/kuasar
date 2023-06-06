@@ -44,6 +44,8 @@ pub struct VirtioBlockDevice {
     #[property(param = "drive")]
     #[property(param = "device", key = "drive")]
     pub id: String,
+    #[property(param = "device", key = "id")]
+    pub deviceid: String,
     #[property(param = "drive")]
     pub file: Option<String>,
     #[property(param = "drive")]
@@ -62,10 +64,17 @@ impl_device_no_bus!(VirtioBlockDevice);
 impl_set_get_device_addr!(VirtioBlockDevice);
 
 impl VirtioBlockDevice {
-    pub fn new(driver: &str, id: &str, file: Option<String>, read_only: Option<bool>) -> Self {
+    pub fn new(
+        driver: &str,
+        id: &str,
+        deviceid: &str,
+        file: Option<String>,
+        read_only: Option<bool>,
+    ) -> Self {
         Self {
             driver: driver.to_string(),
             id: id.to_string(),
+            deviceid: deviceid.to_string(),
             file,
             r#if: None,
             readonly: read_only,
@@ -190,6 +199,7 @@ mod tests {
         let virtio_blk_device = VirtioBlockDevice::new(
             VIRTIO_BLK_DRIVER,
             "drive-0",
+            "",
             Some("/dev/dm-8".to_string()),
             Some(false),
         );
@@ -216,6 +226,7 @@ mod tests {
         let virtio_blk_device = VirtioBlockDevice::new(
             VIRTIO_BLK_DRIVER,
             "drive-0",
+            "",
             Some("/dev/dm-8".to_string()),
             Some(false),
         );
@@ -236,6 +247,7 @@ mod tests {
         let virtio_blk_device = VirtioBlockDevice::new(
             VIRTIO_BLK_DRIVER,
             "drive-0",
+            "",
             Some("/dev/dm-8".to_string()),
             Some(false),
         );
@@ -256,6 +268,7 @@ mod tests {
         let virtio_blk_device = VirtioBlockDevice::new(
             VIRTIO_BLK_DRIVER,
             "drive-0",
+            "",
             Some("/dev/dm-8".to_string()),
             Some(false),
         );

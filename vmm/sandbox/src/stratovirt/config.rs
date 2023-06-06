@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+use anyhow::anyhow;
 use containerd_sandbox::error::Result;
 use sandbox_derive::{CmdLineParamSet, CmdLineParams};
 use serde::{Deserialize, Serialize};
@@ -91,9 +92,24 @@ impl StratoVirtVMConfig {
 
         result.kernel = Kernel {
             path: self.common.kernel_path.to_string(),
+            image: None,
             initrd: None,
             kernel_params: "".to_string(),
         };
+
+        if !self.common.image_path.is_empty() && !self.common.initrd_path.is_empty() {
+            return Err(anyhow!("both image and initrd defined in config is not supported").into());
+        }
+
+        if self.common.image_path.is_empty() && self.common.initrd_path.is_empty() {
+            return Err(
+                anyhow!("either image or initrd defined in config is not supported").into(),
+            );
+        }
+
+        if !self.common.image_path.is_empty() {
+            result.kernel.image = Some(self.common.image_path.to_string());
+        }
 
         if !self.common.initrd_path.is_empty() {
             result.kernel.initrd = Some(self.common.initrd_path.to_string());
@@ -104,6 +120,13 @@ impl StratoVirtVMConfig {
         } else {
             result.kernel.kernel_params =
                 format!("{} {}", DEFAULT_KERNEL_PARAMS, self.common.kernel_params);
+        }
+
+        if !self.common.image_path.is_empty() {
+            result
+                .kernel
+                .kernel_params
+                .push_str(" root=/dev/vda1 ro rootfstype=ext4");
         }
 
         result.global_params = vec![Global {
@@ -132,6 +155,8 @@ pub struct Kernel {
     #[param(key = "kernel")]
     pub path: String,
     pub initrd: Option<String>,
+    #[param(ignore)]
+    pub image: Option<String>,
     #[param(key = "append")]
     pub kernel_params: String,
 }
@@ -248,6 +273,59 @@ mod tests {
             "/var/lib/kuasar/initrd",
             "-append",
             "console=hvc0 console=hvc1 iommu=off debug panic=1 pcie_ports=native",
+            "-smp",
+            "cpus=1",
+            "-m",
+            "1024M",
+            "-pidfile",
+            "/path/to/pid",
+            "-D",
+            "/path/to/log",
+            "-global",
+            "pcie-root-port.fast-unplug=1",
+            "-daemonize",
+            "-disable-seccomp",
+        ];
+        let expected_params_into_string: Vec<String> =
+            expected_params.iter().map(|&s| s.to_string()).collect();
+        assert_eq!(expected_params_into_string, params);
+    }
+
+    #[tokio::test]
+    async fn test_stratovirt_params_with_image() {
+        let mut vmconfig = StratoVirtVMConfig::default();
+        vmconfig.common.image_path = "/var/lib/kuasar/image".to_string();
+        let mut stratovirt_config = vmconfig.to_stratovirt_config().await.unwrap();
+        stratovirt_config.pid_file = "/path/to/pid".to_string();
+        stratovirt_config.qmp_socket = Some(QmpSocket {
+            param_key: "qmp".to_string(),
+            r#type: "unix".to_string(),
+            name: "/path/to/qmp.sock".to_string(),
+            server: true,
+            no_wait: true,
+        });
+
+        stratovirt_config.uuid = "6e7b0e90-3b2e-4179-bc30-43d2b5b5964f".to_string();
+        stratovirt_config.knobs.daemonize = true;
+        stratovirt_config.knobs.disable_seccomp = true;
+        stratovirt_config.name = "sandbox-1".to_string();
+        stratovirt_config.log_file = Some("/path/to/log".to_string());
+        let params = stratovirt_config.to_cmdline_params("-");
+
+        println!("params: {:?}", params);
+        let expected_params = vec![
+            "-name",
+            "sandbox-1",
+            "-uuid",
+            "6e7b0e90-3b2e-4179-bc30-43d2b5b5964f",
+            "-machine",
+            "virt",
+            "-qmp",
+            "unix:/path/to/qmp.sock,server,nowait",
+            "-kernel",
+            "/var/lib/kuasar/vmlinux.bin",
+            "-append",
+            "console=hvc0 console=hvc1 iommu=off debug panic=1 pcie_ports=native root=/dev/vda1 ro rootfstype=ext4",
             "-smp",
             "cpus=1",
             "-m",

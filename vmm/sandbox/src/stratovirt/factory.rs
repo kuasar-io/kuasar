@@ -20,6 +20,7 @@ use tokio::fs::create_dir_all;
 use uuid::Uuid;
 
 use super::devices::{
+    block::{VirtioBlockDevice, VIRTIO_BLK_DRIVER},
     char::CharDevice,
     console::VirtConsole,
     create_pcie_root_bus,
@@ -99,6 +100,18 @@ impl VMFactory for StratoVirtVMFactory {
         let virtconsole_device =
             VirtConsole::new(DEFAULT_CONSOLE_DEVICE_ID, DEFAULT_CONSOLE_CHARDEV_ID);
         vm.attach_device(virtconsole_device);
+
+        if vm.config.kernel.image.is_some() {
+            let mut image_device: VirtioBlockDevice = VirtioBlockDevice::new(
+                &Transport::Pci.to_driver(VIRTIO_BLK_DRIVER),
+                "rootfs",
+                "blk-0",
+                vm.config.kernel.image.clone(),
+                Some(true),
+            );
+            image_device.bus = Some(DEFAULT_PCIE_BUS.to_string());
+            vm.attach_to_pcie_rootbus(image_device)?;
+        }
 
         // set vsock port as the rpc channel to agent
         let (fd, cid) = find_context_id().await?;
