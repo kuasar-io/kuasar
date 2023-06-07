@@ -11,6 +11,7 @@ vcpus = 1
 memory_in_mb = 1024
 block_device_driver = "virtio-blk"
 debug = true
+enable_mem_prealloc = false
 
 [hypervisor.virtiofsd_conf]
 path = "/usr/bin/vhost_user_fs"
