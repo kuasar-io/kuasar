@@ -113,6 +113,10 @@ make all
 make install
 ```
 
+> Tips: `make all` build command will download the Rust and Golang packages from the internet network, so you need to provide the `http_proxy` and `https_proxy` environments for the `make all` command.
+>
+> If a self-signed certificate is used in the `make all` build command execution environment, you may encounter SSL issues with downloading resources from https URL failed. Therefore, you need to provide a CA-signed certificate and copy it into the root directory of the Kuasar project, then rename it as "proxy.crt". In this way, our build script will use the "proxy.crt" certificate to access the https URLs of Rust and Golang installation packages.
+
 ## Start Kuasar
 
 Launch the sandboxers by the following commands:
