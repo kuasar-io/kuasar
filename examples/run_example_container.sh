@@ -22,7 +22,8 @@ cat > pod.json <<EOF
 {
     "metadata": {
         "name": "test-sandbox$current_timestamp",
-        "namespace": "default"
+        "namespace": "default",
+        "uid": "JsHpiD0hA6EZ0iGy"
     },
     "log_directory": "/tmp",
     "linux": {
