@@ -1,4 +1,6 @@
 [sandbox]
+log_level = "info"
+
 [hypervisor]
 path = "/usr/local/bin/cloud-hypervisor"
 vcpus = 1

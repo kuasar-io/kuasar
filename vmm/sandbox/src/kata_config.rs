@@ -211,7 +211,7 @@ impl KataConfig {
             .hypervisor
             .get(h)
             .ok_or_else(|| Error::NotFound(format!("no hypervisor config of {} in kata", h)))?;
-        Ok(SandboxConfig {})
+        Ok(SandboxConfig::default())
     }
 }
 

@@ -96,6 +96,10 @@ where
             sandboxes: Arc::new(Default::default()),
         }
     }
+
+    pub fn log_level(&self) -> &str {
+        &self.config.log_level
+    }
 }
 
 impl<F, H> KuasarSandboxer<F, H>
@@ -459,7 +463,10 @@ where
 }
 
 #[derive(Default, Debug, Deserialize)]
-pub struct SandboxConfig {}
+pub struct SandboxConfig {
+    #[serde(default)]
+    pub log_level: String,
+}
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
