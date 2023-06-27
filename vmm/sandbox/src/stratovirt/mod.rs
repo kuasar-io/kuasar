@@ -204,6 +204,7 @@ impl VM for StratoVirtVM {
                 let device = VirtioBlockDevice::new(
                     "",
                     &blk_info.id,
+                    "",
                     Some(blk_info.path),
                     Some(blk_info.read_only),
                 );
