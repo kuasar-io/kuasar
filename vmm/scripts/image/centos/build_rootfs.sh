@@ -40,7 +40,7 @@ make_vmm_task() {
 
     # update cert file under internal proxy scenario
     if [ -f "${cert_file_path}" ]; then
-        cp /kuasar/huawei.crt /etc/pki/ca-trust/source/anchors/
+        cp ${cert_file_path} /etc/pki/ca-trust/source/anchors/
         update-ca-trust extract
     fi
 
