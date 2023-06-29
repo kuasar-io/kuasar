@@ -20,7 +20,8 @@ pub mod api;
 pub mod mount;
 pub mod storage;
 
-pub const KUASAR_STATE_DIR: &str = "/run/kuasar/state/";
+pub const KUASAR_STATE_DIR: &str = "/run/kuasar/state";
 
 pub const IO_FILE_PREFIX: &str = "io";
 pub const STORAGE_FILE_PREFIX: &str = "storage";
+pub const SHARED_DIR_SUFFIX: &str = "shared";

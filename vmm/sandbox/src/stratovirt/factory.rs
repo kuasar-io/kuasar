@@ -18,6 +18,7 @@ use async_trait::async_trait;
 use containerd_sandbox::SandboxOption;
 use tokio::fs::create_dir_all;
 use uuid::Uuid;
+use vmm_common::SHARED_DIR_SUFFIX;
 
 use super::devices::{
     block::{VirtioBlockDevice, VIRTIO_BLK_DRIVER},
@@ -122,7 +123,7 @@ impl VMFactory for StratoVirtVMFactory {
         vm.agent_socket = format!("vsock://{}:1024", cid);
 
         //share fs, stratovirt only support virtiofs share
-        let share_fs_path = s.base_dir.to_string();
+        let share_fs_path = format!("{}/{}", s.base_dir, SHARED_DIR_SUFFIX);
         create_dir_all(&share_fs_path).await?;
         let absolute_virtiofs_sock = format!("{}/virtiofs.sock", s.base_dir);
         let chardev_id = format!("virtio-fs-{}", id);
@@ -141,6 +142,7 @@ impl VMFactory for StratoVirtVMFactory {
         vm.create_vitiofs_daemon(
             self.default_config.virtiofsd_conf.path.as_str(),
             s.base_dir.as_str(),
+            share_fs_path.as_str(),
         );
 
         // set pcie-root-ports for hotplugging

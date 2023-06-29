@@ -32,7 +32,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     sync::{Mutex, RwLock},
 };
-use vmm_common::{api::sandbox_ttrpc::SandboxServiceClient, storage::Storage};
+use vmm_common::{api::sandbox_ttrpc::SandboxServiceClient, storage::Storage, SHARED_DIR_SUFFIX};
 
 use crate::{
     client::{client_check, client_update_interfaces, client_update_routes, new_sandbox_client},
@@ -294,7 +294,7 @@ where
     async fn remove_container(&mut self, id: &str) -> Result<()> {
         self.deference_container_storages(id).await?;
 
-        let bundle = format!("{}/{}", self.base_dir, id);
+        let bundle = format!("{}/{}/{}", self.base_dir, SHARED_DIR_SUFFIX, id);
         if let Err(e) = tokio::fs::remove_dir_all(&*bundle).await {
             if e.kind() != ErrorKind::NotFound {
                 return Err(anyhow!("failed to remove bundle {}, {}", bundle, e).into());
