@@ -14,8 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+use anyhow::anyhow;
 use async_trait::async_trait;
 use containerd_sandbox::{error::Result, ContainerOption};
+use vmm_common::SHARED_DIR_SUFFIX;
 
 use crate::{
     container::{handler::Handler, KuasarContainer},
@@ -43,12 +45,20 @@ where
     T: VM + Sync + Send,
 {
     async fn handle(&self, sandbox: &mut KuasarSandbox<T>) -> Result<()> {
-        let container = KuasarContainer {
+        let mut container = KuasarContainer {
             id: self.id.to_string(),
             data: self.option.container.clone(),
             io_devices: vec![],
             processes: vec![],
         };
+        let bundle = format!(
+            "{}/{}/{}",
+            sandbox.base_dir, SHARED_DIR_SUFFIX, self.option.container.id
+        );
+        tokio::fs::create_dir_all(&bundle)
+            .await
+            .map_err(|e| anyhow!("failed to create container bundle, {}", e))?;
+        container.data.bundle = bundle;
         sandbox.containers.insert(self.id.clone(), container);
         Ok(())
     }

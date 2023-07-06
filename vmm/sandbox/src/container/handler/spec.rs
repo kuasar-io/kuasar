@@ -61,17 +61,8 @@ where
         }
         let spec_str = serde_json::to_string(spec)
             .map_err(|e| anyhow!("failed to parse spec in sandbox, {}", e))?;
-        let bundle = format!(
-            "{}/{}/{}",
-            sandbox.base_dir, SHARED_DIR_SUFFIX, self.container_id
-        );
-        tokio::fs::create_dir_all(&*bundle)
-            .await
-            .map_err(|e| anyhow!("failed to create container bundle, {}", e))?;
-        let config_path = format!("{}/{}", bundle, CONFIG_FILE_NAME);
+        let config_path = format!("{}/{}", container.data.bundle, CONFIG_FILE_NAME);
         write_file_atomic(config_path, &spec_str).await?;
-        let container = sandbox.container_mut(&self.container_id)?;
-        container.data.bundle = bundle;
         Ok(())
     }
 
