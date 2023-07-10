@@ -27,6 +27,7 @@ use tokio::{
     sync::watch::{channel, Receiver, Sender},
     task::JoinHandle,
 };
+use vmm_common::SHARED_DIR_SUFFIX;
 
 use crate::{
     cloud_hypervisor::{
@@ -73,7 +74,7 @@ impl CloudHypervisorVM {
 
         let mut virtiofsd_config = vm_config.virtiofsd.clone();
         virtiofsd_config.socket_path = format!("{}/virtiofs.sock", base_dir);
-        virtiofsd_config.shared_dir = base_dir.to_string();
+        virtiofsd_config.shared_dir = format!("{}/{}", base_dir, SHARED_DIR_SUFFIX);
         Self {
             id: id.to_string(),
             config,

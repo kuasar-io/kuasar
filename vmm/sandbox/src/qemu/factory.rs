@@ -18,6 +18,7 @@ use async_trait::async_trait;
 use containerd_sandbox::{error::Error, SandboxOption};
 use tokio::fs::create_dir_all;
 use uuid::Uuid;
+use vmm_common::SHARED_DIR_SUFFIX;
 
 use crate::{
     device::Transport,
@@ -138,7 +139,7 @@ impl VMFactory for QemuVMFactory {
         }
 
         // share fs
-        let share_fs_path = s.base_dir.to_string();
+        let share_fs_path = format!("{}/{}", s.base_dir, SHARED_DIR_SUFFIX);
         create_dir_all(&*share_fs_path).await?;
         match self.default_config.share_fs {
             ShareFsType::Virtio9P => {

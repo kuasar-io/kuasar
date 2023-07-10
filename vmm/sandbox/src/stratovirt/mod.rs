@@ -487,12 +487,12 @@ impl StratoVirtVM {
         Err(Error::ResourceExhausted("slot of rootport".to_string()))
     }
 
-    fn create_vitiofs_daemon(&mut self, daemon_path: &str, base_dir: &str) {
+    fn create_vitiofs_daemon(&mut self, daemon_path: &str, base_dir: &str, shared_path: &str) {
         self.virtiofs_daemon = Some(VirtiofsDaemon {
             path: daemon_path.to_string(),
             log_path: format!("{}/virtiofs.log", base_dir),
             socket_path: format!("{}/virtiofs.sock", base_dir),
-            shared_dir: base_dir.to_string(),
+            shared_dir: shared_path.to_string(),
             pid: None,
         });
     }
