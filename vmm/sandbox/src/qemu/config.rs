@@ -19,6 +19,7 @@ use std::{collections::HashMap, os::unix::io::RawFd};
 use containerd_sandbox::error::{Error, Result};
 use lazy_static::lazy_static;
 use sandbox_derive::{CmdLineParamSet, CmdLineParams};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     param::ToCmdLineParams,
@@ -234,7 +235,7 @@ impl QemuVMConfig {
     }
 }
 
-#[derive(CmdLineParams, Debug, Clone, Default)]
+#[derive(CmdLineParams, Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Machine {
     #[property(ignore_key)]
     pub r#type: String,
@@ -242,7 +243,7 @@ pub struct Machine {
     pub options: Option<String>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct QmpSocket {
     pub param_key: String,
     pub r#type: String,
@@ -267,7 +268,7 @@ impl ToCmdLineParams for QmpSocket {
 }
 
 #[allow(clippy::upper_case_acronyms)]
-#[derive(CmdLineParams, Debug, Clone, Default)]
+#[derive(CmdLineParams, Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RTC {
     pub base: String,
     pub clock: String,
@@ -275,7 +276,7 @@ pub struct RTC {
     pub drift_fix: String,
 }
 
-#[derive(CmdLineParamSet, Debug, Clone, Default)]
+#[derive(CmdLineParamSet, Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Kernel {
     #[param(key = "kernel")]
     pub path: String,
@@ -284,7 +285,7 @@ pub struct Kernel {
     pub params: Option<String>,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Memory {
     pub size: String,
     pub slots: u8,
@@ -347,7 +348,7 @@ impl ToCmdLineParams for Memory {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MemoryBackend {
     Ram,
     File(String),
@@ -360,7 +361,7 @@ impl Default for MemoryBackend {
 }
 
 #[allow(clippy::upper_case_acronyms)]
-#[derive(CmdLineParams, Debug, Clone, Default)]
+#[derive(CmdLineParams, Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SMP {
     pub cpus: u32,
     #[property(predicate = "self.cores > 0")]
@@ -373,7 +374,7 @@ pub struct SMP {
     pub max_cpus: u32,
 }
 
-#[derive(CmdLineParams, Debug, Clone, Default)]
+#[derive(CmdLineParams, Debug, Clone, Default, Serialize, Deserialize)]
 #[params("cpu")]
 pub struct CpuModel {
     #[property(ignore_key)]
@@ -382,7 +383,7 @@ pub struct CpuModel {
     pub cpu_features: Option<String>,
 }
 
-#[derive(CmdLineParamSet, Debug, Clone, Default)]
+#[derive(CmdLineParamSet, Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Knobs {
     pub no_user_config: bool,
     #[param(key = "nodefaults")]
@@ -397,7 +398,7 @@ pub struct Knobs {
     pub no_reboot: bool,
 }
 
-#[derive(CmdLineParams, Debug, Clone)]
+#[derive(CmdLineParams, Debug, Clone, Serialize, Deserialize)]
 #[params("incoming")]
 pub struct Incoming {
     #[property(ignore_key)]
@@ -412,7 +413,7 @@ impl Default for Incoming {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MigrationType {
     #[allow(dead_code)]
     FD(RawFd),
@@ -434,20 +435,20 @@ impl ToString for MigrationType {
     }
 }
 
-#[derive(CmdLineParams, Debug, Clone, Default)]
+#[derive(CmdLineParams, Debug, Clone, Default, Serialize, Deserialize)]
 #[params("overcommit")]
 pub struct MemLock {
     #[property(generator = "crate::utils::bool_to_on_off")]
     pub mem_lock: bool,
 }
 
-#[derive(CmdLineParams, Debug, Clone, Default)]
+#[derive(CmdLineParams, Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Global {
     #[property(ignore_key)]
     pub param: String,
 }
 
-#[derive(CmdLineParamSet, Debug, Default, Clone)]
+#[derive(CmdLineParamSet, Debug, Default, Clone, Serialize, Deserialize)]
 pub struct QemuConfig {
     pub name: String,
     pub uuid: String,
@@ -473,12 +474,12 @@ pub struct QemuConfig {
     pub log_file: Option<String>,
 }
 
-#[derive(CmdLineParamSet, Debug, Default, Clone)]
+#[derive(CmdLineParamSet, Debug, Default, Clone, Serialize, Deserialize)]
 pub struct IOThread {
     object: Object,
 }
 
-#[derive(CmdLineParams, Debug, Default, Clone)]
+#[derive(CmdLineParams, Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Object {
     #[property(ignore_key)]
     driver: String,

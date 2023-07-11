@@ -125,7 +125,7 @@ where
                                 .insert(entry.file_name().to_str().unwrap().to_string(), sb_mutex);
                         }
                         Err(e) => {
-                            warn!("failed to recover sandbox, {:?}", e);
+                            warn!("failed to recover sandbox {:?}, {:?}", entry.file_name(), e);
                             cleanup_mounts(path.to_str().unwrap()).await?;
                             remove_dir_all(&path).await?
                         }
