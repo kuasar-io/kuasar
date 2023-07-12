@@ -55,6 +55,8 @@ use wasmedge_sdk::{
     params, PluginManager, Vm,
 };
 
+use crate::utils;
+
 pub type ExecProcess = ProcessTemplate<WasmEdgeExecLifecycle>;
 pub type InitProcess = ProcessTemplate<WasmEdgeInitLifecycle>;
 
@@ -158,8 +160,8 @@ impl ProcessLifecycle<InitProcess> for WasmEdgeInitLifecycle {
     async fn start(&self, p: &mut InitProcess) -> containerd_shim::Result<()> {
         let spec = &p.lifecycle.spec;
         let vm = p.lifecycle.prototype_vm.clone();
-        let args = get_args(spec);
-        let envs = get_envs(spec);
+        let args = utils::get_args(spec);
+        let envs = utils::get_envs(spec);
         let rootfs = spec
             .root()
             .as_ref()
@@ -168,7 +170,7 @@ impl ProcessLifecycle<InitProcess> for WasmEdgeInitLifecycle {
             ))?
             .path();
         let mut preopens = vec![format!("/:{}", rootfs.display())];
-        preopens.append(&mut get_preopens(spec));
+        preopens.append(&mut utils::get_preopens(spec));
 
         debug!(
             "start wasm with args: {:?}, envs: {:?}, preopens: {:?}",
@@ -296,48 +298,6 @@ impl ProcessFactory<ExecProcess> for ExecFactory {
             "exec not supported for wasm containers".to_string(),
         ))
     }
-}
-
-pub fn get_preopens(spec: &Spec) -> Vec<String> {
-    let mut preopens = vec![];
-    if let Some(mounts) = spec.mounts() {
-        for m in mounts {
-            if let Some(typ) = m.typ() {
-                if typ == "bind" && m.source().is_some() {
-                    preopens.push(format!(
-                        "{}:{}",
-                        m.destination().display(),
-                        m.source().as_ref().unwrap().display()
-                    ));
-                }
-            }
-        }
-    }
-    preopens
-}
-
-pub fn get_envs(spec: &Spec) -> Vec<String> {
-    let empty_envs = vec![];
-    let envs = spec
-        .process()
-        .as_ref()
-        .unwrap()
-        .env()
-        .as_ref()
-        .unwrap_or(&empty_envs);
-    envs.to_vec()
-}
-
-pub fn get_args(spec: &Spec) -> Vec<String> {
-    let empty_args = vec![];
-    let args = spec
-        .process()
-        .as_ref()
-        .unwrap()
-        .args()
-        .as_ref()
-        .unwrap_or(&empty_args);
-    args.to_vec()
 }
 
 pub fn maybe_open_stdio(path: &str) -> Result<Option<RawFd>, std::io::Error> {

@@ -36,6 +36,8 @@ use tokio::{
 
 #[cfg(feature = "wasmedge")]
 use crate::wasmedge::{process_exits, WasmEdgeContainer, WasmEdgeContainerFactory};
+#[cfg(feature = "wasmtime")]
+use crate::wasmtime::{exec_exits, WasmtimeContainer, WasmtimeContainerFactory};
 
 #[derive(Default)]
 pub struct WasmSandboxer {
@@ -164,6 +166,30 @@ impl WasmSandbox {
 
         process_exits(&task).await;
 
+        tokio::spawn(async move {
+            while let Some((_topic, e)) = rx.recv().await {
+                debug!("received event {:?}", e);
+            }
+        });
+        Ok(task)
+    }
+
+    #[cfg(feature = "wasmtime")]
+    async fn start_task_service(
+        &self,
+    ) -> Result<TaskService<WasmtimeContainerFactory, WasmtimeContainer>> {
+        let (tx, mut rx) = channel(128);
+        let factory = WasmtimeContainerFactory {
+            netns: self.data.netns.clone(),
+        };
+        let task = TaskService {
+            factory,
+            containers: Arc::new(Default::default()),
+            namespace: "k8s.io".to_string(),
+            exit: Arc::new(Default::default()),
+            tx: tx.clone(),
+        };
+        exec_exits(&task).await;
         tokio::spawn(async move {
             while let Some((_topic, e)) = rx.recv().await {
                 debug!("received event {:?}", e);
