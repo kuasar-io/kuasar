@@ -14,7 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::path::Path;
+use std::{path::Path, str::FromStr};
+
+use serde::de::DeserializeOwned;
 
 use crate::{
     config::Config,
@@ -100,11 +102,14 @@ pub const NAMESPACE_CGROUP: &str = "cgroup";
 
 pub const FS_SHARE_PATH: &str = "shared_fs";
 
+pub const CONFIG_STRATOVIRT_PATH: &str = "/var/lib/kuasar/config_stratovirt.toml";
+pub const CONFIG_CLH_PATH: &str = "/var/lib/kuasar/config_clh.toml";
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    env_logger::Builder::from_default_env()
-        .format_timestamp_micros()
-        .init();
+    let mut builder = env_logger::Builder::from_default_env();
+    builder.format_timestamp_micros();
+
     #[cfg(feature = "qemu")]
     #[allow(unused_variables)]
     let sandboxer: KuasarSandboxer<QemuVMFactory, QemuHooks> = {
@@ -126,65 +131,62 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "stratovirt")]
     #[allow(unused_variables)]
     let sandboxer: KuasarSandboxer<StratoVirtVMFactory, StratoVirtHooks> = {
-        let os_args: Vec<_> = std::env::args_os().collect();
-        let mut config_path = "/var/lib/kuasar/config_stratovirt.toml".to_string();
-        for i in 0..os_args.len() {
-            if os_args[i].to_str().unwrap() == "--config" {
-                config_path = os_args[i + 1].to_str().unwrap().to_string()
-            }
-            if os_args[i].to_str().unwrap() == "--dir" {
-                let dir_path = os_args[i + 1].to_str().unwrap().to_string();
-                if !Path::new(&dir_path).exists() {
-                    tokio::fs::create_dir_all(&dir_path).await.unwrap();
-                }
-            }
-        }
-        let path = Path::new(&config_path);
-        let config: Config<StratoVirtVMConfig> = if path.exists() {
-            Config::parse(path).await?
-        } else {
-            panic!("config file {} not exist", config_path);
-        };
+        let (config, _) = load_config::<StratoVirtVMConfig>(CONFIG_STRATOVIRT_PATH).await?;
         let hooks = StratoVirtHooks::new(config.hypervisor.clone());
         KuasarSandboxer::new(config.sandbox, config.hypervisor, hooks)
+        // TODO: support recover from persist dir
     };
 
     #[cfg(feature = "cloud_hypervisor")]
     #[allow(unused_variables)]
     let sandboxer: KuasarSandboxer<CloudHypervisorVMFactory, CloudHypervisorHooks> = {
-        let os_args: Vec<_> = std::env::args_os().collect();
-
-        let mut config_path = "/var/lib/kuasar/config_clh.toml".to_string();
-        let mut dir = None;
-        for i in 0..os_args.len() {
-            if os_args[i].to_str().unwrap() == "--config" {
-                config_path = os_args[i + 1].to_str().unwrap().to_string()
-            }
-            if os_args[i].to_str().unwrap() == "--dir" {
-                let dir_path = os_args[i + 1].to_str().unwrap().to_string();
-                if !Path::new(&dir_path).exists() {
-                    tokio::fs::create_dir_all(&dir_path).await.unwrap();
-                }
-                dir = Some(dir_path);
-            }
-        }
-        let path = Path::new(&config_path);
-        let config: Config<CloudHypervisorVMConfig> = if path.exists() {
-            Config::parse(path).await?
-        } else {
-            panic!("config file {} not exist", config_path);
-        };
+        let (config, persist_dir_path) =
+            load_config::<CloudHypervisorVMConfig>(CONFIG_CLH_PATH).await?;
         let hooks = CloudHypervisorHooks {};
         let mut s = KuasarSandboxer::new(config.sandbox, config.hypervisor, hooks);
-        if let Some(d) = dir {
-            s.recover(&d).await.unwrap();
+        if !persist_dir_path.is_empty() {
+            s.recover(&persist_dir_path).await.unwrap();
         }
         s
     };
+
+    // If 'log_level' field isn't set in the config file, keep the log level from the default env
+    // Otherwise, set the log level configured in the config file
+    if !sandboxer.log_level().is_empty() {
+        let log_level = log::LevelFilter::from_str(sandboxer.log_level())?;
+        builder.filter_level(log_level);
+    }
+    builder.init();
 
     #[cfg(any(feature = "cloud_hypervisor", feature = "qemu", feature = "stratovirt"))]
     containerd_sandbox::run("kuasar-sandboxer", sandboxer)
         .await
         .unwrap();
     Ok(())
+}
+
+async fn load_config<T: DeserializeOwned>(
+    default_config_path: &str,
+) -> anyhow::Result<(Config<T>, String)> {
+    let os_args: Vec<_> = std::env::args_os().collect();
+    let mut config_path = default_config_path.to_string();
+    let mut dir_path = String::new();
+    for i in 0..os_args.len() {
+        if os_args[i].to_str().unwrap() == "--config" {
+            config_path = os_args[i + 1].to_str().unwrap().to_string()
+        }
+        if os_args[i].to_str().unwrap() == "--dir" {
+            dir_path = os_args[i + 1].to_str().unwrap().to_string();
+            if !Path::new(&dir_path).exists() {
+                tokio::fs::create_dir_all(&dir_path).await.unwrap();
+            }
+        }
+    }
+    let path = Path::new(&config_path);
+    let config: Config<T> = if path.exists() {
+        Config::parse(path).await?
+    } else {
+        panic!("config file {} not exist", config_path);
+    };
+    Ok((config, dir_path))
 }
