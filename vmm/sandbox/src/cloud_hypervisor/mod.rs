@@ -108,7 +108,8 @@ impl CloudHypervisorVM {
         ))
     }
 
-    fn start_virtiofsd(&self) -> Result<()> {
+    async fn start_virtiofsd(&self) -> Result<()> {
+        create_dir_all(&self.virtiofsd_config.shared_dir).await?;
         let params = self.virtiofsd_config.to_cmdline_params("--");
         let mut cmd = tokio::process::Command::new(&self.virtiofsd_config.path);
         cmd.args(params.as_slice());
@@ -134,7 +135,7 @@ impl VM for CloudHypervisorVM {
     async fn start(&mut self) -> Result<u32> {
         debug!("start vm {}", self.id);
         create_dir_all(&self.base_dir).await?;
-        self.start_virtiofsd()?;
+        self.start_virtiofsd().await?;
         let mut params = self.config.to_cmdline_params("--");
         for d in self.devices.iter() {
             params.extend(d.to_cmdline_params("--"));
