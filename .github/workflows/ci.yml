@@ -35,7 +35,8 @@ jobs:
           pushd vmm/sandbox && cargo check --examples --tests --all-features && popd
           pushd vmm/task && cargo check --examples --tests --all-features && popd
           pushd shim && cargo check --examples --tests --all-features && popd
-          pushd wasm && cargo check --examples --tests --all-features && popd
+          pushd wasm && cargo check --examples --tests --features=wasmedge && popd
+          pushd wasm && cargo check --examples --tests --features=wasmtime && popd
           pushd quark && cargo check --examples --tests --all-features && popd
       - name: Nightly fmt
         run: |
@@ -50,7 +51,8 @@ jobs:
           pushd vmm/sandbox && cargo clippy --all-features -- -D warnings && popd
           pushd vmm/task && cargo clippy --all-features -- -D warnings && popd
           pushd shim && cargo clippy --all-features -- -D warnings && popd
-          pushd wasm && cargo clippy --all-features -- -D warnings && popd
+          pushd wasm && cargo clippy --features=wasmedge -- -D warnings && popd
+          pushd wasm && cargo clippy --features=wasmtime -- -D warnings && popd
           pushd quark && cargo clippy --all-features -- -D warnings && popd
   tests:
 
@@ -70,5 +72,6 @@ jobs:
           pushd vmm/sandbox && sudo -E $(command -v cargo) test --all-features && popd
           pushd vmm/task && sudo -E $(command -v cargo) test --all-features && popd
           pushd shim && sudo -E $(command -v cargo) test --all-features && popd
-          pushd wasm && sudo -E $(command -v cargo) test --all-features && popd
+          pushd wasm && sudo -E $(command -v cargo) test --features=wasmedge && popd
+          pushd wasm && sudo -E $(command -v cargo) test --features=wasmtime && popd
           pushd quark && sudo -E $(command -v cargo) test --all-features && popd
