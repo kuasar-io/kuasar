@@ -2,6 +2,7 @@
 bin
 .vscode
 target
-Cargo.lock
 **/src/api/*
 !**/src/api/mod.rs
+shim/Cargo.lock
+vmm/common/Cargo.lock
