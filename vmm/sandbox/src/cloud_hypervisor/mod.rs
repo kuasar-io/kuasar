@@ -17,6 +17,7 @@ limitations under the License.
 use std::{os::unix::io::RawFd, process::Stdio};
 
 use anyhow::anyhow;
+use async_trait::async_trait;
 use containerd_sandbox::error::{Error, Result};
 use log::{debug, error};
 use serde::{Deserialize, Serialize};
@@ -36,9 +37,10 @@ use crate::{
         devices::{block::Disk, virtio_net::VirtioNetDevice, CloudHypervisorDevice},
     },
     device::{BusType, DeviceInfo},
+    impl_recoverable,
     param::ToCmdLineParams,
     utils::{read_file, read_std, set_cmd_fd, set_cmd_netns, wait_pid, write_file_atomic},
-    vm::{Recoverable, VM},
+    vm::VM,
 };
 
 mod client;
@@ -102,6 +104,10 @@ impl CloudHypervisorVM {
         Ok(pid)
     }
 
+    async fn create_client(&self) -> Result<ChClient> {
+        ChClient::new(&self.config.api_socket)
+    }
+
     fn get_client(&mut self) -> Result<&mut ChClient> {
         self.client.as_mut().ok_or(Error::NotFound(
             "cloud hypervisor client not inited".to_string(),
@@ -130,7 +136,7 @@ impl CloudHypervisorVM {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl VM for CloudHypervisorVM {
     async fn start(&mut self) -> Result<u32> {
         debug!("start vm {}", self.id);
@@ -166,7 +172,7 @@ impl VM for CloudHypervisorVM {
             Some(pid_file),
             Some(tx),
         );
-        self.client = Some(ChClient::new(&self.config.api_socket)?);
+        self.client = Some(self.create_client().await?);
         self.wait_chan = Some(rx);
         Ok(pid.unwrap_or_default())
     }
@@ -241,20 +247,7 @@ impl VM for CloudHypervisorVM {
     }
 }
 
-#[async_trait::async_trait]
-impl Recoverable for CloudHypervisorVM {
-    async fn recover(&mut self) -> Result<()> {
-        self.client = Some(ChClient::new(&self.config.api_socket)?);
-        let pid = self.pid().await?;
-        let (tx, rx) = channel((0u32, 0i128));
-        tokio::spawn(async move {
-            let wait_result = wait_pid(pid as i32).await;
-            tx.send(wait_result).unwrap_or_default();
-        });
-        self.wait_chan = Some(rx);
-        Ok(())
-    }
-}
+impl_recoverable!(CloudHypervisorVM);
 
 macro_rules! read_stdio {
     ($stdio:expr, $cmd_name:ident) => {

@@ -39,6 +39,7 @@ use unshare::Fd;
 use self::devices::{pcie_rootbus::PcieRootBus, rootport::RootPort, PCIE_ROOTBUS_CAPACITY};
 use crate::{
     device::{Bus, BusType, DeviceInfo, Slot, SlotStatus, Transport},
+    impl_recoverable,
     param::ToCmdLineParams,
     stratovirt::{
         config::StratoVirtConfig,
@@ -69,21 +70,15 @@ pub(crate) const STRATOVIRT_START_TIMEOUT_IN_SEC: u64 = 10;
 // but skip all the fields serialization.
 #[derive(Default, Serialize, Deserialize)]
 pub struct StratoVirtVM {
-    #[serde(skip)]
     id: String,
-    #[serde(skip)]
     config: StratoVirtConfig,
     #[serde(skip)]
     devices: Vec<Box<dyn StratoVirtDevice + Sync + Send>>,
     #[serde(skip)]
     hot_attached_devices: Vec<Box<dyn StratoVirtHotAttachable + Sync + Send>>,
-    #[serde(skip)]
     fds: Vec<RawFd>,
-    #[serde(skip)]
     console_socket: String,
-    #[serde(skip)]
     agent_socket: String,
-    #[serde(skip)]
     netns: String,
     #[serde(skip)]
     block_driver: BlockDriver,
@@ -91,7 +86,6 @@ pub struct StratoVirtVM {
     wait_chan: Option<Receiver<(u32, i128)>>,
     #[serde(skip)]
     client: Option<QmpClient>,
-    #[serde(skip)]
     virtiofs_daemon: Option<VirtiofsDaemon>,
     #[serde(skip)]
     pcie_root_bus: PcieRootBus,
@@ -339,8 +333,8 @@ impl StratoVirtVM {
         .map_err(|e| anyhow!("failed to join the stratovirt startup thread {}", e))??;
         let (tx, rx) = channel((0u32, 0i128));
         let _wait_handle = tokio::spawn(async move {
-            // because the direct child process is not the actual running qemu process,
-            // so we have to read pid from the qemu.pid file,
+            // because the direct child process is not the actual running stratovirt process,
+            // so we have to read pid from the stratovirt.pid file,
             // NOTE: it is hard to eliminate the race condition when pid reused.
             if let Ok(pid) = detect_pid(&pid_file, &path).await {
                 let wait_result = wait_pid(pid as i32).await;
@@ -387,8 +381,9 @@ impl StratoVirtVM {
             return Err(anyhow!("failed to get pid file of sandbox").into());
         }
         let pid = read_file(&*self.config.pid_file).await.and_then(|x| {
-            x.parse::<u32>()
-                .map_err(|e| anyhow!("failed to parse qemu.pid, {}", e).into())
+            x.trim()
+                .parse::<u32>()
+                .map_err(|e| anyhow!("failed to parse stratovirt.pid, {}", e).into())
         })?;
         Ok(pid)
     }
@@ -505,3 +500,5 @@ impl StratoVirtVM {
             .map_err(|e| Error::Other(anyhow!("start virtiofs daemon process failed: {}", e)))
     }
 }
+
+impl_recoverable!(StratoVirtVM);

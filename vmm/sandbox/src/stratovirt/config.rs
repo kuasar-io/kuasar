@@ -180,7 +180,7 @@ impl ToCmdLineParams for QmpSocket {
     }
 }
 
-#[derive(CmdLineParams, Debug, Clone, Default)]
+#[derive(CmdLineParams, Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Global {
     #[property(ignore_key)]
     pub param: String,
@@ -199,7 +199,7 @@ pub struct Memory {
     pub size: String,
 }
 
-#[derive(CmdLineParamSet, Debug, Clone, Default)]
+#[derive(CmdLineParamSet, Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Knobs {
     pub daemonize: bool,
     #[param(key = "disable-seccomp")]
@@ -208,7 +208,7 @@ pub struct Knobs {
     pub prealloc: bool,
 }
 
-#[derive(CmdLineParamSet, Default, Clone)]
+#[derive(CmdLineParamSet, Default, Clone, Serialize, Deserialize)]
 pub struct StratoVirtConfig {
     pub name: String,
     pub uuid: String,

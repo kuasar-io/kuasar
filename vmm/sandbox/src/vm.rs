@@ -72,6 +72,26 @@ pub trait VM: Serialize + Sync + Send {
     async fn wait_channel(&self) -> Option<Receiver<(u32, i128)>>;
 }
 
+#[macro_export]
+macro_rules! impl_recoverable {
+    ($ty:ty) => {
+        #[async_trait]
+        impl $crate::vm::Recoverable for $ty {
+            async fn recover(&mut self) -> Result<()> {
+                self.client = Some(self.create_client().await?);
+                let pid = self.pid().await?;
+                let (tx, rx) = channel((0u32, 0i128));
+                tokio::spawn(async move {
+                    let wait_result = wait_pid(pid as i32).await;
+                    tx.send(wait_result).unwrap_or_default();
+                });
+                self.wait_chan = Some(rx);
+                Ok(())
+            }
+        }
+    };
+}
+
 #[async_trait]
 pub trait Recoverable {
     async fn recover(&mut self) -> Result<()>;

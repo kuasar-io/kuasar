@@ -125,16 +125,31 @@ async fn main() -> anyhow::Result<()> {
         let vmm_config = vmm_config.to_qemu_config()?;
         let sandbox_config = KataConfig::sandbox_config("qemu").await?;
         let hooks = QemuHooks::new(vmm_config.clone());
-        KuasarSandboxer::new(sandbox_config, vmm_config, hooks)
+        let mut s = KuasarSandboxer::new(sandbox_config, vmm_config, hooks);
+
+        let os_args: Vec<_> = std::env::args_os().collect();
+        for i in 0..os_args.len() {
+            if os_args[i].to_str().unwrap() == "--dir" {
+                let persist_dir_path = os_args[i + 1].to_str().unwrap().to_string();
+                if Path::new(&persist_dir_path).exists() {
+                    s.recover(&persist_dir_path).await.unwrap();
+                }
+            }
+        }
+        s
     };
 
     #[cfg(feature = "stratovirt")]
     #[allow(unused_variables)]
     let sandboxer: KuasarSandboxer<StratoVirtVMFactory, StratoVirtHooks> = {
-        let (config, _) = load_config::<StratoVirtVMConfig>(CONFIG_STRATOVIRT_PATH).await?;
+        let (config, persist_dir_path) =
+            load_config::<StratoVirtVMConfig>(CONFIG_STRATOVIRT_PATH).await?;
         let hooks = StratoVirtHooks::new(config.hypervisor.clone());
-        KuasarSandboxer::new(config.sandbox, config.hypervisor, hooks)
-        // TODO: support recover from persist dir
+        let mut s = KuasarSandboxer::new(config.sandbox, config.hypervisor, hooks);
+        if !persist_dir_path.is_empty() {
+            s.recover(&persist_dir_path).await.unwrap();
+        }
+        s
     };
 
     #[cfg(feature = "cloud_hypervisor")]

@@ -38,6 +38,7 @@ use unshare::Fd;
 
 use crate::{
     device::{BusType, DeviceInfo, SlotStatus, Transport},
+    impl_recoverable,
     param::ToCmdLineParams,
     qemu::{
         config::QemuConfig,
@@ -70,21 +71,15 @@ pub(crate) const QEMU_START_TIMEOUT_IN_SEC: u64 = 10;
 // but skip all the fields serialization.
 #[derive(Default, Serialize, Deserialize)]
 pub struct QemuVM {
-    #[serde(skip)]
     id: String,
-    #[serde(skip)]
     config: QemuConfig,
     #[serde(skip)]
     devices: Vec<Box<dyn QemuDevice + Sync + Send>>,
     #[serde(skip)]
     hot_attached_devices: Vec<Box<dyn QemuHotAttachable + Sync + Send>>,
-    #[serde(skip)]
     fds: Vec<RawFd>,
-    #[serde(skip)]
     console_socket: String,
-    #[serde(skip)]
     agent_socket: String,
-    #[serde(skip)]
     netns: String,
     #[serde(skip)]
     block_driver: BlockDriver,
@@ -439,7 +434,8 @@ impl QemuVM {
             return Err(anyhow!("failed to get pid file of sandbox").into());
         }
         let pid = read_file(&*self.config.pid_file).await.and_then(|x| {
-            x.parse::<u32>()
+            x.trim()
+                .parse::<u32>()
                 .map_err(|e| anyhow!("failed to parse qemu.pid, {}", e).into())
         })?;
         Ok(pid)
@@ -519,3 +515,5 @@ impl QemuVM {
             });
     }
 }
+
+impl_recoverable!(QemuVM);
