@@ -1,0 +1,18 @@
+[Unit]
+Description=Kuasar microVM type sandboxer daemon process
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/sysconfig/kuasar-vmm
+ExecStart=/usr/local/bin/vmm-sandboxer $OPTIONS
+ExecReload=/bin/kill -s HUP $MAINPID
+LimitNOFILE=1048576
+LimitNPROC=infinity
+LimitCORE=infinity
+Delegate=yes
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
+
