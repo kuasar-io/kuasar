@@ -3,6 +3,12 @@ GUESTOS_IMAGE ?= centos
 WASM_RUNTIME ?= wasmedge
 KERNEL_VERSION ?= 6.2
 ARCH ?= x86_64
+# DEST_DIR is used when built with RPM format
+DEST_DIR ?= /
+INSTALL_DIR := /var/lib/kuasar
+BIN_DIR := /usr/local/bin
+SYSTEMD_SERVICE_DIR := /usr/lib/systemd/system
+SYSTEMD_CONF_DIR := /etc/sysconfig
 
 .PHONY: vmm wasm quark clean all install-vmm install-wasm install-quark install 
 
@@ -52,26 +58,28 @@ clean:
 	@cd wasm && cargo clean
 	@cd quark && cargo clean
 
+install-vmm:
+	@install -d -m 750 ${DEST_DIR}${BIN_DIR}
+	@install -p -m 550 bin/vmm-sandboxer ${DEST_DIR}${BIN_DIR}/vmm-sandboxer
+	@install -d -m 750 ${DEST_DIR}${INSTALL_DIR}
+	@install -p -m 640 bin/vmlinux.bin ${DEST_DIR}${INSTALL_DIR}/vmlinux.bin
+	@install -d -m 750 ${DEST_DIR}${SYSTEMD_SERVICE_DIR}
+	@install -p -m 640 vmm/service/kuasar-vmm.service ${DEST_DIR}${SYSTEMD_SERVICE_DIR}/kuasar-vmm.service
+	@install -d -m 750 ${DEST_DIR}${SYSTEMD_CONF_DIR}
+	@install -p -m 640 vmm/service/kuasar-vmm ${DEST_DIR}${SYSTEMD_CONF_DIR}/kuasar-vmm
+
 ifeq ($(HYPERVISOR), stratovirt)
-install-vmm:
-	@install -p -m 755 bin/vmm-sandboxer /usr/local/bin/vmm-sandboxer
-	@install -d /var/lib/kuasar
-	@install -p -m 644 bin/vmlinux.bin /var/lib/kuasar/vmlinux.bin
-	@install -p -m 644 bin/kuasar.initrd /var/lib/kuasar/kuasar.initrd
-	@install -p -m 644 vmm/sandbox/config_stratovirt.toml /var/lib/kuasar/config_stratovirt.toml
+	@install -p -m 640 bin/kuasar.initrd ${DEST_DIR}${INSTALL_DIR}/kuasar.initrd
+	@install -p -m 640 vmm/sandbox/config_stratovirt.toml ${DEST_DIR}${INSTALL_DIR}/config_stratovirt.toml
 else
-install-vmm:
-	@install -p -m 755 bin/vmm-sandboxer /usr/local/bin/vmm-sandboxer
-	@install -d /var/lib/kuasar
-	@install -p -m 644 bin/vmlinux.bin /var/lib/kuasar/vmlinux.bin
-	@install -p -m 644 bin/kuasar.img /var/lib/kuasar/kuasar.img
-	@install -p -m 644 vmm/sandbox/config_clh.toml /var/lib/kuasar/config_clh.toml
+	@install -p -m 640 bin/kuasar.img ${DEST_DIR}${INSTALL_DIR}/kuasar.img
+	@install -p -m 640 vmm/sandbox/config_clh.toml ${DEST_DIR}${INSTALL_DIR}/config_clh.toml
 endif
 
 install-wasm:
-	@install -p -m 755 bin/wasm-sandboxer /usr/local/bin/wasm-sandboxer
+	@install -p -m 550 bin/wasm-sandboxer ${DEST_DIR}${BIN_DIR}/wasm-sandboxer
 
 install-quark:
-	@install -p -m 755 bin/quark-sandboxer /usr/local/bin/quark-sandboxer
+	@install -p -m 550 bin/quark-sandboxer ${DEST_DIR}${BIN_DIR}/quark-sandboxer
 
 install: all install-vmm install-wasm install-quark

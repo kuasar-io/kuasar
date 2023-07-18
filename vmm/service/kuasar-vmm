@@ -1,0 +1,2 @@
+# configure the vmm-sandboxer command options
+OPTIONS='--listen /run/vmm-sandboxer.sock --dir /run/kuasar-vmm'
