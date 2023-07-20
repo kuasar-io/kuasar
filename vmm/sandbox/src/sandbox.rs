@@ -35,7 +35,10 @@ use tokio::{
 use vmm_common::{api::sandbox_ttrpc::SandboxServiceClient, storage::Storage, SHARED_DIR_SUFFIX};
 
 use crate::{
-    client::{client_check, client_update_interfaces, client_update_routes, new_sandbox_client},
+    client::{
+        client_check, client_sync_clock, client_update_interfaces, client_update_routes,
+        new_sandbox_client,
+    },
     container::KuasarContainer,
     network::{Network, NetworkConfig},
     utils::get_resources,
@@ -459,6 +462,13 @@ where
             }
         }
         Ok(())
+    }
+
+    pub(crate) async fn sync_clock(&self) {
+        let client_guard = self.client.lock().await;
+        if let Some(client) = &*client_guard {
+            client_sync_clock(client).await;
+        }
     }
 }
 
