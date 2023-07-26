@@ -63,5 +63,7 @@ jobs:
         if: ${{ matrix.wasmEdge }}
         run: curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install.sh | bash -s -- -v ${{ matrix.wasmEdge }} >> /dev/null
       - name: Test
+        env:
+          RUST_BACKTRACE: full
         working-directory: ${{ matrix.directories }}
         run: sudo -E $(command -v cargo) test --all-features

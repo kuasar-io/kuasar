@@ -79,6 +79,13 @@ pub fn get_resources(data: &SandboxData) -> Option<&LinuxContainerResources> {
         .and_then(|l| l.resources.as_ref())
 }
 
+pub fn get_overhead_resources(data: &SandboxData) -> Option<&LinuxContainerResources> {
+    data.config
+        .as_ref()
+        .and_then(|c| c.linux.as_ref())
+        .and_then(|l| l.overhead.as_ref())
+}
+
 #[allow(dead_code)]
 pub fn get_total_resources(data: &SandboxData) -> Option<LinuxContainerResources> {
     return data
@@ -457,4 +464,11 @@ pub fn set_cmd_fd(cmd: &mut Command, fds: Vec<RawFd>) -> Result<()> {
         })
     };
     Ok(())
+}
+
+pub fn get_sandbox_cgroup_parent_path(data: &SandboxData) -> Option<String> {
+    data.config
+        .as_ref()
+        .and_then(|c| c.linux.as_ref())
+        .map(|l| l.cgroup_parent.clone())
 }

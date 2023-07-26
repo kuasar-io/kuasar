@@ -74,6 +74,7 @@ cfg_stratovirt! {
 #[macro_use]
 mod device;
 
+mod cgroup;
 mod container;
 mod io;
 mod kata_config;

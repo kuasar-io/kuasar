@@ -39,6 +39,7 @@ uuid = { version = "1.1.2", features = ["v4"] }
 unshare = { version = "0.7.0", optional = true }
 os_pipe = { version = "0.9.2", optional = true }
 qapi = { version = "0.8.0", features = ["qmp", "async-tokio-all"], optional = true }
+qapi-spec = {version = "0.3.1"}
 sandbox-derive = { path = "derive" }
 api_client = { git = "https://github.com/cloud-hypervisor/cloud-hypervisor.git", optional = true }
 rtnetlink = "0.12"
@@ -46,3 +47,4 @@ netlink-packet-route = "0.15"
 netlink-packet-core = "0.5.0"
 ttrpc = { version = "0.7", features = ["async"] }
 protobuf = "3.2"
+cgroups-rs = "0.3.2"

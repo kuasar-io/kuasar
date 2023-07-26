@@ -17,6 +17,7 @@ limitations under the License.
 use std::{collections::HashMap, os::unix::io::RawFd};
 
 use containerd_sandbox::error::{Error, Result};
+#[cfg(target_arch = "x86_64")]
 use lazy_static::lazy_static;
 use sandbox_derive::{CmdLineParamSet, CmdLineParams};
 use serde::{Deserialize, Serialize};
