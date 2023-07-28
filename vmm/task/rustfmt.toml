@@ -1,0 +1,4 @@
+newline_style = "Unix"
+unstable_features = true
+group_imports = "StdExternalCrate"
+imports_granularity = "Crate"
