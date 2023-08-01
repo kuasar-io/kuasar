@@ -112,6 +112,8 @@ pub struct HypervisorCommonConfig {
     #[serde(default)]
     pub kernel_params: String,
     #[serde(default)]
+    pub firmware: String,
+    #[serde(default)]
     pub enable_mem_prealloc: bool,
 }
 
@@ -125,6 +127,7 @@ impl Default for HypervisorCommonConfig {
             image_path: "".to_string(),
             initrd_path: "".to_string(),
             kernel_params: "".to_string(),
+            firmware: "".to_string(),
             enable_mem_prealloc: false,
         }
     }

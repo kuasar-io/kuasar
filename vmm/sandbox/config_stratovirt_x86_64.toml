@@ -1,0 +1,19 @@
+[sandbox]
+log_level = "info"
+
+[hypervisor]
+path = "/usr/bin/stratovirt"
+machine_type = "q35,mem-share=on"
+kernel_path = "/var/lib/kuasar/vmlinux.bin"
+image_path = ""
+initrd_path = "/var/lib/kuasar/kuasar.initrd"
+kernel_params = "task.log_level=debug task.sharefs_type=virtiofs"
+firmware= "/usr/share/edk2/ovmf/OVMF_CODE.fd"
+vcpus = 1
+memory_in_mb = 1024
+block_device_driver = "virtio-blk"
+debug = true
+enable_mem_prealloc = false
+
+[hypervisor.virtiofsd_conf]
+path = "/usr/bin/vhost_user_fs"

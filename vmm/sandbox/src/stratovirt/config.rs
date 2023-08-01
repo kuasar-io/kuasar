@@ -39,6 +39,11 @@ const DEFAULT_STRATOVIRT_PATH: &str = "/usr/bin/stratovirt";
 const DEFAULT_KERNEL_PARAMS: &str =
     "console=hvc0 console=hvc1 iommu=off debug panic=1 pcie_ports=native";
 
+#[cfg(target_arch = "x86_64")]
+const ROOTFS_KERNEL_PARAMS: &str = " root=/dev/vda ro rootfstype=ext4";
+#[cfg(target_arch = "aarch64")]
+const ROOTFS_KERNEL_PARAMS: &str = " root=/dev/vda1 ro rootfstype=ext4";
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct StratoVirtVMConfig {
     pub path: String,
@@ -123,10 +128,7 @@ impl StratoVirtVMConfig {
         }
 
         if !self.common.image_path.is_empty() {
-            result
-                .kernel
-                .kernel_params
-                .push_str(" root=/dev/vda1 ro rootfstype=ext4");
+            result.kernel.kernel_params.push_str(ROOTFS_KERNEL_PARAMS);
         }
 
         result.global_params = vec![Global {
@@ -138,6 +140,13 @@ impl StratoVirtVMConfig {
             disable_seccomp: true,
             prealloc: self.common.enable_mem_prealloc,
         };
+
+        if !self.common.firmware.is_empty() {
+            result.firmware = Some(Firmware {
+                param_key: "drive".to_string(),
+                file: self.common.firmware.to_string(),
+            });
+        }
 
         Ok(result)
     }
@@ -208,6 +217,21 @@ pub struct Knobs {
     pub prealloc: bool,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Firmware {
+    pub param_key: String,
+    pub file: String,
+}
+
+impl ToCmdLineParams for Firmware {
+    fn to_cmdline_params(&self, hyphen: &str) -> Vec<String> {
+        vec![
+            format!("{}{}", hyphen, self.param_key),
+            format!("file={},if=pflash,format=raw,unit=0,readonly=on", self.file),
+        ]
+    }
+}
+
 #[derive(CmdLineParamSet, Default, Clone, Serialize, Deserialize)]
 pub struct StratoVirtConfig {
     pub name: String,
@@ -226,13 +250,14 @@ pub struct StratoVirtConfig {
     #[param(key = "global")]
     pub global_params: Vec<Global>,
     pub knobs: Knobs,
+    pub firmware: Option<Firmware>,
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
         param::ToCmdLineParams,
-        stratovirt::config::{QmpSocket, StratoVirtVMConfig},
+        stratovirt::config::{QmpSocket, StratoVirtVMConfig, ROOTFS_KERNEL_PARAMS},
     };
 
     #[tokio::test]
@@ -318,6 +343,10 @@ mod tests {
         let params = stratovirt_config.to_cmdline_params("-");
 
         println!("params: {:?}", params);
+        let append_params = format!(
+            "console=hvc0 console=hvc1 iommu=off debug panic=1 pcie_ports=native{}",
+            ROOTFS_KERNEL_PARAMS
+        );
         let expected_params = vec![
             "-name",
             "sandbox-1",
@@ -330,7 +359,7 @@ mod tests {
             "-kernel",
             "/var/lib/kuasar/vmlinux.bin",
             "-append",
-            "console=hvc0 console=hvc1 iommu=off debug panic=1 pcie_ports=native root=/dev/vda1 ro rootfstype=ext4",
+            &append_params,
             "-smp",
             "cpus=1",
             "-m",
