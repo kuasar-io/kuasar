@@ -41,6 +41,13 @@ impl Property {
     }
 }
 
+// visit: https://rust-lang.github.io/rust-clippy/master/index.html#new_without_default
+impl Default for Property {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Param {
     pub fn new(name: &str) -> Param {
         Param {

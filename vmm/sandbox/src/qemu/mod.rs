@@ -37,9 +37,11 @@ use tokio::{
 };
 use unshare::Fd;
 
+use self::{factory::QemuVMFactory, hooks::QemuHooks};
 use crate::{
     device::{BusType, DeviceInfo, SlotStatus, Transport},
     impl_recoverable,
+    kata_config::KataConfig,
     param::ToCmdLineParams,
     qemu::{
         config::QemuConfig,
@@ -54,6 +56,7 @@ use crate::{
         qmp_client::QmpClient,
         utils::detect_pid,
     },
+    sandbox::KuasarSandboxer,
     utils::{read_std, wait_channel, wait_pid},
     vm::{BlockDriver, Pids, VcpuThreads, VM},
 };
@@ -212,7 +215,7 @@ impl VM for QemuVM {
     }
 
     async fn hot_attach(&mut self, device_info: DeviceInfo) -> Result<(BusType, String)> {
-        return match device_info {
+        match device_info {
             DeviceInfo::Block(blk_info) => {
                 let device = VirtioBlockDevice::new(
                     "",
@@ -259,7 +262,7 @@ impl VM for QemuVM {
                 // address is not import for char devices as guest will find the device by the name
                 Ok((BusType::PCI, char_info.name.clone()))
             }
-        };
+        }
     }
 
     async fn hot_detach(&mut self, id: &str) -> Result<()> {
@@ -300,7 +303,7 @@ impl VM for QemuVM {
     }
 
     async fn wait_channel(&self) -> Option<Receiver<(u32, i128)>> {
-        return self.wait_chan.clone();
+        self.wait_chan.clone()
     }
 
     async fn vcpus(&self) -> Result<VcpuThreads> {
@@ -529,3 +532,33 @@ impl QemuVM {
 }
 
 impl_recoverable!(QemuVM);
+
+pub async fn init_qemu_sandboxer() -> Result<KuasarSandboxer<QemuVMFactory, QemuHooks>> {
+    // For compatibility with kata config
+    let config_path = std::env::var("KATA_CONFIG_PATH")
+        .unwrap_or_else(|_| "/usr/share/defaults/kata-containers/configuration.toml".to_string());
+
+    let path = std::path::Path::new(&config_path);
+    if path.exists() {
+        KataConfig::init(path).await?;
+    }
+
+    let vmm_config = KataConfig::hypervisor_config("qemu", |h| h.clone()).await?;
+    let vmm_config = vmm_config.to_qemu_config()?;
+    let sandbox_config = KataConfig::sandbox_config("qemu").await?;
+    let hooks = QemuHooks::new(vmm_config.clone());
+    let mut s = KuasarSandboxer::new(sandbox_config, vmm_config, hooks);
+
+    // Check for "--dir" argument and recover from persisted directory
+    let os_args: Vec<_> = std::env::args_os().collect();
+    for i in 0..os_args.len() {
+        if os_args[i].to_str().unwrap() == "--dir" {
+            let persist_dir_path = os_args[i + 1].to_str().unwrap().to_string();
+            if std::path::Path::new(&persist_dir_path).exists() {
+                s.recover(&persist_dir_path).await?;
+            }
+        }
+    }
+
+    Ok(s)
+}

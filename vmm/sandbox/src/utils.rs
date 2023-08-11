@@ -20,6 +20,7 @@ use std::{
         prelude::{AsRawFd, FromRawFd, OwnedFd},
     },
     path::Path,
+    str::FromStr,
     time::Duration,
 };
 
@@ -471,4 +472,12 @@ pub fn get_sandbox_cgroup_parent_path(data: &SandboxData) -> Option<String> {
         .as_ref()
         .and_then(|c| c.linux.as_ref())
         .map(|l| l.cgroup_parent.clone())
+}
+
+pub fn init_logger(level: &str) {
+    let log_level = log::LevelFilter::from_str(level).unwrap_or(log::LevelFilter::Info);
+    env_logger::Builder::from_default_env()
+        .format_timestamp_micros()
+        .filter_level(log_level)
+        .init();
 }

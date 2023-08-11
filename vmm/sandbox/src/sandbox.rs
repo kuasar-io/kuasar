@@ -284,13 +284,13 @@ where
     }
 
     async fn sandbox(&self, id: &str) -> Result<Arc<Mutex<Self::Sandbox>>> {
-        return Ok(self
+        Ok(self
             .sandboxes
             .read()
             .await
             .get(id)
             .ok_or_else(|| Error::NotFound(id.to_string()))?
-            .clone());
+            .clone())
     }
 
     async fn stop(&self, id: &str, force: bool) -> Result<()> {
@@ -384,7 +384,7 @@ where
     }
 
     async fn exit_signal(&self) -> Result<Arc<ExitSignal>> {
-        return Ok(self.exit_signal.clone());
+        Ok(self.exit_signal.clone())
     }
 
     fn get_data(&self) -> Result<SandboxData> {

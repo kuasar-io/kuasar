@@ -38,11 +38,17 @@ use tokio::{
 };
 use unshare::Fd;
 
-use self::devices::{pcie_rootbus::PcieRootBus, rootport::RootPort, PCIE_ROOTBUS_CAPACITY};
+use self::{
+    config::StratoVirtVMConfig,
+    devices::{pcie_rootbus::PcieRootBus, rootport::RootPort, PCIE_ROOTBUS_CAPACITY},
+    factory::StratoVirtVMFactory,
+    hooks::StratoVirtHooks,
+};
 use crate::{
     device::{Bus, BusType, DeviceInfo, Slot, SlotStatus, Transport},
-    impl_recoverable,
+    impl_recoverable, load_config,
     param::ToCmdLineParams,
+    sandbox::KuasarSandboxer,
     stratovirt::{
         config::StratoVirtConfig,
         devices::{
@@ -67,6 +73,7 @@ mod utils;
 mod virtiofs;
 
 pub(crate) const STRATOVIRT_START_TIMEOUT_IN_SEC: u64 = 10;
+pub const CONFIG_STRATOVIRT_PATH: &str = "/var/lib/kuasar/config_stratovirt.toml";
 
 // restart recovery is not supported yet,
 // so we annotate the StratoVirtVM with Serialize and Deserlize,
@@ -209,7 +216,7 @@ impl VM for StratoVirtVM {
     }
 
     async fn hot_attach(&mut self, device_info: DeviceInfo) -> Result<(BusType, String)> {
-        return match device_info {
+        match device_info {
             DeviceInfo::Block(blk_info) => {
                 let device = VirtioBlockDevice::new(
                     "",
@@ -234,7 +241,7 @@ impl VM for StratoVirtVM {
             DeviceInfo::Char(_char_info) => Err(Error::Unimplemented(
                 "hot attach for char device".to_string(),
             )),
-        };
+        }
     }
 
     async fn hot_detach(&mut self, _id: &str) -> Result<()> {
@@ -252,7 +259,7 @@ impl VM for StratoVirtVM {
     }
 
     async fn wait_channel(&self) -> Option<Receiver<(u32, i128)>> {
-        return self.wait_chan.clone();
+        self.wait_chan.clone()
     }
 
     async fn vcpus(&self) -> Result<VcpuThreads> {
@@ -534,3 +541,15 @@ impl StratoVirtVM {
 }
 
 impl_recoverable!(StratoVirtVM);
+
+pub async fn init_stratovirt_sandboxer(
+) -> Result<KuasarSandboxer<StratoVirtVMFactory, StratoVirtHooks>> {
+    let (config, persist_dir_path) =
+        load_config::<StratoVirtVMConfig>(CONFIG_STRATOVIRT_PATH).await?;
+    let hooks = StratoVirtHooks::new(config.hypervisor.clone());
+    let mut s = KuasarSandboxer::new(config.sandbox, config.hypervisor, hooks);
+    if !persist_dir_path.is_empty() {
+        s.recover(&persist_dir_path).await?;
+    }
+    Ok(s)
+}

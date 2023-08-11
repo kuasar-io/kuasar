@@ -30,6 +30,7 @@ use tokio::{
 };
 use vmm_common::SHARED_DIR_SUFFIX;
 
+use self::{factory::CloudHypervisorVMFactory, hooks::CloudHypervisorHooks};
 use crate::{
     cloud_hypervisor::{
         client::ChClient,
@@ -37,8 +38,9 @@ use crate::{
         devices::{block::Disk, virtio_net::VirtioNetDevice, CloudHypervisorDevice},
     },
     device::{BusType, DeviceInfo},
-    impl_recoverable,
+    impl_recoverable, load_config,
     param::ToCmdLineParams,
+    sandbox::KuasarSandboxer,
     utils::{read_std, set_cmd_fd, set_cmd_netns, wait_pid, write_file_atomic},
     vm::{Pids, VcpuThreads, VM},
 };
@@ -50,6 +52,7 @@ pub mod factory;
 pub mod hooks;
 
 const VCPU_PREFIX: &str = "vcpu";
+pub const CONFIG_CLH_PATH: &str = "/var/lib/kuasar/config_clh.toml";
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct CloudHypervisorVM {
@@ -253,7 +256,7 @@ impl VM for CloudHypervisorVM {
     }
 
     async fn wait_channel(&self) -> Option<Receiver<(u32, i128)>> {
-        return self.wait_chan.clone();
+        self.wait_chan.clone()
     }
 
     async fn vcpus(&self) -> Result<VcpuThreads> {
@@ -337,4 +340,16 @@ fn spawn_wait(
             }
         }
     })
+}
+
+pub async fn init_cloud_hypervisor_sandboxer(
+) -> Result<KuasarSandboxer<CloudHypervisorVMFactory, CloudHypervisorHooks>> {
+    let (config, persist_dir_path) =
+        load_config::<CloudHypervisorVMConfig>(CONFIG_CLH_PATH).await?;
+    let hooks = CloudHypervisorHooks {};
+    let mut s = KuasarSandboxer::new(config.sandbox, config.hypervisor, hooks);
+    if !persist_dir_path.is_empty() {
+        s.recover(&persist_dir_path).await?;
+    }
+    Ok(s)
 }
