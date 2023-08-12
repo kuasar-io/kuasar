@@ -12,7 +12,7 @@ Compared with other container runtimes, Kuasar has the following advantages:
 
 + **Unified Sandbox Abstraction**: The sandbox is a first-class citizen in Kuasar as the Kuasar is entirely built upon the Sandbox API, which was previewed by the containerd community in October 2022. Kuasar fully utilizes the advantages of the Sandbox API, providing a unified way for sandbox access and management, and improving sandbox O&M efficiency.
 + **Multi-Sandbox Colocation**: Kuasar has built-in support for mainstream sandboxes, allowing multiple types of sandboxes to run on a single node. Kuasar is able to balance user's demands for security isolation, fast startup, and standardization, and enables a serverless node resource pool to meet various cloud-native scenario requirements.
-+ **Optimized Framework**: Optimization has been done in Kuasar via removing all pause containers and replacing shim processes by a single resident sandboxer process, bringing about a 1:N process management model, which has a better performance than the current 1:1 shim v2 process model. The benchmark test results showed that Kuasar's sandbox startup speed 2x, while the resource overhead for management was reduced by 99%. More details please refer to [Performance](#Performance).
++ **Optimized Framework**: Optimization has been done in Kuasar via removing all pause containers and replacing shim processes by a single resident sandboxer process, bringing about a 1:N process management model, which has a better performance than the current 1:1 shim v2 process model. The benchmark test results showed that Kuasar's sandbox startup speed 2x, while the resource overhead for management was reduced by 99%. More details please refer to [Performance](#performance).
 + **Open and Neutral**: Kuasar is committed to building an open and compatible multi-sandbox technology ecosystem. Thanks to the Sandbox API, it is more convenient and time-saving to integrate sandbox technologies. Kuasar keeps an open and neutral attitude towards sandbox technologies, therefore all sandbox technologies are welcome. Currently, the Kuasar project is collaborating with open-source communities and projects such as WasmEdge, openEuler and QuarkContainers.
 
 # Kuasar Architecture
@@ -142,7 +142,7 @@ Since Kuasar is a low-level container runtime, all interactions should be done v
 If you have questions, feel free to reach out to us in the following ways:
 
 - [mailing list](https://groups.google.com/forum/#!forum/kuasar)
-- [slack](https://app.slack.com/client/T08PSQ7BQ/C052JRURD8V)
+- [slack](https://cloud-native.slack.com/archives/C052JRURD8V) | [Join](https://slack.cncf.io/)
 
 # Contributing
 
