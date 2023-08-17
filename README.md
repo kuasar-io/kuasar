@@ -1,5 +1,21 @@
 ![](docs/images/logo.png)
 
+<p align="center">
+  <a href="https://github.com/kuasar-io/kuasar/actions/workflows/ci.yml">
+    <img alt="GitHub Workflow Status" src="https://github.com/kuasar-io/kuasar/actions/workflows/ci.yml/badge.svg?branch=main">
+  </a>
+  <a href="https://cloud-native.slack.com/archives/C052JRURD8V">
+    <img src="https://img.shields.io/badge/slack-join_chat-brightgreen.svg" alt="chat" />
+  </a>
+  <img src="https://img.shields.io/badge/rustc-stable+-green.svg" alt="supported rustc stable" />
+  <a href="https://github.com/kuasar-io/kuasar/blob/main/LICENSE">
+    <img alt="GitHub" src="https://img.shields.io/github/license/kuasar-io/kuasar?color=427ece&label=License&style=flat-square">
+  </a>
+  <a href="https://github.com/kuasar-io/kuasar/graphs/contributors">
+    <img alt="GitHub contributors" src="https://img.shields.io/github/contributors/kuasar-io/kuasar?label=Contributors&style=flat-square">
+  </a>
+</p>
+
 Kuasar is an efficient container runtime that provides cloud-native, all-scenario container solutions by supporting multiple sandbox techniques. Written in Rust, it offers a standard sandbox abstraction based on the sandbox API. Additionally, Kuasar provides an optimized framework to accelerate container startup and reduce unnecessary overheads.
 
 # Why Kuasar?
