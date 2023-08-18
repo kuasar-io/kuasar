@@ -185,6 +185,7 @@ async fn handle_signals(signals: Signals) {
                 .await
                 {
                     Ok(WaitStatus::Exited(pid, status)) => {
+                        debug!("child {} exit with code ({})", pid, status);
                         monitor_notify_by_pid(pid.as_raw(), status)
                             .await
                             .unwrap_or_else(|e| error!("failed to send exit event {}", e))
@@ -196,13 +197,45 @@ async fn handle_signals(signals: Signals) {
                             .await
                             .unwrap_or_else(|e| error!("failed to send signal event {}", e))
                     }
-                    Err(Error::Nix(Errno::ECHILD)) => {
+                    // StillAlive is returned when the waitpid syscall return 0,
+                    // which means there is no more events so we should break the loop.
+                    // actually it is not possible to get the ECHILD error,
+                    // because only when the pid parameter of waitpid() is a positive value,
+                    // and the process specified by this pid does not exist
+                    // or not a child of current process, that the error of ECHILD return.
+                    // as the pid param is -1 here, it is not possible to return ECHILD.
+                    // I don't want to remove this match case because it is from
+                    // the open sourced rust-extensions. and I think we can still break the loop
+                    // even if it happened unexpectedly, because the error also indicates
+                    // that should be no more events happen.
+                    Err(Error::Nix(Errno::ECHILD)) | Ok(WaitStatus::StillAlive) => {
                         break;
                     }
                     Err(e) => {
-                        warn!("error occurred in signal handler: {}", e);
+                        // stick until all children will be successfully waited,
+                        // even some unexpected error occurs.
+                        //
+                        // according to the linux man page of waitpid(2)
+                        // https://linux.die.net/man/2/waitpid,
+                        // waitpid() return three kinds of errors: ECHILD,EINTR,EINVAL
+                        // as we assign the parameter pid to -1, ECHILD is impossible,
+                        // as we set option to WNOHANG, EINTR is impossible,
+                        // as the option is a enum of WaitPidFlag::WNOHANG,
+                        // which can not be a invalid value, so the EINVAL is impossible.
+                        warn!("unexpected error occurred in signal handler: {}", e);
                     }
-                    _ => {}
+                    r => {
+                        // as all the errors is handled, other possible return value is
+                        // Stopped(Pid, Signal), PtraceEvent(Pid, Signal, c_int)
+                        // PtraceSyscall(Pid), Continued(Pid).
+                        // these return values can be possible
+                        // only when the option of WaitPidFlag::WUNTRACED is set.
+                        // as we didn't set this flag, we can not get these values theoretically.
+                        // but even if we get these values, we still need to continue
+                        // calling waitpid because there is a real pid in these return values,
+                        // which indicates that there maybe more child process events.
+                        debug!("unexpected waitpid return {:?}", r);
+                    } // stick until exit
                 }
             },
             _ => {
