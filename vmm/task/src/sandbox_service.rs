@@ -14,10 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::sync::Arc;
+use std::{ops::Add, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
-use containerd_shim::{error::Result, TtrpcContext, TtrpcResult};
+use containerd_shim::{error::Result, Error, TtrpcContext, TtrpcResult};
+use nix::{
+    sys::time::{TimeSpec, TimeValLike},
+    time::{clock_gettime, clock_settime, ClockId},
+};
 use tokio::sync::Mutex;
 use vmm_common::{
     api,
@@ -85,11 +89,27 @@ impl api::sandbox_ttrpc::SandboxService for SandboxService {
     async fn sync_clock(
         &self,
         _ctx: &TtrpcContext,
-        _req: SyncClockPacket,
+        req: SyncClockPacket,
     ) -> TtrpcResult<SyncClockPacket> {
-        Err(::ttrpc::Error::RpcStatus(::ttrpc::get_status(
-            ::ttrpc::Code::NOT_FOUND,
-            "/grpc.SandboxService/SyncClock is not supported".to_string(),
-        )))
+        let mut resp = req.clone();
+        let clock_id = ClockId::from_raw(nix::libc::CLOCK_REALTIME);
+        match req.Delta {
+            0 => {
+                resp.ClientArriveTime = clock_gettime(clock_id)
+                    .map_err(Error::Nix)?
+                    .num_nanoseconds();
+                resp.ServerSendTime = clock_gettime(clock_id)
+                    .map_err(Error::Nix)?
+                    .num_nanoseconds();
+            }
+            _ => {
+                let mut clock_spce = clock_gettime(clock_id).map_err(Error::Nix)?;
+                clock_spce = clock_spce.add(TimeSpec::from_duration(Duration::from_nanos(
+                    req.Delta as u64,
+                )));
+                clock_settime(clock_id, clock_spce).map_err(Error::Nix)?;
+            }
+        }
+        Ok(resp)
     }
 }

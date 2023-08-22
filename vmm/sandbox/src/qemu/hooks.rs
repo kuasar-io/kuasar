@@ -44,8 +44,9 @@ impl Hooks<QemuVM> for QemuHooks {
     }
 
     async fn post_start(&self, sandbox: &mut KuasarSandbox<QemuVM>) -> Result<()> {
-        let data = &mut sandbox.data;
-        data.task_address = sandbox.vm.agent_socket.to_string();
+        sandbox.data.task_address = sandbox.vm.agent_socket.to_string();
+        // sync clock
+        sandbox.sync_clock().await;
         Ok(())
     }
 }

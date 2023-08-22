@@ -198,7 +198,7 @@ dependencies = [
 [[package]]
 name = "containerd-sandbox"
 version = "0.1.0"
-source = "git+https://github.com/kuasar-io/rust-extensions.git#6cfc44869ffe68ef3f07ba56c0dc02a4a533329d"
+source = "git+https://github.com/kuasar-io/rust-extensions.git#6ae99540b754cd28c5389d5d6fdeff6ec7290ec5"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -226,7 +226,7 @@ dependencies = [
 [[package]]
 name = "containerd-shim"
 version = "0.3.0"
-source = "git+https://github.com/kuasar-io/rust-extensions.git#6cfc44869ffe68ef3f07ba56c0dc02a4a533329d"
+source = "git+https://github.com/kuasar-io/rust-extensions.git#6ae99540b754cd28c5389d5d6fdeff6ec7290ec5"
 dependencies = [
  "async-trait",
  "cgroups-rs",
@@ -257,7 +257,7 @@ dependencies = [
 [[package]]
 name = "containerd-shim-protos"
 version = "0.2.0"
-source = "git+https://github.com/kuasar-io/rust-extensions.git#6cfc44869ffe68ef3f07ba56c0dc02a4a533329d"
+source = "git+https://github.com/kuasar-io/rust-extensions.git#6ae99540b754cd28c5389d5d6fdeff6ec7290ec5"
 dependencies = [
  "async-trait",
  "protobuf 3.2.0",
@@ -1532,7 +1532,7 @@ dependencies = [
 [[package]]
 name = "runc"
 version = "0.2.0"
-source = "git+https://github.com/kuasar-io/rust-extensions.git#6cfc44869ffe68ef3f07ba56c0dc02a4a533329d"
+source = "git+https://github.com/kuasar-io/rust-extensions.git#6ae99540b754cd28c5389d5d6fdeff6ec7290ec5"
 dependencies = [
  "async-trait",
  "futures",

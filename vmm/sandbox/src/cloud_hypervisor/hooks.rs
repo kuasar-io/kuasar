@@ -31,8 +31,9 @@ impl Hooks<CloudHypervisorVM> for CloudHypervisorHooks {
     }
 
     async fn post_start(&self, sandbox: &mut KuasarSandbox<CloudHypervisorVM>) -> Result<()> {
-        let data = &mut sandbox.data;
-        data.task_address = sandbox.vm.agent_socket.to_string();
+        sandbox.data.task_address = sandbox.vm.agent_socket.to_string();
+        // sync clock
+        sandbox.sync_clock().await;
         Ok(())
     }
 }
