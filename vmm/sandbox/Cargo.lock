@@ -248,6 +248,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cgroups-rs"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b098e7c3a70d03c288fa0a96ccf13e770eb3d78c4cc0e1549b3c13215d5f965"
+dependencies = [
+ "libc",
+ "log",
+ "nix 0.25.1",
+ "regex",
+ "thiserror",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -315,7 +328,7 @@ version = "0.3.0"
 source = "git+https://github.com/kuasar-io/rust-extensions.git#6ae99540b754cd28c5389d5d6fdeff6ec7290ec5"
 dependencies = [
  "async-trait",
- "cgroups-rs",
+ "cgroups-rs 0.2.11",
  "command-fds",
  "containerd-shim-protos",
  "futures",
@@ -2328,6 +2341,7 @@ dependencies = [
  "api_client",
  "async-trait",
  "bytefmt",
+ "cgroups-rs 0.3.2",
  "containerd-sandbox",
  "containerd-shim",
  "env_logger",
@@ -2343,6 +2357,7 @@ dependencies = [
  "prost-types 0.10.1",
  "protobuf 3.2.0",
  "qapi",
+ "qapi-spec",
  "rand",
  "rtnetlink",
  "sandbox-derive",

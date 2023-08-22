@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 use std::{
+    collections::HashMap,
     os::unix::io::{AsRawFd, FromRawFd, RawFd},
     time::{Duration, SystemTime},
 };
@@ -26,6 +27,7 @@ use futures_util::TryFutureExt;
 use log::{debug, error, trace, warn};
 use nix::{fcntl::OFlag, libc::kill, sys::stat::Mode};
 use qapi::qmp::quit;
+use qmp::CpuInfo;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use tokio::{
@@ -52,13 +54,14 @@ use crate::{
         virtiofs::VirtiofsDaemon,
     },
     utils::{read_file, read_std, wait_channel, wait_pid},
-    vm::{BlockDriver, VM},
+    vm::{BlockDriver, Pids, VcpuThreads, VM},
 };
 
 pub mod config;
 mod devices;
 pub mod factory;
 pub mod hooks;
+mod qmp;
 mod qmp_client;
 mod utils;
 mod virtiofs;
@@ -80,6 +83,7 @@ pub struct StratoVirtVM {
     console_socket: String,
     agent_socket: String,
     netns: String,
+    pids: Pids,
     #[serde(skip)]
     block_driver: BlockDriver,
     #[serde(skip)]
@@ -131,8 +135,15 @@ impl VM for StratoVirtVM {
                     error!("failed to read console log, {}", e);
                 });
         });
-        // TODO return stratovirt pid
-        Ok(0)
+
+        // update vmm related pids
+        let vmm_pid = detect_pid(self.config.pid_file.as_str(), self.config.path.as_str()).await?;
+        self.pids.vmm_pid = Some(vmm_pid);
+        if let Some(virtiofsd) = &self.virtiofs_daemon {
+            self.pids.virtiofsd_pid = virtiofsd.pid;
+        }
+
+        Ok(vmm_pid)
     }
 
     async fn stop(&mut self, force: bool) -> Result<()> {
@@ -238,6 +249,26 @@ impl VM for StratoVirtVM {
     async fn wait_channel(&self) -> Option<Receiver<(u32, i128)>> {
         return self.wait_chan.clone();
     }
+
+    async fn vcpus(&self) -> Result<VcpuThreads> {
+        let client = self.get_client()?;
+        let result = client.execute(qmp::query_cpus {}).await?;
+        let mut vcpu_threads_map: HashMap<i64, i64> = HashMap::new();
+        for vcpu_info in result.iter() {
+            match vcpu_info {
+                CpuInfo::Arm { base, .. } | CpuInfo::x86 { base, .. } => {
+                    vcpu_threads_map.insert(base.CPU, base.thread_id);
+                }
+            }
+        }
+        Ok(VcpuThreads {
+            vcpus: vcpu_threads_map,
+        })
+    }
+
+    fn pids(&self) -> Pids {
+        self.pids.clone()
+    }
 }
 
 impl StratoVirtVM {
@@ -257,6 +288,7 @@ impl StratoVirtVM {
             virtiofs_daemon: None,
             pcie_root_ports_pool: None,
             pcie_root_bus: PcieRootBus::default(),
+            pids: Pids::default(),
         }
     }
 

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::{os::unix::io::RawFd, process::Stdio};
+use std::{collections::HashMap, os::unix::io::RawFd, process::Stdio};
 
 use anyhow::anyhow;
 use async_trait::async_trait;
@@ -40,7 +40,7 @@ use crate::{
     impl_recoverable,
     param::ToCmdLineParams,
     utils::{read_file, read_std, set_cmd_fd, set_cmd_netns, wait_pid, write_file_atomic},
-    vm::VM,
+    vm::{Pids, VcpuThreads, VM},
 };
 
 mod client;
@@ -244,6 +244,18 @@ impl VM for CloudHypervisorVM {
 
     async fn wait_channel(&self) -> Option<Receiver<(u32, i128)>> {
         return self.wait_chan.clone();
+    }
+
+    async fn vcpus(&self) -> Result<VcpuThreads> {
+        // TODO: support get vcpu threads id
+        Ok(VcpuThreads {
+            vcpus: HashMap::new(),
+        })
+    }
+
+    fn pids(&self) -> Pids {
+        // TODO: support get all vmm related pids
+        Pids::default()
     }
 }
 
