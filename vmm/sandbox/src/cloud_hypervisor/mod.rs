@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::{collections::HashMap, os::unix::io::RawFd, process::Stdio};
+use std::{os::unix::io::RawFd, process::Stdio};
 
 use anyhow::anyhow;
 use async_trait::async_trait;
@@ -39,7 +39,7 @@ use crate::{
     device::{BusType, DeviceInfo},
     impl_recoverable,
     param::ToCmdLineParams,
-    utils::{read_file, read_std, set_cmd_fd, set_cmd_netns, wait_pid, write_file_atomic},
+    utils::{read_std, set_cmd_fd, set_cmd_netns, wait_pid, write_file_atomic},
     vm::{Pids, VcpuThreads, VM},
 };
 
@@ -48,6 +48,8 @@ pub mod config;
 pub mod devices;
 pub mod factory;
 pub mod hooks;
+
+const VCPU_PREFIX: &str = "vcpu";
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct CloudHypervisorVM {
@@ -64,6 +66,7 @@ pub struct CloudHypervisorVM {
     #[serde(skip)]
     client: Option<ChClient>,
     fds: Vec<RawFd>,
+    pids: Pids,
 }
 
 impl CloudHypervisorVM {
@@ -88,6 +91,7 @@ impl CloudHypervisorVM {
             wait_chan: None,
             client: None,
             fds: vec![],
+            pids: Pids::default(),
         }
     }
 
@@ -95,13 +99,11 @@ impl CloudHypervisorVM {
         self.devices.push(Box::new(device));
     }
 
-    async fn pid(&self) -> Result<u32> {
-        let pid_file = format!("{}/pid", self.base_dir);
-        let pid = read_file(&*pid_file).await.and_then(|x| {
-            x.parse::<u32>()
-                .map_err(|e| anyhow!("failed to parse pid file {}, {}", x, e).into())
-        })?;
-        Ok(pid)
+    fn pid(&self) -> Result<u32> {
+        match self.pids.vmm_pid {
+            None => Err(anyhow!("empty pid from vmm_pid").into()),
+            Some(pid) => Ok(pid),
+        }
     }
 
     async fn create_client(&self) -> Result<ChClient> {
@@ -114,7 +116,7 @@ impl CloudHypervisorVM {
         ))
     }
 
-    async fn start_virtiofsd(&self) -> Result<()> {
+    async fn start_virtiofsd(&self) -> Result<u32> {
         create_dir_all(&self.virtiofsd_config.shared_dir).await?;
         let params = self.virtiofsd_config.to_cmdline_params("--");
         let mut cmd = tokio::process::Command::new(&self.virtiofsd_config.path);
@@ -126,8 +128,11 @@ impl CloudHypervisorVM {
         let child = cmd
             .spawn()
             .map_err(|e| anyhow!("failed to spawn virtiofsd command: {}", e))?;
+        let pid = child
+            .id()
+            .ok_or(anyhow!("the virtiofsd has been polled to completion"))?;
         spawn_wait(child, "virtiofsd".to_string(), None, None);
-        Ok(())
+        Ok(pid)
     }
 
     fn append_fd(&mut self, fd: RawFd) -> usize {
@@ -141,7 +146,7 @@ impl VM for CloudHypervisorVM {
     async fn start(&mut self) -> Result<u32> {
         debug!("start vm {}", self.id);
         create_dir_all(&self.base_dir).await?;
-        self.start_virtiofsd().await?;
+        let virtiofsd_pid = self.start_virtiofsd().await?;
         let mut params = self.config.to_cmdline_params("--");
         for d in self.devices.iter() {
             params.extend(d.to_cmdline_params("--"));
@@ -174,11 +179,16 @@ impl VM for CloudHypervisorVM {
         );
         self.client = Some(self.create_client().await?);
         self.wait_chan = Some(rx);
+
+        // update vmm related pids
+        self.pids.vmm_pid = pid;
+        self.pids.affilicated_pids.push(virtiofsd_pid);
+        // TODO: add child virtiofsd process
         Ok(pid.unwrap_or_default())
     }
 
     async fn stop(&mut self, force: bool) -> Result<()> {
-        let pid = self.pid().await?;
+        let pid = self.pid()?;
         if pid == 0 {
             return Ok(());
         }
@@ -247,15 +257,28 @@ impl VM for CloudHypervisorVM {
     }
 
     async fn vcpus(&self) -> Result<VcpuThreads> {
-        // TODO: support get vcpu threads id
+        // Refer to https://github.com/firecracker-microvm/firecracker/issues/718
         Ok(VcpuThreads {
-            vcpus: HashMap::new(),
+            vcpus: procfs::process::Process::new(self.pid()? as i32)
+                .map_err(|e| anyhow!("failed to get process {}", e))?
+                .tasks()
+                .map_err(|e| anyhow!("failed to get tasks {}", e))?
+                .flatten()
+                .filter_map(|t| {
+                    t.stat()
+                        .map_err(|e| anyhow!("failed to get stat {}", e))
+                        .ok()?
+                        .comm
+                        .strip_prefix(VCPU_PREFIX)
+                        .and_then(|comm| comm.parse().ok())
+                        .map(|index| (index, t.tid as i64))
+                })
+                .collect(),
         })
     }
 
     fn pids(&self) -> Pids {
-        // TODO: support get all vmm related pids
-        Pids::default()
+        self.pids.clone()
     }
 }
 
