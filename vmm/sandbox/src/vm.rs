@@ -80,7 +80,7 @@ macro_rules! impl_recoverable {
         impl $crate::vm::Recoverable for $ty {
             async fn recover(&mut self) -> Result<()> {
                 self.client = Some(self.create_client().await?);
-                let pid = self.pid().await?;
+                let pid = self.pid()?;
                 let (tx, rx) = channel((0u32, 0i128));
                 tokio::spawn(async move {
                     let wait_result = wait_pid(pid as i32).await;
@@ -210,5 +210,5 @@ pub struct VcpuThreads {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Pids {
     pub vmm_pid: Option<u32>,
-    pub virtiofsd_pid: Option<u32>,
+    pub affilicated_pids: Vec<u32>,
 }

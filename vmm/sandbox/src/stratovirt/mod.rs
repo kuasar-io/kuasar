@@ -53,7 +53,7 @@ use crate::{
         utils::detect_pid,
         virtiofs::VirtiofsDaemon,
     },
-    utils::{read_file, read_std, wait_channel, wait_pid},
+    utils::{read_std, wait_channel, wait_pid},
     vm::{BlockDriver, Pids, VcpuThreads, VM},
 };
 
@@ -140,7 +140,9 @@ impl VM for StratoVirtVM {
         let vmm_pid = detect_pid(self.config.pid_file.as_str(), self.config.path.as_str()).await?;
         self.pids.vmm_pid = Some(vmm_pid);
         if let Some(virtiofsd) = &self.virtiofs_daemon {
-            self.pids.virtiofsd_pid = virtiofsd.pid;
+            if let Some(pid) = virtiofsd.pid {
+                self.pids.affilicated_pids.push(pid);
+            }
         }
 
         Ok(vmm_pid)
@@ -164,7 +166,10 @@ impl VM for StratoVirtVM {
 
         if let Err(e) = self.wait_stop(Duration::from_secs(10)).await {
             if force {
-                if let Ok(pid) = self.pid().await {
+                if let Ok(pid) = self.pid() {
+                    if pid == 0 {
+                        return Ok(());
+                    }
                     unsafe { kill(pid as i32, 9) };
                 }
             } else {
@@ -408,16 +413,11 @@ impl StratoVirtVM {
         Ok(())
     }
 
-    async fn pid(&self) -> Result<u32> {
-        if self.config.pid_file.is_empty() {
-            return Err(anyhow!("failed to get pid file of sandbox").into());
+    fn pid(&self) -> Result<u32> {
+        match self.pids.vmm_pid {
+            None => Err(anyhow!("empty pid from vmm_pid").into()),
+            Some(pid) => Ok(pid),
         }
-        let pid = read_file(&*self.config.pid_file).await.and_then(|x| {
-            x.trim()
-                .parse::<u32>()
-                .map_err(|e| anyhow!("failed to parse stratovirt.pid, {}", e).into())
-        })?;
-        Ok(pid)
     }
 
     async fn hot_attach_device<T: StratoVirtHotAttachable + Sync + Send + 'static>(

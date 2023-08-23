@@ -54,7 +54,7 @@ use crate::{
         qmp_client::QmpClient,
         utils::detect_pid,
     },
-    utils::{read_file, read_std, wait_channel, wait_pid},
+    utils::{read_std, wait_channel, wait_pid},
     vm::{BlockDriver, Pids, VcpuThreads, VM},
 };
 
@@ -82,6 +82,7 @@ pub struct QemuVM {
     console_socket: String,
     agent_socket: String,
     netns: String,
+    pids: Pids,
     #[serde(skip)]
     block_driver: BlockDriver,
     #[serde(skip)]
@@ -126,7 +127,9 @@ impl VM for QemuVM {
                     error!("failed to read console log, {}", e);
                 });
         });
-        // TODO return qemu pid
+        // update vmm related pids
+        let vmm_pid = detect_pid(self.config.pid_file.as_str(), self.config.path.as_str()).await?;
+        self.pids.vmm_pid = Some(vmm_pid);
         Ok(0)
     }
 
@@ -143,7 +146,7 @@ impl VM for QemuVM {
 
         if let Err(e) = self.wait_stop(Duration::from_secs(10)).await {
             if force {
-                if let Ok(pid) = self.pid().await {
+                if let Ok(pid) = self.pid() {
                     unsafe { kill(pid as i32, 9) };
                 }
             } else {
@@ -324,6 +327,7 @@ impl QemuVM {
             console_socket: format!("{}/console.sock", base_dir),
             agent_socket: "".to_string(),
             netns: netns.to_string(),
+            pids: Pids::default(),
             block_driver: Default::default(),
             wait_chan: None,
             client: None,
@@ -442,16 +446,11 @@ impl QemuVM {
         Ok(())
     }
 
-    async fn pid(&self) -> Result<u32> {
-        if self.config.pid_file.is_empty() {
-            return Err(anyhow!("failed to get pid file of sandbox").into());
+    fn pid(&self) -> Result<u32> {
+        match self.pids.vmm_pid {
+            None => Err(anyhow!("empty pid from vmm_pid").into()),
+            Some(pid) => Ok(pid),
         }
-        let pid = read_file(&*self.config.pid_file).await.and_then(|x| {
-            x.trim()
-                .parse::<u32>()
-                .map_err(|e| anyhow!("failed to parse qemu.pid, {}", e).into())
-        })?;
-        Ok(pid)
     }
 
     async fn hot_attach_device<T: QemuHotAttachable + Sync + Send + 'static>(

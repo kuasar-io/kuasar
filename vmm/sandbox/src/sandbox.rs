@@ -263,11 +263,11 @@ where
                 sandbox
                     .sandbox_cgroups
                     .add_process_into_sandbox_cgroups(vmm_pid, Some(vcpu_threads))?;
-                // move the virtiofsd process into sandbox cgroup
-                if let Some(virtiofsd_pid) = sandbox.vm.pids().virtiofsd_pid {
+                // move all vmm-related process into sandbox cgroup
+                for pid in sandbox.vm.pids().affilicated_pids {
                     sandbox
                         .sandbox_cgroups
-                        .add_process_into_sandbox_cgroups(virtiofsd_pid, None)?;
+                        .add_process_into_sandbox_cgroups(pid, None)?;
                 }
             } else {
                 return Err(Error::Other(anyhow!(
