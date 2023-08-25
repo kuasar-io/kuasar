@@ -12,10 +12,14 @@ jobs:
   checks:
     strategy:
       matrix:
-        directories: [vmm/sandbox, vmm/task, shim, wasm, quark]
+        directories: [vmm/sandbox, vmm/task, shim, quark]
+        features: [--all-features]
         include:
           - directories: wasm
+            features: --features=wasmedge
             wasmEdge: 0.11.2
+          - directories: wasm
+            features: --features=wasmtime
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -31,25 +35,28 @@ jobs:
         run: curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install.sh | bash -s -- -v ${{ matrix.wasmEdge }} >> /dev/null
       - name: Check
         working-directory: ${{ matrix.directories }}
-        run: cargo check --examples --tests --all-features
+        run: cargo check --examples --tests ${{ matrix.features }}
       - name: Nightly fmt
         working-directory: ${{ matrix.directories }}
         run: cargo +nightly fmt --all -- --check
       - name: Clippy
         working-directory: ${{ matrix.directories }}
-        run: cargo clippy --all-features -- -D warnings
+        run: cargo clippy ${{ matrix.features }} -- -D warnings
       - name: Deny
         working-directory: ${{ matrix.directories }}
-        run: cargo install cargo-deny && cargo deny -L warn --all-features check
-
+        run: cargo install cargo-deny && cargo deny -L warn ${{ matrix.features }} check
 
   tests:
     strategy:
       matrix:
-        directories: [ vmm/sandbox, vmm/task, shim, wasm, quark ]
+        directories: [vmm/sandbox, vmm/task, shim, quark]
+        features: [--all-features]
         include:
           - directories: wasm
+            features: --features=wasmedge
             wasmEdge: 0.11.2
+          - directories: wasm
+            features: --features=wasmtime
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -66,4 +73,4 @@ jobs:
         env:
           RUST_BACKTRACE: full
         working-directory: ${{ matrix.directories }}
-        run: sudo -E $(command -v cargo) test --all-features
+        run: sudo -E $(command -v cargo) test ${{ matrix.features }}
