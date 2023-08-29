@@ -35,7 +35,7 @@ use containerd_shim::{
     error::Error,
     io::Stdio,
     monitor::{Subject, Topic},
-    other_error,
+    other, other_error,
     processes::Process,
     protos::{cgroups::metrics::Metrics, shim::oci::Options, types::task::ProcessInfo},
     ExitSignal,
@@ -230,10 +230,18 @@ impl ProcessLifecycle<InitProcess> for WasmEdgeInitLifecycle {
         ))
     }
 
-    async fn stats(&self, _p: &InitProcess) -> containerd_shim::Result<Metrics> {
-        Err(Error::Unimplemented(
-            "exec not supported for wasm containers".to_string(),
-        ))
+    async fn stats(&self, p: &InitProcess) -> containerd_shim::Result<Metrics> {
+        debug!("get stats of process {}", p.pid);
+        if p.pid <= 0 {
+            return Err(other!(
+                "failed to collect metrics because init process is {}",
+                p.pid
+            ));
+        }
+        // Because Wasm Applications execute the instructions inside the host Wasm
+        // Runtime, we should read the metrics from Cgroup for the CPU, memory,
+        // and filesystem usage.
+        containerd_shim::cgroup::collect_metrics(p.pid as u32)
     }
 
     async fn ps(&self, p: &InitProcess) -> containerd_shim::Result<Vec<ProcessInfo>> {
