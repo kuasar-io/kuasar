@@ -4,5 +4,4 @@ bin
 target
 **/src/api/*
 !**/src/api/mod.rs
-shim/Cargo.lock
 vmm/common/Cargo.lock
