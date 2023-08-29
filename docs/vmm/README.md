@@ -115,6 +115,33 @@ Jul 13 15:33:41 node vmm-sandboxer[3619585]: [2023-07-13T07:33:41.644358Z ERROR 
 Jul 13 15:33:41 node vmm-sandboxer[3619585]: [2023-07-13T07:33:41.742550Z INFO  containerd_sandbox::rpc] shutdown sandbox 31e668050c2031e9e7243720eaa8264c42b0283007e419948689cac2badb71cd
 ```
 
+# Developer  Guide
+
+## Set up a debug console
+
+Kuasar vmm supports setting up a shell debug console by adding `task.debug` to kernel_params in config file, this requires the guest image to include /bin/bash.
+
+```toml
+[hypervisor]
+  kernel_params = "task.debug"
+```
+
+After starting pod, get the `vsock guest-cid` from vm process:
+
+```bash
+$ ps -ef | grep stratovirt | grep 5cbcf744949d8 
+/usr/bin/stratovirt -name sandbox-5cbcf744949d8500e7159d6bd1e3894211f475549c0be15d9c60d3c502c7ede3 ...
+-device vhost-vsock-pci,id=vsock-395568061,guest-cid=395568061,bus=pcie.0,addr=0x3,vhostfd=3 
+...
+```
+
+Then developers could enter the guest os debug console shell environment by:
+
+```bash
+# ncat --vsock <guest-cid> <debug-console>
+$ ncat --vsock 395568061 1025
+```
+
 # Note
 
 Please note that this guide only teach you how to build kuasar from source code, if you want to run the kuasar, cloud hypervisor and virtiofsd are also needed!

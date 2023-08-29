@@ -19,6 +19,7 @@ use tokio::fs::read_to_string;
 
 const SHAREFS_TYPE: &str = "task.sharefs_type";
 const LOG_LEVEL: &str = "task.log_level";
+const TASK_DEBUG: &str = "task.debug";
 
 macro_rules! parse_cmdline {
     ($param:ident, $key:ident, $field:expr) => {
@@ -40,6 +41,7 @@ macro_rules! parse_cmdline {
 pub struct TaskConfig {
     pub(crate) sharefs_type: String,
     pub(crate) log_level: String,
+    pub(crate) debug: bool,
 }
 
 impl Default for TaskConfig {
@@ -47,6 +49,7 @@ impl Default for TaskConfig {
         TaskConfig {
             sharefs_type: "9p".to_string(),
             log_level: "info".to_string(),
+            debug: false,
         }
     }
 }
@@ -62,6 +65,7 @@ impl TaskConfig {
             let param: Vec<&str> = p.split('=').collect();
             parse_cmdline!(param, SHAREFS_TYPE, config.sharefs_type, String::from);
             parse_cmdline!(param, LOG_LEVEL, config.log_level, String::from);
+            parse_cmdline!(param, TASK_DEBUG, config.debug);
         }
         Ok(config)
     }

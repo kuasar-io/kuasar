@@ -147,8 +147,7 @@ async fn main() {
             warn!("sharefs_type should be either 9p or virtiofs");
         }
     }
-    // TODO reuse log_level temporarily, maybe we should have a config named by "task.debug"
-    if config.log_level == "debug" {
+    if config.debug {
         debug!("listen vsock port 1025 for debug console");
         if let Err(e) = listen_debug_console("vsock://-1:1025").await {
             error!("failed to listen debug console port, {:?}", e);
