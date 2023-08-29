@@ -50,10 +50,12 @@ use log::{debug, error};
 use nix::{sys::signal::kill, unistd::Pid};
 use oci_spec::runtime::{LinuxResources, Process};
 use runc::{Command, Runc, Spawner};
+use serde::Deserialize;
 use tokio::{
     fs::{File, OpenOptions},
     io::{AsyncRead, AsyncReadExt, AsyncWrite},
 };
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::common::{
     check_kill_error, create_io, create_runc, CreateConfig, get_spec_from_request, INIT_PID_FILE,
@@ -181,7 +183,8 @@ impl RuncFactory {
             if let Some(s) = socket {
                 s.clean().await;
             }
-            return Err(other!("failed to create runc container: {}", e));
+            let runtime_e = runtime_error(e, &*bundle).await;
+            return Err(runtime_e);
         }
         copy_io_or_console(init, socket, pio, init.lifecycle.exit_signal.clone()).await?;
         let pid = read_file_to_str(pid_path).await?.parse::<i32>()?;
@@ -690,3 +693,31 @@ async fn wait_pid(pid: i32, s: Subscription) -> i32 {
         }
     }
 }
+
+#[derive(Deserialize)]
+struct Log {
+    level: String,
+    msg: String,
+}
+
+// runtime_error will read the OCI runtime logfile collecting runtime error
+async fn runtime_error(e: runc::error::Error, bundle: &str) -> Error {
+    let mut msg = String::new();
+    if let Ok(file) = File::open(Path::new(bundle).join("log.json")).await {
+        let mut lines = BufReader::new(file).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if let Ok(log) = serde_json::from_str::<Log>(&line) {
+                // according to golang shim, take the last runtime error as error
+                if log.level == "error" {
+                    msg = log.msg.trim().to_string();
+                }
+            }
+        }
+    }
+    if !msg.is_empty() {
+        other!("{}", msg)
+    } else {
+        other!("unable to retrieve OCI runtime error {:?}", e)
+    }
+}
+

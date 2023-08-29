@@ -1432,6 +1432,7 @@ dependencies = [
  "nix 0.25.1",
  "oci-spec",
  "runc",
+ "serde",
  "serde_json",
  "signal-hook-tokio",
  "time",
