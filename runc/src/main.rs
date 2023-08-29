@@ -25,6 +25,7 @@ async fn main() -> anyhow::Result<()> {
             .expect("new signal failed");
         handle_signals(signals).await;
     });
+    prctl::set_child_subreaper(true).unwrap();
 
     let sandboxer = RuncSandboxer::default();
     containerd_sandbox::run("runc-sandboxer", sandboxer)
@@ -56,7 +57,7 @@ async fn handle_signals(signals: Signals) {
                             .await
                             .unwrap_or_else(|e| error!("failed to send signal event {}", e))
                     }
-                    Err(Errno::ECHILD) => {
+                    Err(Errno::ECHILD) | Ok(WaitStatus::StillAlive) => {
                         break;
                     }
                     Err(e) => {

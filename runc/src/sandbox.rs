@@ -14,11 +14,20 @@ use containerd_shim::processes::Process;
 use containerd_shim::protos::shim_async::create_task;
 use containerd_shim::protos::ttrpc::asynchronous::Server;
 use log::debug;
+use nix::errno::Errno;
+use nix::fcntl::OFlag;
+use nix::sched::{CloneFlags, setns, unshare};
+use nix::sys::signal::{kill, Signal};
+use nix::sys::stat::Mode;
+use nix::unistd::{fork, ForkResult, pause, Pid, close};
 use tokio::fs::create_dir_all;
 use tokio::sync::{Mutex, RwLock};
 use tokio::sync::mpsc::channel;
 
 use crate::runc::{RuncContainer, RuncFactory};
+use std::ffi::CString;
+use prctl::PrctlMM;
+use nix::NixPath;
 
 #[derive(Default)]
 pub struct RuncSandboxer {
@@ -112,6 +121,10 @@ impl RuncSandbox {
                 .await
                 .map_err(|e| anyhow!("failed to shutdown task server, {}", e))?;
         }
+        if let SandboxStatus::Running(pid) = self.status {
+            kill(Pid::from_raw(pid as i32), Signal::SIGKILL)
+                .map_err(|e| anyhow!("failed to kill sandbox process {}", e))?;
+        }
         let ts = time::OffsetDateTime::now_utc().unix_timestamp_nanos();
         self.status = SandboxStatus::Stopped(0, ts);
         self.exit_signal.signal();
@@ -132,7 +145,37 @@ impl RuncSandbox {
             .await
             .map_err(|e| anyhow!("failed to start task server, {}", e))?;
         self.server = Some(server);
-        self.status = SandboxStatus::Running(0);
+        unsafe {
+            match fork().map_err(|e| Error::Other(e.into()))? {
+                ForkResult::Parent { child } => {
+                    self.status = SandboxStatus::Running(child.as_raw() as u32);
+                }
+                ForkResult::Child => {
+                    let me = procfs::process::Process::myself().unwrap();
+                    for fd in me.fd().unwrap() {
+                        if let Ok(fd) = fd {
+                            close(fd.fd).unwrap_or_default();
+                        }
+                    }
+                    let comm = format!("[sandbox-{}]", self.id);
+                    let comm_cstr = CString::new(comm).unwrap();
+                    let addr = comm_cstr.as_ptr();
+                    prctl::set_mm(PrctlMM::PR_SET_MM_ARG_START, addr as u64).unwrap();
+                    prctl::set_mm(PrctlMM::PR_SET_MM_ARG_END, addr as u64 + comm_cstr.len() as u64 + 1).unwrap();
+                    if !self.data.netns.is_empty() {
+                        // TODO
+                        let netns_fd =
+                            nix::fcntl::open(&*self.data.netns, OFlag::O_CLOEXEC, Mode::empty()).unwrap();
+                        setns(netns_fd, CloneFlags::CLONE_NEWNET).unwrap();
+                    }
+                    unshare(CloneFlags::CLONE_NEWIPC | CloneFlags::CLONE_NEWUTS | CloneFlags::CLONE_NEWPID).unwrap();
+                    loop {
+                        pause();
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
