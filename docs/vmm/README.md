@@ -1,11 +1,11 @@
 # Architecture
-Kuasar-sandboxer is a sandboxer plugin of containerd. a sandboxer is a component of containerd for container sandbox lifecycle management. A sandbox should provide a set of task API to containerd for container lifecycle management. the `containerd-task-kuasar` the PID 1 process running in the vm launched by vmm-sandboxer, it provides task API with the vsock connection.
+Kuasar-sandboxer is a sandboxer plugin of containerd. a sandboxer is a component of containerd for container sandbox lifecycle management. A sandbox should provide a set of task API to containerd for container lifecycle management. the `vmm-task` the PID 1 process running in the vm launched by vmm-sandboxer, it provides task API with the vsock connection.
 ![](images/arch.png)
 
 # Installation Guide
 
 ## Prerequisites
-kuasar should be running on bare metal of x86_64 arch, HostOS should be linux with of 4.8 or higher, with hypervisor installed(qemu support currently, and cloud-hypervisor will be supported soon), Containerd with CRI plugin is also required. rust toolchains is required for compiling the source.
+kuasar should be running on bare metal of x86_64 arch, HostOS should be linux of 4.8 or higher, with hypervisor installed(qemu/stratovirt/cloud-hypervisor supported), Containerd with CRI plugin is also required. rust toolchains is required for compiling the source.
 
 ## Building from source
 
@@ -100,7 +100,7 @@ OPTIONS='--listen /run/vmm-sandboxer.sock --dir /run/kuasar-vmm'
 
 ## Get kuasar-vmm service log
 
-Since `vmm-sandboxer` daemon process is run as a `kuasar-vmm` systemd service, vmm-sandboxer's stdout/stderr outputs will be collected by systemd-journald journal service.
+Since `vmm-sandboxer` daemon process is running as a `kuasar-vmm` systemd service, vmm-sandboxer's stdout/stderr outputs will be collected by systemd-journald journal service.
 
 So you can use the `journalctl` command to get vmm-sandboxer process log:
 ```bash
@@ -144,4 +144,4 @@ $ ncat --vsock 395568061 1025
 
 # Note
 
-Please note that this guide only teach you how to build kuasar from source code, if you want to run the kuasar, cloud hypervisor and virtiofsd are also needed!
+Please note that this guide only teach you how to build kuasar from source code, if you want to run the kuasar, hypervisor and virtiofsd are also needed!
