@@ -81,5 +81,7 @@ install-wasm:
 
 install-quark:
 	@install -p -m 550 bin/quark-sandboxer ${DEST_DIR}${BIN_DIR}/quark-sandboxer
+	@install -d -m 750 ${DEST_DIR}${SYSTEMD_SERVICE_DIR}
+	@install -p -m 640 quark/service/kuasar-quark.service ${DEST_DIR}${SYSTEMD_SERVICE_DIR}/kuasar-quark.service
 
 install: all install-vmm install-wasm install-quark
