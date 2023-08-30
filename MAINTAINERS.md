@@ -16,5 +16,16 @@ Please keep the below list sorted in ascending order.
 | Shaobao Feng             | @abel-von         | Huawei                         | <fshb1988@gmail.com>      |
 | Tianyang (Burning) Zhang | @Burning1020      | Huawei                         | <burning9699@gmail.com>   |
 | Tuo Xie                  | @xietuo           | Huawei                         | <xietuo@huawei.com>       |
-| Yulin Sun                | @QuarkContainer   | QuarkSoft                      | <sunyulin728@gmail.com>   |
+| Yulin Sun                | @sunyulin728      | QuarkSoft                      | <sunyulin728@gmail.com>   |
 | Zefeng (Kevin) Wang      | @kevin-wangzefeng | Huawei                         | <wangzefeng@huawei.com>   |
+
+# Teams
+| Team                       | Member                                                                                   |
+|----------------------------|------------------------------------------------------------------------------------------|
+| maintainers                | @Vanient, @luohl364218, @flyflypeng, @abel-von, @Burning1020, @xietuo, @kevin-wangzefeng |
+| appkernel-approvers        | @abel-von, @sunyulin728                                                                  |
+| docs-approvers             | @Vanient, @luohl364218, @flyflypeng, @abel-von, @Burning1020, @kevin-wangzefeng          |
+| shim-approvers             | @Burning1020, @xietuo                                                                    |
+| tests-and-builds-approvers | @Vanient, @flyflypeng, @quincyliu001, @Burning1020, @xietuo                              |
+| vmm-approvers              | @Vanient, @flyflypeng, @abel-von, @Burning1020, @xietuo                                  |
+| wasm-approvers             | @hydai, @juntao, @abel-von                                                               |
