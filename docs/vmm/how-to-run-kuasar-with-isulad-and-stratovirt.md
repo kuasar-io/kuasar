@@ -14,7 +14,7 @@
   $ yum install stratovirt
   ```
 
-- If you use another Linux distribution OS, you can build the StratoVirt from the source and install it: [Build StratoVirt](https://gitee.com/openeuler/stratovirt/blob/master/README.md#build-stratovirt)
+- If you use another Linux distribution OS, you can build the stratovirt from the source and install it: [Build StratoVirt](https://gitee.com/openeuler/stratovirt/blob/master/README.md#build-stratovirt)
 
 - After you build or install the stratovirt package, you can find the following important binary file in your sever:
   ```bash
@@ -33,7 +33,7 @@
 
 Kuasar use  `docker` or `containerd` container engine to build guest os initrd image, so you need to **make sure `docker` or `containerd` is correctly installed and can pull the image from the dockerhub registries**. 
 
-> Tips: `make vmm` build command will download the Rust and Golang packages from the internet network, so you need to provide the `http_proxy` and `https_proxy` environments for the `make all` command.
+> Tips: `make vmm` build command will download the Rust and Golang packages from the internet, so you need to provide the `http_proxy` and `https_proxy` environments for the `make all` command.
 >
 > If a self-signed certificate is used in the `make all` build command execution environment, you may encounter SSL issues with downloading resources from https URL failed. Therefore, you need to provide a CA-signed certificate and copy it into the root directory of the Kuasar project, then rename it as "proxy.crt". In this way, our build script will use the "proxy.crt" certificate to access the https URLs of Rust and Golang installation packages.
 
@@ -64,25 +64,17 @@ After installation, you will find the required files in the specified path
 
 ## Build and configure iSulad
 
-[iSulad](https://gitee.com/openeuler/iSulad) supports Kuasar with its dev-sandbox branch at the moment. For building iSulad from scratch, please refer to [iSulad build guide](https://gitee.com/openeuler/iSulad/blob/master/docs/build_docs/guide/build_guide.md). Here we only emphasize the difference of the building steps.
- 
+[iSulad](https://gitee.com/openeuler/iSulad) supports Kuasar with its master branch at the moment. For building iSulad from scratch, please refer to [iSulad build guide](https://gitee.com/openeuler/iSulad/blob/master/docs/build_docs/guide/build_guide.md). Here we only emphasize the difference of the building steps.
+
 ### Build LCR
 
 ```bash
 $ git clone https://gitee.com/openeuler/lcr.git
-
 $ cd lcr
-
-$ git checkout dev-sandbox
-
 $ mkdir build
-
 $ cd build
-
 $ sudo -E cmake ..
-
 $ sudo -E make -j $(nproc)
-
 $ sudo -E make install
 ```
 
@@ -90,19 +82,11 @@ $ sudo -E make install
 
 ```bash
 $ git clone https://gitee.com/openeuler/iSulad.git
-
 $ cd iSulad
-
-$ git checkout dev-sandbox
-
 $ mkdir build
-
 $ cd build
-
-$ sudo -E cmake .. -D ENABLE_SANDBOX=ON -D ENABLE_SHIM_V2=ON
-
+$ sudo -E cmake .. -DENABLE_CRI_API_V1=ON -DENABLE_SHIM_V2=ON -DENABLE_SANDBOXER=ON
 $ sudo make -j
-
 $ sudo -E make install
 ```
 
@@ -111,11 +95,10 @@ Add the following configuration in the iSulad configuration file `/etc/isulad/da
 ```json
 ...
     "default-sandboxer": "vmm",
-    "sandboxers": {
+    "cri-sandboxers": {
         "vmm": {
-            "address": "/run/vmm-sandboxer.sock",
-            "controller": "proxy",
-            "protocol": "grpc"
+            "name": "vmm",
+            "address": "/run/vmm-sandboxer.sock"
         }
     },
     "cri-runtimes": {
@@ -128,17 +111,13 @@ Add the following configuration in the iSulad configuration file `/etc/isulad/da
 
 ### Build containerd
 
-Sine some code have not been merged into the upstream containerd community, so you need to manually compile the containerd source code in the [kuasar-io/containerd](https://github.com/kuasar-io/containerd.git)
-. 
+Sine some code have not been merged into the upstream containerd community, so you need to manually compile the containerd source code in the [kuasar-io/containerd](https://github.com/kuasar-io/containerd.git). 
 
 git clone the codes of containerd fork version from kuasar repository.
 ```bash
 $ git clone https://github.com/kuasar-io/containerd.git
-
 $ cd containerd
-
 $ make bin/containerd
-
 $ install bin/containerd /usr/bin/containerd
 ```
 
@@ -177,12 +156,12 @@ tar -zxvf cni-plugins-linux-arm64-v1.2.0.tgz -C /opt/cni/bin/
 
 ```bash
 VERSION="v1.15.0" # check latest version in /releases page
-wget https://github.com/kubernetes-sigs/cri-tools/releases/download/$VERSION/crictl-$VERSION-linux-amd64.tar.gz
-sudo tar zxvf crictl-$VERSION-linux-amd64.tar.gz -C /usr/local/bin
-rm -f crictl-$VERSION-linux-amd64.tar.gz
+wget https://github.com/kubernetes-sigs/cri-tools/releases/download/$VERSION/crictl-$VERSION-linux-arm64.tar.gz
+sudo tar zxvf crictl-$VERSION-linux-arm64.tar.gz -C /usr/local/bin
+rm -f crictl-$VERSION-linux-arm64.tar.gz
 ```
 
-create and the crictl config file in the `/etc/crictl.yaml`
+create the crictl config file in the `/etc/crictl.yaml`
 ```bash
 cat /etc/crictl.yaml
 # isulad container engine configuraiton
@@ -202,21 +181,36 @@ timeout: 10
 The default config file `/var/lib/kuasar/config_stratovirt.toml` for stratovirt vmm-sandboxer:
 ```toml
   [sandbox]
+  # set kuasar log level, (default: info)
+  log_level = "info"
 
-  [hypervisor]                                                                                                               
-  path = "/usr/bin/stratovirt"                                                                                               
-  machine_type = "virt,mem-share=on"                                                                                         
-  kernel_path = "/var/lib/kuasar/vmlinux.bin"                                                                                     
-  image_path = ""                                                                                                            
-  initrd_path = "/var/lib/kuasar/kuasar.initrd"                                              
-  kernel_params = "task.log_level=debug task.sharefs_type=virtiofs"                                                          
-  vcpus = 1                                                                                                                  
-  memory_in_mb = 1024                                                                                                        
-  block_device_driver = "virtio-blk"                                                                                         
+  [hypervisor]
+  # set stratovirt binary path, (default: stratovirt)
+  path = "/usr/bin/stratovirt"
+  # set the type of the analog chip, "virt" for ARM architecture and "q35" for x86 architecture, (default: virt)
+  machine_type = "virt,mem-share=on"
+  # set guest kernel path, (default: /var/lib/kuasar/vmlinux.bin)
+  kernel_path = "/var/lib/kuasar/vmlinux.bin"
+  # set guest image path, (default: "")
+  image_path = ""
+  # set guest initrd path, select either image or image, (default: "")
+  initrd_path = "/var/lib/kuasar/kuasar.initrd"
+  # set parameters of the guest kernel, (default: "")
+  kernel_params = "task.log_level=debug task.sharefs_type=virtiofs"
+  # set number of vcpus for each sandbox, (default: 1)
+  vcpus = 1
+  # set memory size for each sandbox, (default: 1024)
+  memory_in_mb = 1024
+  # set the drivers of block devices, (default: virtio-blk)
+  block_device_driver = "virtio-blk"       
+  # set whether to enable debug mode, (default: false)
   debug = true
+  # enable VM RAM pre-allocation, (default: false)
+  enable_mem_prealloc = false
   
-  [hypervisor.virtiofsd_conf]                                                                                                
-  path = "/usr/bin/vhost_user_fs
+  [hypervisor.virtiofsd_conf]
+  # set vhost_user_fs path, (default: /usr/bin/vhost_user_fs)
+  path = "/usr/bin/vhost_user_fs"
 ```
 
 ### Start containerd process
@@ -226,11 +220,10 @@ The default config file `/var/lib/kuasar/config_stratovirt.toml` for stratovirt 
 $ ENABLE_CRI_SANDBOXES=1 ./bin/containerd
 ```
 
-### Start StratoVirt vmm-sandboxer process
+### Run kuasar-vmm service
 
 ```bash
-# TODO: create a vmm-sandboxer systemd service
-$ RUST_LOG=debug ./bin/vmm-sandboxer --listen /run/vmm-sandboxer.sock --dir /kuasar
+$ systemctl start kuasar-vmm
 ```
 
 ### Run pod sandbox with config file
