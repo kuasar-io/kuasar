@@ -162,8 +162,11 @@ fn merge_resources(
 
     LinuxContainerResources {
         cpu_period: resource1.cpu_period,
-        cpu_quota: resource1.cpu_quota
-            + resource2.cpu_quota * resource1.cpu_period / resource2.cpu_period,
+        cpu_quota: if resource2.cpu_period != 0 {
+            resource1.cpu_quota + resource2.cpu_quota * resource1.cpu_period / resource2.cpu_period
+        } else {
+            resource1.cpu_quota
+        },
         cpu_shares: resource1.cpu_shares + resource2.cpu_shares,
         memory_limit_in_bytes: resource1.memory_limit_in_bytes + resource2.memory_limit_in_bytes,
         oom_score_adj,
