@@ -1561,6 +1561,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "byteorder",
  "containerd-sandbox",
  "containerd-shim",
  "env_logger",
@@ -1568,6 +1569,7 @@ dependencies = [
  "log",
  "nix 0.25.1",
  "oci-spec",
+ "os_pipe",
  "prctl",
  "procfs",
  "runc",

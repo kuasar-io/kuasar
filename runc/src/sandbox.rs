@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ffi::CString;
 use std::sync::Arc;
 
 use anyhow::anyhow;
@@ -16,23 +17,26 @@ use containerd_shim::protos::ttrpc::asynchronous::Server;
 use log::debug;
 use nix::errno::Errno;
 use nix::fcntl::OFlag;
+use nix::NixPath;
 use nix::sched::{CloneFlags, setns, unshare};
 use nix::sys::signal::{kill, Signal};
 use nix::sys::stat::Mode;
-use nix::unistd::{fork, ForkResult, pause, Pid, close};
+use nix::unistd::{close, fork, ForkResult, pause, Pid};
+use os_pipe::{PipeReader, PipeWriter};
+use prctl::PrctlMM;
 use tokio::fs::create_dir_all;
 use tokio::sync::{Mutex, RwLock};
 use tokio::sync::mpsc::channel;
 
 use crate::runc::{RuncContainer, RuncFactory};
-use std::ffi::CString;
-use prctl::PrctlMM;
-use nix::NixPath;
+use std::io::{Write, Read};
+use std::os::fd::RawFd;
+use crate::{write_all, read_count};
 
-#[derive(Default)]
 pub struct RuncSandboxer {
     #[allow(clippy::type_complexity)]
     pub(crate) sandboxes: Arc<RwLock<HashMap<String, Arc<Mutex<RuncSandbox>>>>>,
+    sandbox_parent: Arc<Mutex<SandboxParent>>,
 }
 
 pub struct RuncSandbox {
@@ -52,6 +56,50 @@ pub struct RuncContainerData {
 impl Container for RuncContainerData {
     fn get_data(&self) -> Result<ContainerData> {
         Ok(self.data.clone())
+    }
+}
+
+pub struct SandboxParent {
+    req: RawFd,
+    resp: RawFd,
+}
+
+impl SandboxParent {
+    pub fn new(req: RawFd, resp: RawFd) -> Self {
+        Self {
+            req,
+            resp,
+        }
+    }
+    pub fn fork_sandbox_process(&mut self, id: &str, netns: &str) -> Result<i32> {
+        let mut req = [0u8; 512];
+        use std::io::Write;
+        unsafe {
+            (&mut req[0..64]).write_all(id.as_bytes())?;
+            (&mut req[64..]).write_all(netns.as_bytes())?;
+        }
+        write_all(self.req, &req)?;
+        let mut resp = [0u8;4];
+        let mut r = read_count(self.resp, 4)?;
+        resp[..].copy_from_slice(r.as_slice());
+        let pid = i32::from_le_bytes(resp);
+        Ok(pid)
+    }
+}
+
+impl Drop for SandboxParent {
+    fn drop(&mut self) {
+        close(self.req).unwrap_or_default();
+        close(self.resp).unwrap_or_default();
+    }
+}
+
+impl RuncSandboxer {
+    pub fn new(sandbox_parent: SandboxParent) -> Self {
+        Self {
+            sandboxes: Default::default(),
+            sandbox_parent: Arc::new(Mutex::new(sandbox_parent)),
+        }
     }
 }
 
@@ -79,7 +127,10 @@ impl Sandboxer for RuncSandboxer {
 
     async fn start(&self, id: &str) -> Result<()> {
         let sandbox = self.sandbox(id).await?;
-        sandbox.lock().await.start().await?;
+        let mut sandbox = sandbox.lock().await;
+        let mut sandbox_parent = self.sandbox_parent.lock().await;
+        let sandbox_pid = sandbox_parent.fork_sandbox_process(id, &sandbox.data.netns)?;
+        sandbox.status = SandboxStatus::Running(sandbox_pid as u32);
         Ok(())
     }
 
@@ -145,37 +196,6 @@ impl RuncSandbox {
             .await
             .map_err(|e| anyhow!("failed to start task server, {}", e))?;
         self.server = Some(server);
-        unsafe {
-            match fork().map_err(|e| Error::Other(e.into()))? {
-                ForkResult::Parent { child } => {
-                    self.status = SandboxStatus::Running(child.as_raw() as u32);
-                }
-                ForkResult::Child => {
-                    let me = procfs::process::Process::myself().unwrap();
-                    for fd in me.fd().unwrap() {
-                        if let Ok(fd) = fd {
-                            close(fd.fd).unwrap_or_default();
-                        }
-                    }
-                    let comm = format!("[sandbox-{}]", self.id);
-                    let comm_cstr = CString::new(comm).unwrap();
-                    let addr = comm_cstr.as_ptr();
-                    prctl::set_mm(PrctlMM::PR_SET_MM_ARG_START, addr as u64).unwrap();
-                    prctl::set_mm(PrctlMM::PR_SET_MM_ARG_END, addr as u64 + comm_cstr.len() as u64 + 1).unwrap();
-                    if !self.data.netns.is_empty() {
-                        // TODO
-                        let netns_fd =
-                            nix::fcntl::open(&*self.data.netns, OFlag::O_CLOEXEC, Mode::empty()).unwrap();
-                        setns(netns_fd, CloneFlags::CLONE_NEWNET).unwrap();
-                    }
-                    unshare(CloneFlags::CLONE_NEWIPC | CloneFlags::CLONE_NEWUTS | CloneFlags::CLONE_NEWPID).unwrap();
-                    loop {
-                        pause();
-                    }
-                }
-            }
-        }
-
         Ok(())
     }
 
