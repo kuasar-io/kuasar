@@ -103,7 +103,7 @@ async fn should_kill_all_on_exit(bundle_path: &str) -> bool {
                 "failed to read spec when call should_kill_all_on_exit: {}",
                 e
             );
-            false
+            true
         }
     }
 }
@@ -122,5 +122,22 @@ pub fn has_shared_pid_namespace(spec: &Spec) -> bool {
                 true
             }
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use crate::task::should_kill_all_on_exit;
+
+    #[tokio::test]
+    async fn test_should_kill_all_on_exit_when_no_path() {
+        let path = "fake-path";
+        // fake-path should not exist
+        assert!(!Path::new(path).exists());
+
+        // return true if path not exist
+        assert!(should_kill_all_on_exit(path).await);
     }
 }
