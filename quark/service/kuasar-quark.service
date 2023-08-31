@@ -1,0 +1,16 @@
+[Unit]
+Description=Kuasar Quark sandboxer daemon process
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/quark-sandboxer --listen /run/quark-sandboxer.sock --dir /var/lib/kuasar-quark
+ExecReload=/bin/kill -s HUP $MAINPID
+LimitNOFILE=1048576
+LimitNPROC=infinity
+LimitCORE=infinity
+Delegate=yes
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
