@@ -36,8 +36,7 @@ pub(crate) const MACHINE_TYPE_PSERIES: &str = "pseries";
 pub(crate) const MACHINE_TYPE_CCW_VIRTIO: &str = "s390-ccw-virtio";
 
 const DEFAULT_STRATOVIRT_PATH: &str = "/usr/bin/stratovirt";
-const DEFAULT_KERNEL_PARAMS: &str =
-    "console=hvc0 console=hvc1 iommu=off debug panic=1 pcie_ports=native";
+const DEFAULT_KERNEL_PARAMS: &str = "console=hvc0 console=hvc1 iommu=off panic=1 pcie_ports=native";
 
 #[cfg(target_arch = "x86_64")]
 const ROOTFS_KERNEL_PARAMS: &str = " root=/dev/vda ro rootfstype=ext4";
@@ -129,6 +128,10 @@ impl StratoVirtVMConfig {
 
         if !self.common.image_path.is_empty() {
             result.kernel.kernel_params.push_str(ROOTFS_KERNEL_PARAMS);
+        }
+
+        if self.common.debug {
+            result.kernel.kernel_params.push_str(" debug task.debug");
         }
 
         result.global_params = vec![Global {
@@ -301,7 +304,7 @@ mod tests {
             "-initrd",
             "/var/lib/kuasar/initrd",
             "-append",
-            "console=hvc0 console=hvc1 iommu=off debug panic=1 pcie_ports=native",
+            "console=hvc0 console=hvc1 iommu=off panic=1 pcie_ports=native",
             "-smp",
             "cpus=1",
             "-m",
@@ -344,7 +347,7 @@ mod tests {
 
         println!("params: {:?}", params);
         let append_params = format!(
-            "console=hvc0 console=hvc1 iommu=off debug panic=1 pcie_ports=native{}",
+            "console=hvc0 console=hvc1 iommu=off panic=1 pcie_ports=native{}",
             ROOTFS_KERNEL_PARAMS
         );
         let expected_params = vec![

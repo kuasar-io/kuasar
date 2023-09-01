@@ -69,7 +69,9 @@ impl VMFactory for StratoVirtVMFactory {
         vm.config.name = format!("sandbox-{}", id);
         vm.config.pid_file = format!("{}/sandbox-{}.pid", s.base_dir, id);
         vm.block_driver = BlockDriver::from(self.default_config.block_device_driver.as_str());
-        vm.config.log_file = Some(format!("{}/sandbox-{}.log", s.base_dir, id));
+        if self.default_config.common.debug {
+            vm.config.log_file = Some(format!("{}/sandbox-{}.log", s.base_dir, id));
+        }
 
         // set qmp socket
         vm.config.qmp_socket = Some(QmpSocket {
