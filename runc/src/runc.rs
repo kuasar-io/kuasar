@@ -68,17 +68,7 @@ pub type InitProcess = ProcessTemplate<RuncInitLifecycle>;
 pub type RuncContainer = ContainerTemplate<InitProcess, ExecProcess, RuncExecFactory>;
 
 #[derive(Clone, Default)]
-pub(crate) struct RuncFactory {
-    netns: String,
-}
-
-impl RuncFactory {
-    pub fn new(netns: &str) -> Self {
-        Self {
-            netns: netns.to_string()
-        }
-    }
-}
+pub(crate) struct RuncFactory;
 
 #[async_trait]
 impl ContainerFactory<RuncContainer> for RuncFactory {

@@ -2,6 +2,7 @@ use std::ffi::CString;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::os::fd::RawFd;
+use std::path::Path;
 use std::process::{exit, id};
 
 use anyhow::anyhow;
@@ -15,17 +16,20 @@ use nix::{errno::Errno, libc, NixPath, sys::{
 }, unistd::Pid};
 use nix::fcntl::{fcntl, FcntlArg, FdFlag, OFlag};
 use nix::sched::{CloneFlags, setns, unshare};
-use nix::sys::signal::{SaFlags, SigAction, SigHandler, SigSet, sigaction, SIGCHLD};
+use nix::sys::signal::{SaFlags, SigAction, sigaction, SIGCHLD, SigHandler, SigSet};
 use nix::sys::stat::Mode;
 use nix::unistd::{close, fork, ForkResult, pause, pipe, read, write};
 use prctl::PrctlMM;
 use signal_hook_tokio::Signals;
+use tokio::fs::create_dir_all;
 
 use crate::sandbox::{RuncSandboxer, SandboxParent};
 
 mod sandbox;
 mod runc;
 mod common;
+
+pub const TASK_ADDRESS_SOCK: &str = "/run/kuasar/task.sock";
 
 fn main() {
     env_logger::builder().format_timestamp_micros().init();
@@ -60,9 +64,9 @@ fn fork_sandbox_parent() -> Result<SandboxParent, anyhow::Error> {
             let sig_action = SigAction::new(
                 SigHandler::Handler(sandbox_parent_handle_signals),
                 SaFlags::empty(),
-                SigSet::empty()
+                SigSet::empty(),
             );
-            unsafe {sigaction(SIGCHLD, &sig_action).unwrap();}
+            unsafe { sigaction(SIGCHLD, &sig_action).unwrap(); }
             loop {
                 let buffer = read_count(reqr, 512).unwrap();
                 let id = String::from_utf8_lossy(&buffer[0..64]).to_string();
@@ -151,11 +155,11 @@ fn fork_sandbox(id: &str, netns: &str) -> Result<i32, anyhow::Error> {
 }
 
 fn set_process_comm(addr: u64, len: u64) {
-    if let Err(_)  = prctl::set_mm(PrctlMM::PR_SET_MM_ARG_START, addr) {
+    if let Err(_) = prctl::set_mm(PrctlMM::PR_SET_MM_ARG_START, addr) {
         prctl::set_mm(PrctlMM::PR_SET_MM_ARG_END, addr + len).unwrap();
         prctl::set_mm(PrctlMM::PR_SET_MM_ARG_START, addr).unwrap()
     } else {
-        prctl::set_mm(PrctlMM::PR_SET_MM_ARG_END,  addr + len).unwrap();
+        prctl::set_mm(PrctlMM::PR_SET_MM_ARG_END, addr + len).unwrap();
     }
 }
 
@@ -166,8 +170,17 @@ async fn start_sandboxer(sandbox_parent: SandboxParent) -> anyhow::Result<()> {
         handle_signals(signals).await;
     });
     prctl::set_child_subreaper(true).unwrap();
-
-    let sandboxer = RuncSandboxer::new(sandbox_parent);
+    let sock_path = Path::new(TASK_ADDRESS_SOCK);
+    if sock_path.exists() {
+        tokio::fs::remove_file(sock_path).await?;
+    }
+    if let Some(sock_parent) = sock_path.parent() {
+        create_dir_all(sock_parent)
+            .await
+            .map_err(|e| anyhow!("failed to create {}, {}", sock_parent.display(), e))?;
+    }
+    let sock_addr = format!("unix://{}", TASK_ADDRESS_SOCK);
+    let sandboxer = RuncSandboxer::new(sandbox_parent, &sock_addr).await?;
     containerd_sandbox::run("runc-sandboxer", sandboxer)
         .await
         .unwrap();

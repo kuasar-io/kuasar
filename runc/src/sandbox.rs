@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 use std::ffi::CString;
+use std::io::{Read, Write};
+use std::os::fd::RawFd;
 use std::sync::Arc;
 
 use anyhow::anyhow;
@@ -28,14 +30,14 @@ use tokio::fs::create_dir_all;
 use tokio::sync::{Mutex, RwLock};
 use tokio::sync::mpsc::channel;
 
+use crate::{read_count, write_all};
 use crate::runc::{RuncContainer, RuncFactory};
-use std::io::{Write, Read};
-use std::os::fd::RawFd;
-use crate::{write_all, read_count};
 
 pub struct RuncSandboxer {
     #[allow(clippy::type_complexity)]
     pub(crate) sandboxes: Arc<RwLock<HashMap<String, Arc<Mutex<RuncSandbox>>>>>,
+    task_address: String,
+    server: Server,
     sandbox_parent: Arc<Mutex<SandboxParent>>,
 }
 
@@ -79,7 +81,7 @@ impl SandboxParent {
             (&mut req[64..]).write_all(netns.as_bytes())?;
         }
         write_all(self.req, &req)?;
-        let mut resp = [0u8;4];
+        let mut resp = [0u8; 4];
         let mut r = read_count(self.resp, 4)?;
         resp[..].copy_from_slice(r.as_slice());
         let pid = i32::from_le_bytes(resp);
@@ -95,11 +97,23 @@ impl Drop for SandboxParent {
 }
 
 impl RuncSandboxer {
-    pub fn new(sandbox_parent: SandboxParent) -> Self {
-        Self {
+    pub async fn new(sandbox_parent: SandboxParent, task_address: &str) -> Result<Self> {
+        let task = start_task_service().await?;
+        let task_service = create_task(Arc::new(Box::new(task)));
+        let mut server = Server::new().register_service(task_service);
+        server = server
+            .bind(&task_address)
+            .map_err(|e| anyhow!("failed to bind socket {}, {}", task_address, e))?;
+        server
+            .start()
+            .await
+            .map_err(|e| anyhow!("failed to start task server, {}", e))?;
+        Ok(Self {
+            task_address: task_address.to_string(),
+            server,
             sandboxes: Default::default(),
             sandbox_parent: Arc::new(Mutex::new(sandbox_parent)),
-        }
+        })
     }
 }
 
@@ -131,6 +145,7 @@ impl Sandboxer for RuncSandboxer {
         let mut sandbox_parent = self.sandbox_parent.lock().await;
         let sandbox_pid = sandbox_parent.fork_sandbox_process(id, &sandbox.data.netns)?;
         sandbox.status = SandboxStatus::Running(sandbox_pid as u32);
+        sandbox.data.task_address = self.task_address.clone();
         Ok(())
     }
 
@@ -180,46 +195,6 @@ impl RuncSandbox {
         self.status = SandboxStatus::Stopped(0, ts);
         self.exit_signal.signal();
         Ok(())
-    }
-
-    async fn start(&mut self) -> Result<()> {
-        let task = self.start_task_service().await?;
-        let task_address = format!("unix://{}/task.sock", self.base_dir);
-        self.data.task_address = task_address.clone();
-        let task_service = create_task(Arc::new(Box::new(task)));
-        let mut server = Server::new().register_service(task_service);
-        server = server
-            .bind(&task_address)
-            .map_err(|e| anyhow!("failed to bind socket {}, {}", task_address, e))?;
-        server
-            .start()
-            .await
-            .map_err(|e| anyhow!("failed to start task server, {}", e))?;
-        self.server = Some(server);
-        Ok(())
-    }
-
-    async fn start_task_service(
-        &self,
-    ) -> Result<TaskService<RuncFactory, RuncContainer>> {
-        let (tx, mut rx) = channel(128);
-        let factory = RuncFactory::new(&self.data.netns);
-        let task = TaskService {
-            factory,
-            containers: Arc::new(Default::default()),
-            namespace: "k8s.io".to_string(),
-            exit: Arc::new(Default::default()),
-            tx: tx.clone(),
-        };
-
-        process_exits(&task).await;
-
-        tokio::spawn(async move {
-            while let Some((_topic, e)) = rx.recv().await {
-                debug!("received event {:?}", e);
-            }
-        });
-        Ok(task)
     }
 }
 
@@ -312,4 +287,25 @@ pub async fn process_exits<F>(task: &TaskService<F, RuncContainer>) {
             }
         }
     });
+}
+
+async fn start_task_service() -> Result<TaskService<RuncFactory, RuncContainer>> {
+    let (tx, mut rx) = channel(128);
+    let factory = RuncFactory::default();
+    let task = TaskService {
+        factory,
+        containers: Arc::new(Default::default()),
+        namespace: "k8s.io".to_string(),
+        exit: Arc::new(Default::default()),
+        tx: tx.clone(),
+    };
+
+    process_exits(&task).await;
+
+    tokio::spawn(async move {
+        while let Some((_topic, e)) = rx.recv().await {
+            debug!("received event {:?}", e);
+        }
+    });
+    Ok(task)
 }
