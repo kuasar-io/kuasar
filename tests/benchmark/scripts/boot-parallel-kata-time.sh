@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-#PARALLEL is the number of container
+# PARALLEL is the number of container
 PARALLEL=50
 workdir=$(dirname "$(pwd)")
 RAW=${workdir}/data/raw
@@ -39,11 +39,11 @@ function getTiming(){
 
 once_test(){
 
-#Kill all pods to prevent interference with testing
+# Kill all pods to prevent interference with testing
 crictl rm -f -a
 crictl rmp -f -a
 
-#Create $PARALLEL container.json and pod.json
+# Create $PARALLEL container.json and pod.json
 for((i=0;i<$PARALLEL;i++))
 do
     cat > $workdir/json/container/container_$i.json << EOF
@@ -91,7 +91,7 @@ EOF
 EOF
 done
 
-#Start timing
+# Start timing
 start_time=$(date +%s.%N)
 
 for((i=0;i<$PARALLEL;i++))
@@ -101,7 +101,7 @@ done
 
 end_time=$(date +%s.%N)
 
-#Wait for all the containers to finish starting
+# Wait for all the containers to finish starting
 a=`crictl ps | grep testcontainer | wc -l`
 while [ $a -ne $PARALLEL ];
 do
@@ -112,13 +112,13 @@ break
 fi
 done
 
-#End timing
+# End timing
 boot_time=$(getTiming $start_time $end_time)
 
 if [ ${boot_time} -lt 6000 ]; then
 echo "BootTime: ${boot_time}ms"
 
-#Output to the corresponding file
+# Output to the corresponding file
 echo "${boot_time}" >> ${TIME_DAT}
 fi
 

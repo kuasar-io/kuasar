@@ -13,13 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-#$num is the number of pod
+# $num is the number of pod
 num=50
 workdir=$(dirname $(cd $(dirname $0); pwd))
 mkdir -p $workdir/json/container
 mkdir -p $workdir/json/pod
 
-#remove to prevent interference with testing       
+# Remove to prevent interference with testing       
 crictl rm -f -a
 crictl rmp -f -a
 rm -f mem
@@ -81,17 +81,17 @@ do
     crictl run -r kuasar --no-pull $workdir/json/container/container_$i.json $workdir/json/pod/pod_$i.json &
 done
 
-#Wait for all the containers to finish starting
+# Wait for all the containers to finish starting
 a=`crictl ps | grep testcontainer | wc -l`
 while [ $a -ne $(($num+1)) ];
 do
 a=`crictl ps | grep testcontainer | wc -l`
 done
 
-#get pid of vmm-sandboxer
+# Get pid of vmm-sandboxer
 pid=$(ps -ef | grep -v grep | grep vmm-sandboxer | awk '{print$2}')
 
-#get Pss of vmm-sandboxer
+# Get Pss of vmm-sandboxer
 cat /proc/$pid/smaps_rollup | grep "Pss" >> mem
 
 pss_array=$(cat mem | grep -w Pss | awk '{print$2}')
