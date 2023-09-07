@@ -209,7 +209,7 @@ impl VM for StratoVirtVM {
     }
 
     async fn hot_attach(&mut self, device_info: DeviceInfo) -> Result<(BusType, String)> {
-        return match device_info {
+        match device_info {
             DeviceInfo::Block(blk_info) => {
                 let device = VirtioBlockDevice::new(
                     "",
@@ -234,7 +234,7 @@ impl VM for StratoVirtVM {
             DeviceInfo::Char(_char_info) => Err(Error::Unimplemented(
                 "hot attach for char device".to_string(),
             )),
-        };
+        }
     }
 
     async fn hot_detach(&mut self, _id: &str) -> Result<()> {
@@ -252,7 +252,7 @@ impl VM for StratoVirtVM {
     }
 
     async fn wait_channel(&self) -> Option<Receiver<(u32, i128)>> {
-        return self.wait_chan.clone();
+        self.wait_chan.clone()
     }
 
     async fn vcpus(&self) -> Result<VcpuThreads> {
