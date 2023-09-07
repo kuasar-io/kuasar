@@ -78,6 +78,8 @@ endif
 
 install-wasm:
 	@install -p -m 550 bin/wasm-sandboxer ${DEST_DIR}${BIN_DIR}/wasm-sandboxer
+	@install -d -m 750 ${DEST_DIR}${SYSTEMD_SERVICE_DIR}
+	@install -p -m 640 wasm/service/kuasar-wasm.service ${DEST_DIR}${SYSTEMD_SERVICE_DIR}/kuasar-wasm.service
 
 install-quark:
 	@install -p -m 550 bin/quark-sandboxer ${DEST_DIR}${BIN_DIR}/quark-sandboxer
