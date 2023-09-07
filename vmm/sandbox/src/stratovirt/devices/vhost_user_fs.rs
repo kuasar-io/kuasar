@@ -30,7 +30,9 @@ pub struct VhostUserFs {
     #[property(key = "chardev")]
     pub chardev_id: String,
     pub tag: String,
+    #[property(param = "device", predicate = "self.addr.len()>0")]
     pub bus: String,
+    #[property(param = "device", predicate = "self.addr.len()>0")]
     pub addr: String,
 }
 

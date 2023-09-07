@@ -92,7 +92,7 @@ pub struct StratoVirtVM {
     client: Option<QmpClient>,
     virtiofs_daemon: Option<VirtiofsDaemon>,
     #[serde(skip)]
-    pcie_root_bus: PcieRootBus,
+    pcie_root_bus: Option<PcieRootBus>,
     #[serde(skip)]
     pcie_root_ports_pool: Option<PCIERootPorts>,
 }
@@ -199,7 +199,7 @@ impl VM for StratoVirtVM {
                     .vhostfds(vec![])
                     .bus(Some(DEFAULT_PCIE_BUS.to_string()))
                     .build();
-                self.attach_to_pcie_rootbus(virtio_net_device)?;
+                self.attach_to_bus(virtio_net_device)?;
             }
             _ => {
                 todo!()
@@ -292,7 +292,7 @@ impl StratoVirtVM {
             client: None,
             virtiofs_daemon: None,
             pcie_root_ports_pool: None,
-            pcie_root_bus: PcieRootBus::default(),
+            pcie_root_bus: None,
             pids: Pids::default(),
         }
     }
@@ -435,7 +435,15 @@ impl StratoVirtVM {
     }
 
     fn get_empty_pcie_slot_index(&mut self) -> Result<usize> {
-        for (index, slot) in self.pcie_root_bus.bus.slots.iter_mut().enumerate() {
+        for (index, slot) in self
+            .pcie_root_bus
+            .as_mut()
+            .unwrap()
+            .bus
+            .slots
+            .iter_mut()
+            .enumerate()
+        {
             if let SlotStatus::Empty = slot.status {
                 return Ok(index);
             }
@@ -446,15 +454,18 @@ impl StratoVirtVM {
         ))
     }
 
-    fn attach_to_pcie_rootbus<T: StratoVirtDevice + Sync + Send + 'static>(
+    fn attach_to_bus<T: StratoVirtDevice + Sync + Send + 'static>(
         &mut self,
         mut device: T,
     ) -> Result<()> {
-        // get the empty slot index
-        let slot_index = self.get_empty_pcie_slot_index()?;
-        // set the pcie slot status to Occupied
-        self.pcie_root_bus.bus.slots[slot_index].status = SlotStatus::Occupied(device.id());
-        device.set_device_addr(slot_index);
+        if self.pcie_root_bus.is_some() {
+            // get the empty slot index
+            let slot_index = self.get_empty_pcie_slot_index()?;
+            // set the pcie slot status to Occupied
+            self.pcie_root_bus.as_mut().unwrap().bus.slots[slot_index].status =
+                SlotStatus::Occupied(device.id());
+            device.set_device_addr(slot_index);
+        }
         self.devices.push(Box::new(device));
         Ok(())
     }
@@ -480,7 +491,7 @@ impl StratoVirtVM {
                 None,
             );
             root_ports.push(root_port.clone());
-            self.attach_to_pcie_rootbus(root_port)?;
+            self.attach_to_bus(root_port)?;
         }
 
         self.pcie_root_ports_pool = Some(PCIERootPorts {

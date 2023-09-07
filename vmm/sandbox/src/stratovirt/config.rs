@@ -20,8 +20,8 @@ use sandbox_derive::{CmdLineParamSet, CmdLineParams};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    param::ToCmdLineParams, stratovirt::virtiofs::DEFAULT_VHOST_USER_FS_BIN_PATH,
-    vm::HypervisorCommonConfig,
+    device::Transport, param::ToCmdLineParams,
+    stratovirt::virtiofs::DEFAULT_VHOST_USER_FS_BIN_PATH, vm::HypervisorCommonConfig,
 };
 
 #[allow(dead_code)]
@@ -31,17 +31,15 @@ pub(crate) const MACHINE_TYPE_PC: &str = "pc";
 #[allow(dead_code)]
 pub(crate) const MACHINE_TYPE_VIRT: &str = "virt";
 #[allow(dead_code)]
+pub(crate) const MACHINE_TYPE_MICROVM: &str = "microvm";
+#[allow(dead_code)]
 pub(crate) const MACHINE_TYPE_PSERIES: &str = "pseries";
 #[allow(dead_code)]
 pub(crate) const MACHINE_TYPE_CCW_VIRTIO: &str = "s390-ccw-virtio";
 
 const DEFAULT_STRATOVIRT_PATH: &str = "/usr/bin/stratovirt";
 const DEFAULT_KERNEL_PARAMS: &str = "console=hvc0 console=hvc1 iommu=off panic=1 pcie_ports=native";
-
-#[cfg(target_arch = "x86_64")]
 const ROOTFS_KERNEL_PARAMS: &str = " root=/dev/vda ro rootfstype=ext4";
-#[cfg(target_arch = "aarch64")]
-const ROOTFS_KERNEL_PARAMS: &str = " root=/dev/vda1 ro rootfstype=ext4";
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct StratoVirtVMConfig {
@@ -62,8 +60,8 @@ impl Default for StratoVirtVMConfig {
     fn default() -> Self {
         Self {
             common: Default::default(),
-            path: "stratovirt".to_string(),
-            machine_type: "virt".to_string(),
+            path: DEFAULT_STRATOVIRT_PATH.to_string(),
+            machine_type: MACHINE_TYPE_VIRT.to_string(),
             virtiofsd_conf: VirtiofsdConfig {
                 path: DEFAULT_VHOST_USER_FS_BIN_PATH.to_string(),
             },
@@ -134,9 +132,12 @@ impl StratoVirtVMConfig {
             result.kernel.kernel_params.push_str(" debug task.debug");
         }
 
-        result.global_params = vec![Global {
-            param: "pcie-root-port.fast-unplug=1".to_string(),
-        }];
+        let machine_array: Vec<_> = self.machine_type.split(',').collect();
+        if machine_array[0] != MACHINE_TYPE_MICROVM {
+            result.global_params = vec![Global {
+                param: "pcie-root-port.fast-unplug=1".to_string(),
+            }];
+        }
 
         result.knobs = Knobs {
             daemonize: true,
@@ -161,6 +162,16 @@ pub struct Machine {
     pub r#type: String,
     #[property(ignore_key)]
     pub options: Option<String>,
+}
+
+impl Machine {
+    pub fn transport(&self) -> Transport {
+        let machine_array: Vec<_> = self.r#type.split(',').collect();
+        match machine_array[0] {
+            MACHINE_TYPE_MICROVM => Transport::Mmio,
+            _ => Transport::Pci,
+        }
+    }
 }
 
 #[derive(CmdLineParamSet, Debug, Clone, Default, Serialize, Deserialize)]
