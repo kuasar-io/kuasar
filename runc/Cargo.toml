@@ -16,8 +16,8 @@ futures = { version = "0.3.21" }
 log = { version = "0.4.17", features = ["std"] }
 oci-spec = "0.5.4"
 time = "0.3.5"
-serde_json = "1.0.74"
-serde = { version = "1.0.133", features = ["derive"] }
+serde_json = "1.0.96"
+serde = { version = "1.0.163", features = ["derive"] }
 procfs = "0.15.1"
 prctl = "1.0.0"
 os_pipe = "1.1.4"

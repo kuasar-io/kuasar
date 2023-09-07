@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::io::{Read, Write};
 use std::os::fd::RawFd;
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::anyhow;
@@ -10,6 +11,7 @@ use containerd_sandbox::{Container, ContainerOption, Sandbox, Sandboxer, Sandbox
 use containerd_sandbox::data::{ContainerData, SandboxData};
 use containerd_sandbox::error::{Error, Result};
 use containerd_sandbox::signal::ExitSignal;
+use containerd_shim::api::Options;
 use containerd_shim::asynchronous::monitor::{monitor_subscribe, monitor_unsubscribe};
 use containerd_shim::asynchronous::task::TaskService;
 use containerd_shim::monitor::{Subject, Topic};
@@ -26,12 +28,16 @@ use nix::sys::stat::Mode;
 use nix::unistd::{close, fork, ForkResult, pause, Pid};
 use os_pipe::{PipeReader, PipeWriter};
 use prctl::PrctlMM;
-use tokio::fs::create_dir_all;
+use runc::options::DeleteOpts;
+use serde::{Deserialize, Serialize};
+use tokio::fs::{create_dir_all, OpenOptions};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{Mutex, RwLock};
 use tokio::sync::mpsc::channel;
 
 use crate::{read_count, write_all};
-use crate::runc::{RuncContainer, RuncFactory};
+use crate::common::{create_runc, ShimExecutor};
+use crate::runc::{recover, RuncContainer, RuncFactory};
 
 pub struct RuncSandboxer {
     #[allow(clippy::type_complexity)]
@@ -41,16 +47,18 @@ pub struct RuncSandboxer {
     sandbox_parent: Arc<Mutex<SandboxParent>>,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct RuncSandbox {
     pub(crate) id: String,
     pub(crate) base_dir: String,
     pub(crate) data: SandboxData,
     pub(crate) status: SandboxStatus,
+    #[serde(skip, default)]
     pub(crate) exit_signal: Arc<ExitSignal>,
     pub(crate) containers: HashMap<String, RuncContainerData>,
-    pub(crate) server: Option<Server>,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct RuncContainerData {
     data: ContainerData,
 }
@@ -129,11 +137,11 @@ impl Sandboxer for RuncSandboxer {
             status: SandboxStatus::Created,
             exit_signal: Arc::new(Default::default()),
             containers: Default::default(),
-            server: None,
         };
         create_dir_all(&sandbox.base_dir)
             .await
             .map_err(|e| anyhow!("failed to create {}, {}", sandbox.base_dir, e))?;
+        sandbox.dump().await?;
         let mut sandboxes = self.sandboxes.write().await;
         sandboxes.insert(id.to_string(), Arc::new(Mutex::new(sandbox)));
         Ok(())
@@ -146,6 +154,7 @@ impl Sandboxer for RuncSandboxer {
         let sandbox_pid = sandbox_parent.fork_sandbox_process(id, &sandbox.data.netns)?;
         sandbox.status = SandboxStatus::Running(sandbox_pid as u32);
         sandbox.data.task_address = self.task_address.clone();
+        sandbox.dump().await?;
         Ok(())
     }
 
@@ -166,27 +175,13 @@ impl Sandboxer for RuncSandboxer {
     }
 
     async fn delete(&self, id: &str) -> Result<()> {
-        if let Some(sandbox) = self.sandboxes.write().await.remove(id) {
-            let mut sandbox = sandbox.lock().await;
-            if let Some(mut server) = sandbox.server.take() {
-                server
-                    .shutdown()
-                    .await
-                    .map_err(|e| anyhow!("failed to shutdown task server, {}", e))?;
-            }
-        }
+        self.sandboxes.write().await.remove(id);
         Ok(())
     }
 }
 
 impl RuncSandbox {
     async fn stop(&mut self) -> Result<()> {
-        if let Some(mut server) = self.server.take() {
-            server
-                .shutdown()
-                .await
-                .map_err(|e| anyhow!("failed to shutdown task server, {}", e))?;
-        }
         if let SandboxStatus::Running(pid) = self.status {
             kill(Pid::from_raw(pid as i32), Signal::SIGKILL)
                 .map_err(|e| anyhow!("failed to kill sandbox process {}", e))?;
@@ -194,6 +189,40 @@ impl RuncSandbox {
         let ts = time::OffsetDateTime::now_utc().unix_timestamp_nanos();
         self.status = SandboxStatus::Stopped(0, ts);
         self.exit_signal.signal();
+        Ok(())
+    }
+
+    async fn recover<P: AsRef<Path>>(base_dir: P) -> Result<Self> {
+        let dump_path = base_dir.as_ref().join("sandbox.json");
+        let mut dump_file = OpenOptions::new()
+            .read(true)
+            .open(&dump_path)
+            .await
+            .map_err(Error::IO)?;
+        let mut content = vec![];
+        dump_file
+            .read_to_end(&mut content)
+            .await
+            .map_err(Error::IO)?;
+        let mut sb = serde_json::from_slice::<RuncSandbox>(content.as_slice())
+            .map_err(|e| anyhow!("failed to deserialize sandbox, {}", e))?;
+        Ok(sb)
+    }
+
+    async fn dump(&self) -> Result<()> {
+        let dump_data =
+            serde_json::to_vec(&self).map_err(|e| anyhow!("failed to serialize sandbox, {}", e))?;
+        let dump_path = format!("{}/sandbox.json", self.base_dir);
+        let mut dump_file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(&dump_path)
+            .await
+            .map_err(Error::IO)?;
+        dump_file
+            .write_all(dump_data.as_slice())
+            .await
+            .map_err(Error::IO)?;
         Ok(())
     }
 }
@@ -220,6 +249,7 @@ impl Sandbox for RuncSandbox {
         self.containers.insert(id.to_string(), RuncContainerData {
             data: option.container
         });
+        self.dump().await?;
         Ok(())
     }
 
@@ -229,6 +259,7 @@ impl Sandbox for RuncSandbox {
 
     async fn remove_container(&mut self, id: &str) -> Result<()> {
         self.containers.remove(id);
+        self.dump().await?;
         Ok(())
     }
 
@@ -292,9 +323,10 @@ pub async fn process_exits<F>(task: &TaskService<F, RuncContainer>) {
 async fn start_task_service() -> Result<TaskService<RuncFactory, RuncContainer>> {
     let (tx, mut rx) = channel(128);
     let factory = RuncFactory::default();
+    let containers = recover().await.map_err(|e| anyhow!("failed to recover containers {}", e))?;
     let task = TaskService {
         factory,
-        containers: Arc::new(Default::default()),
+        containers: Arc::new(Mutex::new(containers)),
         namespace: "k8s.io".to_string(),
         exit: Arc::new(Default::default()),
         tx: tx.clone(),

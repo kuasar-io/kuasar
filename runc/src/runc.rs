@@ -24,6 +24,7 @@ use std::{
     process::ExitStatus,
     sync::Arc,
 };
+use std::collections::HashMap;
 
 use async_trait::async_trait;
 use containerd_shim::{
@@ -46,11 +47,13 @@ use containerd_shim::{
         protobuf::{CodedInputStream, Message},
     }, Result, util::{asyncify, mkdir, mount_rootfs, read_file_to_str, write_options, write_runtime},
 };
+use containerd_shim::asynchronous::util::{read_options, write_str_to_file};
 use log::{debug, error};
 use nix::{sys::signal::kill, unistd::Pid};
 use oci_spec::runtime::{LinuxResources, Process};
 use runc::{Command, Runc, Spawner};
-use serde::Deserialize;
+use runc::options::DeleteOpts;
+use serde::{Deserialize, Serialize};
 use tokio::{
     fs::{File, OpenOptions},
     io::{AsyncRead, AsyncReadExt, AsyncWrite},
@@ -69,6 +72,36 @@ pub type RuncContainer = ContainerTemplate<InitProcess, ExecProcess, RuncExecFac
 
 #[derive(Clone, Default)]
 pub(crate) struct RuncFactory;
+
+#[derive(Serialize, Deserialize)]
+pub struct SerializableStdio {
+    pub stdin: String,
+    pub stdout: String,
+    pub stderr: String,
+    pub terminal: bool,
+}
+
+impl From<SerializableStdio> for Stdio {
+    fn from(value: SerializableStdio) -> Self {
+        Self {
+            stdin: value.stdin,
+            stdout: value.stdout,
+            stderr: value.stderr,
+            terminal: value.terminal,
+        }
+    }
+}
+
+impl From<Stdio> for SerializableStdio {
+    fn from(value: Stdio) -> Self {
+        Self {
+            stdin: value.stdin,
+            stdout: value.stdout,
+            stderr: value.stderr,
+            terminal: value.terminal,
+        }
+    }
+}
 
 #[async_trait]
 impl ContainerFactory<RuncContainer> for RuncFactory {
@@ -113,6 +146,7 @@ impl ContainerFactory<RuncContainer> for RuncFactory {
 
         let id = req.id();
         let stdio = Stdio::new(req.stdin(), req.stdout(), req.stderr(), req.terminal());
+        write_stdio(bundle, &stdio).await?;
 
         let mut init = InitProcess::new(
             id,
@@ -652,6 +686,67 @@ impl Spawner for ShimExecutor {
     }
 }
 
+pub async fn recover() -> Result<HashMap<String, RuncContainer>> {
+    let mut opts = Options::new();
+    let mut runc_containers = HashMap::new();
+    for ns in ["k8s.io", "moby", "default"] {
+        let runc = create_runc("", ns, Path::new("/tmp"), &opts, Some(Arc::new(ShimExecutor::default())))?;
+        let containers = runc.list().await
+            .map_err(other_error!(e, "failed to call runc list"))?;
+        for c in containers {
+            if !Path::new(&c.bundle).exists() {
+                runc.delete(&c.id, Some(&DeleteOpts { force: true })).await.unwrap_or_default();
+                continue;
+            }
+            let runc_container = recover_one(&c, &runc).await;
+            runc_containers.insert(c.id.to_string(), runc_container);
+        }
+    }
+    Ok(runc_containers)
+}
+
+pub async fn recover_one(c: &runc::container::Container, runtime: &Runc) -> RuncContainer {
+    let stdio = if let Ok(s) = read_stdio(&*c.bundle).await {
+        s
+    } else {
+        Stdio {
+            stdin: "".to_string(),
+            stdout: "".to_string(),
+            stderr: "".to_string(),
+            terminal: false,
+        }
+    };
+    let opts = if let Ok(r) = read_options(&c.bundle).await {
+        r
+    } else {
+        Options::new()
+    };
+    let mut init = InitProcess::new(
+        &c.id,
+        stdio,
+        RuncInitLifecycle::new(runtime.clone(), opts.clone(), &c.bundle),
+    );
+    init.state = match &*c.status {
+        "created" => Status::CREATED,
+        "running" => Status::RUNNING,
+        "stopped" => Status::STOPPED,
+        _ => Status::CREATED,
+    };
+    init.pid = c.pid as i32;
+    RuncContainer {
+        id: "".to_string(),
+        bundle: "".to_string(),
+        init,
+        process_factory: RuncExecFactory {
+            runtime: runtime.clone(),
+            bundle: c.bundle.to_string(),
+            io_uid: opts.io_uid,
+            io_gid: opts.io_gid,
+        },
+        processes: Default::default(),
+    }
+}
+
 async fn read_std<T>(std: Option<T>) -> String
     where
         T: AsyncRead + Unpin,
@@ -709,5 +804,19 @@ async fn runtime_error(e: runc::error::Error, bundle: &str) -> Error {
     } else {
         other!("unable to retrieve OCI runtime error {:?}", e)
     }
+}
+
+async fn write_stdio(bundle: &str, stdio: &Stdio) -> Result<()> {
+    let serializable_stdio: SerializableStdio = stdio.clone().into();
+    let stdio_str = serde_json::to_string(&serializable_stdio)
+        .map_err(other_error!(e, "failed to serialize stdio"))?;
+    write_str_to_file(Path::new(bundle).join("stdio"), stdio_str).await
+}
+
+async fn read_stdio(bundle: &str) -> Result<Stdio> {
+    let stdio_str = read_file_to_str(Path::new(bundle).join("stdio")).await?;
+    let serializable_stdio: SerializableStdio = serde_json::from_str(&stdio_str)
+        .map_err(other_error!(e, "failed to deserialize stdio"))?;
+    Ok(serializable_stdio.into())
 }
 
