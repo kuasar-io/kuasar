@@ -253,7 +253,7 @@ impl VM for CloudHypervisorVM {
     }
 
     async fn wait_channel(&self) -> Option<Receiver<(u32, i128)>> {
-        return self.wait_chan.clone();
+        self.wait_chan.clone()
     }
 
     async fn vcpus(&self) -> Result<VcpuThreads> {

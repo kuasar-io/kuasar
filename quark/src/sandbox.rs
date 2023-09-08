@@ -148,13 +148,13 @@ impl Sandboxer for QuarkSandboxer {
     }
 
     async fn sandbox(&self, id: &str) -> Result<Arc<Mutex<Self::Sandbox>>> {
-        return Ok(self
+        Ok(self
             .sandboxes
             .read()
             .await
             .get(id)
             .ok_or_else(|| Error::NotFound(id.to_string()))?
-            .clone());
+            .clone())
     }
 
     async fn stop(&self, id: &str, _force: bool) -> Result<()> {
@@ -210,10 +210,9 @@ impl Sandbox for QuarkSandbox {
     }
 
     async fn container(&self, id: &str) -> Result<&Self::Container> {
-        return self
-            .containers
+        self.containers
             .get(id)
-            .ok_or(Error::NotFound(format!("no container id {} found", id)));
+            .ok_or(Error::NotFound(format!("no container id {} found", id)))
     }
 
     async fn append_container(&mut self, id: &str, option: ContainerOption) -> Result<()> {

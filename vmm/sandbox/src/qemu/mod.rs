@@ -212,7 +212,7 @@ impl VM for QemuVM {
     }
 
     async fn hot_attach(&mut self, device_info: DeviceInfo) -> Result<(BusType, String)> {
-        return match device_info {
+        match device_info {
             DeviceInfo::Block(blk_info) => {
                 let device = VirtioBlockDevice::new(
                     "",
@@ -259,7 +259,7 @@ impl VM for QemuVM {
                 // address is not import for char devices as guest will find the device by the name
                 Ok((BusType::PCI, char_info.name.clone()))
             }
-        };
+        }
     }
 
     async fn hot_detach(&mut self, id: &str) -> Result<()> {
@@ -300,7 +300,7 @@ impl VM for QemuVM {
     }
 
     async fn wait_channel(&self) -> Option<Receiver<(u32, i128)>> {
-        return self.wait_chan.clone();
+        self.wait_chan.clone()
     }
 
     async fn vcpus(&self) -> Result<VcpuThreads> {

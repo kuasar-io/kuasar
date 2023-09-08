@@ -75,3 +75,17 @@ pub fn get_memory_limit(spec: &Spec) -> Option<i64> {
         .and_then(|x| x.memory().as_ref())
         .and_then(|x| x.limit())
 }
+
+pub(crate) fn get_rootfs(spec: &Spec) -> Option<String> {
+    spec.root()
+        .as_ref()
+        .map(|root| root.path().display().to_string())
+}
+
+#[cfg(feature = "wasmedge")]
+pub(crate) fn get_cgroup_path(spec: &Spec) -> Option<String> {
+    spec.linux()
+        .as_ref()
+        .and_then(|linux| linux.cgroups_path().as_ref())
+        .map(|path| path.display().to_string())
+}
