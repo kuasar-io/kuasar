@@ -334,6 +334,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cgroups-rs"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fb3af90c8d48ad5f432d8afb521b5b40c2a2fce46dd60e05912de51c47fba64"
+dependencies = [
+ "libc",
+ "log",
+ "nix 0.25.1",
+ "regex",
+ "thiserror",
+]
+
+[[package]]
 name = "clang-sys"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -397,7 +410,7 @@ version = "0.3.0"
 source = "git+https://github.com/kuasar-io/rust-extensions.git#6ae99540b754cd28c5389d5d6fdeff6ec7290ec5"
 dependencies = [
  "async-trait",
- "cgroups-rs",
+ "cgroups-rs 0.2.11",
  "command-fds",
  "containerd-shim-protos",
  "futures",
@@ -2924,6 +2937,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "cap-std",
+ "cgroups-rs 0.3.3",
  "containerd-sandbox",
  "containerd-shim",
  "env_logger 0.9.3",

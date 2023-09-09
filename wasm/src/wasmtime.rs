@@ -20,7 +20,7 @@ use tokio::fs::read;
 use wasmtime::{Config, Engine, Extern, Linker, Module, Store, StoreLimits, StoreLimitsBuilder};
 use wasmtime_wasi::{tokio::WasiCtxBuilder, WasiCtx};
 
-use crate::utils;
+use crate::utils::{get_args, get_kv_envs, get_memory_limit, get_rootfs};
 
 pub type ExecProcess = ProcessTemplate<WasmtimeExecLifecycle>;
 pub type InitProcess = ProcessTemplate<WasmtimeInitLifecycle>;
@@ -59,16 +59,12 @@ impl ContainerFactory<WasmtimeContainer> for WasmtimeContainerFactory {
         let mut spec: Spec = read_spec(req.bundle()).await?;
         spec.canonicalize_rootfs(req.bundle())
             .map_err(|e| Error::InvalidArgument(format!("could not canonicalize rootfs: {e}")))?;
-        let rootfs = spec
-            .root()
-            .as_ref()
-            .ok_or(Error::InvalidArgument(
-                "rootfs is not set in runtime spec".to_string(),
-            ))?
-            .path();
-        mkdir(rootfs, 0o711).await?;
+        let rootfs = get_rootfs(&spec).ok_or_else(|| {
+            Error::InvalidArgument("rootfs is not set in runtime spec".to_string())
+        })?;
+        mkdir(&rootfs, 0o711).await?;
         for m in req.rootfs() {
-            mount_rootfs(m, rootfs.as_path()).await?
+            mount_rootfs(m, &rootfs).await?
         }
         let stdio = Stdio::new(req.stdin(), req.stdout(), req.stderr(), req.terminal);
         let exit_signal = Arc::new(Default::default());
@@ -115,8 +111,8 @@ impl WasmtimeInitLifecycle {
 #[async_trait::async_trait]
 impl ProcessLifecycle<InitProcess> for WasmtimeInitLifecycle {
     async fn start(&self, p: &mut InitProcess) -> containerd_shim::Result<()> {
-        let args = utils::get_args(&self.spec);
-        let envs = utils::get_kv_envs(&self.spec);
+        let args = get_args(&self.spec);
+        let envs = get_kv_envs(&self.spec);
         let root = self
             .spec
             .root()
@@ -165,7 +161,7 @@ impl ProcessLifecycle<InitProcess> for WasmtimeInitLifecycle {
         let ctx = builder.build();
 
         let mut limits_builder = StoreLimitsBuilder::new();
-        if let Some(memory_size) = utils::get_memory_limit(&self.spec).map(|x| x as usize) {
+        if let Some(memory_size) = get_memory_limit(&self.spec).map(|x| x as usize) {
             limits_builder = limits_builder.memory_size(memory_size);
         }
         let limiter = limits_builder.build();
