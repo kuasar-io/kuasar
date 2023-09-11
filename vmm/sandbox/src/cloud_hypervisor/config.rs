@@ -32,6 +32,7 @@ pub struct CloudHypervisorVMConfig {
     pub common: HypervisorCommonConfig,
     pub hugepages: bool,
     pub entropy_source: String,
+    pub task: TaskConfig,
     pub virtiofsd: VirtiofsdConfig,
 }
 
@@ -42,9 +43,15 @@ impl Default for CloudHypervisorVMConfig {
             common: Default::default(),
             hugepages: false,
             entropy_source: "/dev/urandom".to_string(),
+            task: Default::default(),
             virtiofsd: Default::default(),
         }
     }
+}
+
+#[derive(Deserialize, Default)]
+pub struct TaskConfig {
+    pub debug: bool,
 }
 
 #[derive(CmdLineParamSet, Deserialize, Clone, Serialize)]
@@ -151,8 +158,11 @@ impl CloudHypervisorConfig {
             "{} {}",
             DEFAULT_KERNEL_PARAMS, vm_config.common.kernel_params
         );
-        // TODO: for temporarily debug
-        cmdline.push_str(" task.log_level=debug");
+
+        if vm_config.task.debug {
+            cmdline.push_str(" task.log_level=debug");
+        }
+
         Self {
             path: vm_config.path.to_string(),
             api_socket: "".to_string(),
@@ -234,6 +244,8 @@ initrd_path = \"\"
 kernel_params = \"\"
 hugepages = true
 entropy_source = \"/dev/urandom\"
+[hypervisor.task]
+debug = true
 [hypervisor.virtiofsd]
 path = \"/usr/local/bin/virtiofsd\"
 log_level = \"info\"
@@ -246,9 +258,40 @@ thread_pool_size = 4
             config.hypervisor.common.kernel_path,
             "/var/lib/kuasar/vmlinux.bin"
         );
+        assert_eq!(config.hypervisor.task.debug, true);
+
         assert_eq!(config.hypervisor.common.vcpus, 1);
         assert!(config.hypervisor.hugepages);
         assert_eq!(config.hypervisor.virtiofsd.thread_pool_size, 4);
         assert_eq!(config.hypervisor.virtiofsd.path, "/usr/local/bin/virtiofsd");
+    }
+
+    #[test]
+    fn test_task_cmdline() {
+        let toml_str = "
+[sandbox]
+[hypervisor]
+path = \"/usr/local/bin/cloud-hypervisor\"
+vcpus = 1
+memory_in_mb = 1024
+kernel_path = \"/var/lib/kuasar/vmlinux.bin\"
+image_path = \"/var/lib/kuasar/kuasar.img\"
+initrd_path = \"\"
+kernel_params = \"\"
+hugepages = true
+entropy_source = \"/dev/urandom\"
+[hypervisor.task]
+debug = true
+[hypervisor.virtiofsd]
+path = \"/usr/local/bin/virtiofsd\"
+log_level = \"info\"
+cache = \"never\"
+thread_pool_size = 4
+";
+
+        let config: Config<CloudHypervisorVMConfig> = toml::from_str(toml_str).unwrap();
+        let chc = CloudHypervisorConfig::from(&config.hypervisor);
+
+        assert_eq!(chc.cmdline, "console=hvc0 root=/dev/pmem0p1 rootflags=data=ordered,errors=remount-ro ro rootfstype=ext4 task.sharefs_type=virtiofs  task.log_level=debug");
     }
 }
