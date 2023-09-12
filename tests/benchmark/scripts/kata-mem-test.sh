@@ -13,13 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-#$num is the number of pod
+# $num is the number of pod
 num=50
 workdir=$(dirname $(cd $(dirname $0); pwd))
 mkdir -p $workdir/json/container
 mkdir -p $workdir/json/pod
 
-#Kill all pods to prevent interference with testing
+# Kill all pods to prevent interference with testing
 crictl rm -f -a
 crictl rmp -f -a
 rm -f mem
@@ -76,17 +76,17 @@ do
     crictl run -r kata --no-pull $workdir/json/container/container_$i.json $workdir/json/pod/pod_$i.json &
 done
 
-#Wait for all the containers to finish starting
+# Wait for all the containers to finish starting
 a=`crictl ps | grep testcontainer | wc -l`
 while [ $a -ne $(($num+1)) ];
 do
 a=`crictl ps | grep testcontainer | wc -l`
 done
 
-#get pids of all containers
+# Get pids of all containers
 pids=$(ps -ef | grep -v grep | grep -i containerd-shim-kata-v2 | awk '{print$2}')
 
-#get Pss of each container
+# Get Pss of each container
 for i in ${pids}
 do
 cat /proc/$i/smaps_rollup | grep "Pss" >> mem

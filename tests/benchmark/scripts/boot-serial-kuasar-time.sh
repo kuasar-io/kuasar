@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-#num is the number of container
+# $num is the number of container
 num=50
 workdir=$(dirname "$(pwd)")
 RAW=${workdir}/data/raw
@@ -21,7 +21,7 @@ TIME_DAT=${RAW}/boot-serial-1000-kuasar-time.dat
 mkdir -p $workdir/json/container
 mkdir -p $workdir/json/pod
 
-#Function to get the interval time(ms)
+# Function to get the interval time(ms)
 function getTiming(){
     start=$1
     end=$2
@@ -40,7 +40,7 @@ function getTiming(){
 once_test(){
      i=$1
 
-#Create $PARALLEL container.json and pod.json
+# Create $PARALLEL container.json and pod.json
    cat > $workdir/json/container/container_$i.json << EOF
 {
         "metadata": {
@@ -90,30 +90,30 @@ EOF
 EOF
 
 
-#Start timing
+# Start timing
 start_time=$(date +%s.%N)
 
     crictl run -r kuasar --no-pull $workdir/json/container/container_$i.json $workdir/json/pod/pod_$i.json 
     
-#Wait for all the containers to finish starting
+# Wait for all the containers to finish starting
 a=`crictl ps | grep testcontainer | wc -l`
 while [ $a -ne $(($i+1)) ];
 do
 a=`crictl ps | grep testcontainer | wc -l`
 done
 
-#End timing
+# End timing
 end_time=$(date +%s.%N)
 boot_time=$(getTiming $start_time $end_time)
 
 echo "BootTime: ${boot_time}ms"
 
-#Output to the corresponding file
+# Output to the corresponding file
 echo "${boot_time}" >> ${TIME_DAT}
 
 }
 
-#Kill all pods to prevent interference with testing
+# Kill all pods to prevent interference with testing
 crictl rm -f -a
 crictl rmp -f -a
 
