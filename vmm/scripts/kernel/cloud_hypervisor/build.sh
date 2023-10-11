@@ -17,6 +17,10 @@ set -e
 
 readonly version=${1:-6.1.6}
 readonly base_dir="$(dirname $(readlink -f $0))"
+
+sudo apt-get update
+sudo apt-get install -y libelf-dev elfutils
+
 # clone kernel from cloud-hypervisor github
 rm -rf /tmp/linux-cloud-hypervisor
 git clone --depth 1 https://github.com/cloud-hypervisor/linux.git -b ch-${version} /tmp/linux-cloud-hypervisor

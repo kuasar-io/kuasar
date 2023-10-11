@@ -65,7 +65,7 @@ install_golang() {
         exit 1
     fi
     rm -f go${golang_version}.linux-${arch_name}.tar.gz
-    wget "https://go.dev/dl/go${golang_version}.linux-${arch_name}.tar.gz"
+    wget -q "https://go.dev/dl/go${golang_version}.linux-${arch_name}.tar.gz"
     rm -rf /usr/local/go && tar -C /usr/local -xzf "go${golang_version}.linux-${arch_name}.tar.gz"
     echo "export PATH=$PATH:/usr/local/go/bin" >>/etc/profile
     source /etc/profile
