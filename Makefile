@@ -10,7 +10,7 @@ BIN_DIR := /usr/local/bin
 SYSTEMD_SERVICE_DIR := /usr/lib/systemd/system
 SYSTEMD_CONF_DIR := /etc/sysconfig
 
-.PHONY: vmm wasm quark clean all install-vmm install-wasm install-quark install 
+.PHONY: vmm wasm quark clean all install-vmm install-wasm install-quark install
 
 all: vmm quark wasm
 

@@ -1,0 +1,154 @@
+name: release
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+on:
+  release:
+    type:
+      - published
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  vmm:
+    strategy:
+      matrix:
+        hypervisor: ["cloud_hypervisor"]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build vmm sandboxer
+        run: make bin/vmm-sandboxer HYPERVISOR=${{ matrix.hypervisor }}
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: vmm-sandboxer ${{ matrix.hypervisor }}
+          path: |
+            bin/vmm-sandboxer
+            vmm/sandbox/config_clh.toml
+
+  image:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build vm image
+        run: sudo make bin/kuasar.img RUNTIME=docker
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: image
+          path: bin/kuasar.img
+
+  kernel:
+    strategy:
+      matrix:
+        hypervisor: ["cloud_hypervisor"]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build vm kernel
+        run: make bin/vmlinux.bin HYPERVISOR=${{ matrix.hypervisor }}
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: kernel ${{ matrix.hypervisor }}
+          path: bin/vmlinux.bin
+
+  quark:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build quark
+        run: make quark
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: quark
+          path: bin/quark-sandboxer
+
+  wasm:
+    strategy:
+      matrix:
+        features: ["wasmedge"]
+        include:
+          - features: wasmedge
+            version: 0.11.2
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install WasmEdge
+        if: ${{ matrix.features }} == 'wasmedge'
+        run: curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install.sh | bash -s -- -v ${{ matrix.version }} >> /dev/null
+      - name: Build wasm
+        run: make wasm WASM_RUNTIME=${{ matrix.features }}
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: wasm-sandboxer ${{ matrix.features }}
+          path: bin/wasm-sandboxer
+
+  containerd:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build Containerd
+        run: ./scripts/build/build-containerd.sh
+        shell: bash
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: containerd
+          path: |
+            bin/containerd 
+            bin/config.toml
+
+  release:
+    permissions:
+      contents: write
+    needs:
+      - vmm
+      - image
+      - kernel
+      - quark
+      - wasm
+      - containerd
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+      - name: Package vendor
+        run: |
+          releasever=${{ github.ref }}
+          releasever="${releasever#refs/tags/}"
+          bash ./scripts/build/cargo-vendor.sh
+          mkdir -p /tmp/kuasar-$releasever
+          cp -r ./* /tmp/kuasar-$releasever
+          mkdir _release
+          tar -czvf _release/kuasar-$releasever-vendor.tar.gz -C /tmp/ kuasar-$releasever
+      - uses: actions/download-artifact@v3
+        with:
+          path: _artifacts
+      - name: Package binaries
+        run: |
+          releasever=${{ github.ref }}
+          releasever="${releasever#refs/tags/}"
+          mkdir _dist
+          find _artifacts -type f | xargs -I {} cp {} _dist/
+          tar -czvf _release/kuasar-$releasever-linux-amd64.tar.gz -C _dist .
+      - name: Update Release
+        uses: softprops/action-gh-release@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+          files: |
+            _release/*.tar.gz
