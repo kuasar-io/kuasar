@@ -131,24 +131,40 @@ pub fn write_all(fd: RawFd, buf: &[u8]) -> Result<(), anyhow::Error> {
 }
 
 fn fork_sandbox(id: &str, netns: &str) -> Result<i32, anyhow::Error> {
+    let (r, w) = pipe().map_err(|e| anyhow!("failed to create pipe {}", e))?;
     match unsafe { fork().map_err(|e| anyhow!("failed to fork sandbox {}", e))? } {
         ForkResult::Parent { child } => {
             debug!("forked process {} for the sandbox {}", child, id);
-            return Ok(child.as_raw());
+            close(w);
+            let mut resp = [0u8; 4];
+            let mut r = read_count(r, 4)?;
+            resp[..].copy_from_slice(r.as_slice());
+            let pid = i32::from_le_bytes(resp);
+            return Ok(pid);
         }
         ForkResult::Child => {
-            let comm = format!("[sandbox-{}]", id);
-            let comm_cstr = CString::new(comm).unwrap();
-            let addr = comm_cstr.as_ptr();
-            set_process_comm(addr as u64, comm_cstr.as_bytes_with_nul().len() as u64);
-            if !netns.is_empty() {
-                let netns_fd =
-                    nix::fcntl::open(&*netns, OFlag::O_CLOEXEC, Mode::empty()).unwrap();
-                setns(netns_fd, CloneFlags::CLONE_NEWNET).unwrap();
-            }
+            close(r);
             unshare(CloneFlags::CLONE_NEWIPC | CloneFlags::CLONE_NEWUTS | CloneFlags::CLONE_NEWPID).unwrap();
-            loop {
-                pause();
+            match unsafe { fork().unwrap() } {
+                ForkResult::Parent { child } => {
+                    debug!("forked process {} for the sandbox {}", child, id);
+                    write_all(w, child.as_raw().to_le_bytes().as_slice()).unwrap();
+                    exit(0);
+                }
+                ForkResult::Child => {
+                    let comm = format!("[sandbox-{}]", id);
+                    let comm_cstr = CString::new(comm).unwrap();
+                    let addr = comm_cstr.as_ptr();
+                    set_process_comm(addr as u64, comm_cstr.as_bytes_with_nul().len() as u64);
+                    if !netns.is_empty() {
+                        let netns_fd =
+                            nix::fcntl::open(&*netns, OFlag::O_CLOEXEC, Mode::empty()).unwrap();
+                        setns(netns_fd, CloneFlags::CLONE_NEWNET).unwrap();
+                    }
+                    loop {
+                        pause();
+                    }
+                }
             }
         }
     }
