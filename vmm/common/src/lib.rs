@@ -21,6 +21,7 @@ pub mod mount;
 pub mod storage;
 
 pub const KUASAR_STATE_DIR: &str = "/run/kuasar/state";
+pub const YOUKI_DIR: &str = "/run/kuasar/youki";
 
 pub const IO_FILE_PREFIX: &str = "io";
 pub const STORAGE_FILE_PREFIX: &str = "storage";

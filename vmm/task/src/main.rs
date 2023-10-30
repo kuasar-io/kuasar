@@ -35,7 +35,9 @@ use nix::{
     unistd::Pid,
 };
 use signal_hook_tokio::Signals;
-use vmm_common::{api::sandbox_ttrpc::create_sandbox_service, mount::mount, KUASAR_STATE_DIR};
+use vmm_common::{
+    api::sandbox_ttrpc::create_sandbox_service, mount::mount, KUASAR_STATE_DIR, YOUKI_DIR,
+};
 
 use crate::{
     config::TaskConfig,
@@ -153,6 +155,10 @@ async fn main() {
             error!("failed to listen debug console port, {:?}", e);
         }
     }
+
+    tokio::fs::create_dir_all(YOUKI_DIR)
+        .await
+        .expect("failed to create youki dir");
 
     // Start ttrpc server
     let mut server = start_ttrpc_server()

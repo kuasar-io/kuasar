@@ -12,7 +12,7 @@ vmm-common = {path = "../common"}
 log = "0.4"
 nix = "0.25"
 libc = "0.2.95"
-time = { version = "=0.3.7", features = ["serde", "std"] }
+time = { version = "=0.3.23", features = ["serde", "std"] }
 serde = { version = "1.0.133", features = ["derive"] }
 serde_json = "1.0.74"
 oci-spec = "0.5.4"
@@ -36,3 +36,4 @@ ttrpc = { version = "0.7", features = ["async"] }
 
 containerd-shim = { git="https://github.com/kuasar-io/rust-extensions.git", features=["async"] }
 runc = { git="https://github.com/kuasar-io/rust-extensions.git", features=["async"] }
+libcontainer = { git="https://github.com/containers/youki.git", version="0.3.0", default-features = false, features=["v1"]}
