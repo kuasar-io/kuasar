@@ -40,7 +40,7 @@ use signal_hook_tokio::Signals;
 use tokio::fs::File;
 use vmm_common::{
     api::sandbox_ttrpc::create_sandbox_service, mount::mount, ETC_RESOLV, HOSTNAME_FILENAME,
-    IPC_NAMESPACE, KUASAR_STATE_DIR, RESOLV_FILENAME, SANDBOX_NS_PATH, UTS_NAMESPACE,
+    IPC_NAMESPACE, KUASAR_STATE_DIR, RESOLV_FILENAME, SANDBOX_NS_PATH, UTS_NAMESPACE, YOUKI_DIR,
 };
 
 use crate::{
@@ -169,6 +169,10 @@ async fn main() {
     }
 
     late_init_call().await.expect("late init call");
+
+    tokio::fs::create_dir_all(YOUKI_DIR)
+        .await
+        .expect("failed to create youki dir");
 
     // Start ttrpc server
     let mut server = start_ttrpc_server()
