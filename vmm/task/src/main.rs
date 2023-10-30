@@ -45,8 +45,9 @@ use tracing_subscriber::{
 use vmm_common::{
     api::{sandbox_ttrpc::create_sandbox_service, streaming_ttrpc::create_streaming},
     mount::mount,
-    trace, ETC_RESOLV, IPC_NAMESPACE, KUASAR_STATE_DIR, PID_NAMESPACE, RESOLV_FILENAME,
-    UTS_NAMESPACE,
+    trace,
+    ETC_RESOLV, IPC_NAMESPACE, KUASAR_STATE_DIR, PID_NAMESPACE, RESOLV_FILENAME, UTS_NAMESPACE,
+    HOSTNAME_FILENAME, SANDBOX_NS_PATH, YOUKI_DIR,
 };
 
 use crate::{
@@ -171,6 +172,8 @@ async fn initialize() -> anyhow::Result<TaskConfig> {
             error!("failed to listen debug console port, {:?}", e);
         }
     }
+
+    tokio::fs::create_dir_all(YOUKI_DIR).await.expect("failed to create youki dir");
 
     late_init_call().await?;
 
