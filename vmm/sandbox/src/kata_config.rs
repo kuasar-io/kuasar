@@ -22,11 +22,9 @@ use lazy_static::lazy_static;
 use serde_derive::Deserialize;
 use tokio::sync::{RwLock, RwLockReadGuard};
 
-use crate::{sandbox::SandboxConfig, utils::read_file, vm::ShareFsType};
-
-cfg_qemu! {
-    use crate::qemu::config::QemuVMConfig;
-}
+use crate::{
+    qemu::config::QemuVMConfig, sandbox::SandboxConfig, utils::read_file, vm::ShareFsType,
+};
 
 lazy_static! {
     pub static ref CONFIG: RwLock<KataConfig> = {
@@ -215,7 +213,6 @@ impl KataConfig {
     }
 }
 
-#[cfg(feature = "qemu")]
 impl Hypervisor {
     #[allow(clippy::field_reassign_with_default)]
     pub fn to_qemu_config(&self) -> Result<QemuVMConfig> {

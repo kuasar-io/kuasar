@@ -51,7 +51,7 @@ impl Hooks<QemuVM> for QemuHooks {
     }
 }
 
-async fn process_annotation(_sandbox: &mut KuasarSandbox<QemuVM>) -> Result<()> {
+async fn process_annotation(_sandbox: &KuasarSandbox<QemuVM>) -> Result<()> {
     Ok(())
 }
 
