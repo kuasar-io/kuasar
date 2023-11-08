@@ -54,9 +54,9 @@ pub struct VirtioBlockDevice {
     pub readonly: Option<bool>,
     #[property(param = "drive", generator = "crate::utils::bool_to_on_off")]
     pub direct: Option<bool>,
-    #[property(param = "device")]
+    #[property(param = "device", predicate = "self.addr.len()>0")]
     pub bus: Option<String>,
-    #[property(param = "device")]
+    #[property(param = "device", predicate = "self.addr.len()>0")]
     pub addr: String,
 }
 

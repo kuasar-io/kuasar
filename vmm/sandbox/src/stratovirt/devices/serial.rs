@@ -26,7 +26,9 @@ pub struct SerialDevice {
     #[property(ignore_key)]
     pub driver: String,
     pub id: String,
+    #[property(param = "device", predicate = "self.addr.len()>0")]
     pub bus: String,
+    #[property(param = "device", predicate = "self.addr.len()>0")]
     pub addr: String,
     #[property(ignore)]
     pub transport: Transport,

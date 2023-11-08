@@ -38,9 +38,9 @@ pub struct VirtioRngDevice {
     pub(crate) max_bytes: Option<u32>,
     #[property(param = "device")]
     pub(crate) period: Option<u32>,
-    #[property(param = "device")]
+    #[property(param = "device", predicate = "self.addr.len()>0")]
     pub(crate) bus: String,
-    #[property(param = "device")]
+    #[property(param = "device", predicate = "self.addr.len()>0")]
     pub(crate) addr: String,
 }
 

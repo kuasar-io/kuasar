@@ -72,7 +72,7 @@ pub trait StratoVirtHotAttachable: Device + HotAttachable {}
 
 impl<T> StratoVirtHotAttachable for T where T: Device + HotAttachable {}
 
-pub fn create_pcie_root_bus() -> PcieRootBus {
+pub fn create_pcie_root_bus() -> Option<PcieRootBus> {
     let mut pcie_root_bus = PcieRootBus {
         id: "pcie.0".to_string(),
         bus: Bus {
@@ -85,7 +85,7 @@ pub fn create_pcie_root_bus() -> PcieRootBus {
 
     // since pcie.0/0x0 addr is reserved, set slot 0 status is "SlotStatus::Occupied"
     pcie_root_bus.bus.slots[0].status = SlotStatus::Occupied("reserved".to_string());
-    pcie_root_bus
+    Some(pcie_root_bus)
 }
 
 #[cfg(test)]
@@ -96,7 +96,7 @@ mod tests {
     #[test]
     fn test_create_pcie_root_bus() {
         let pcie_root_bus = create_pcie_root_bus();
-        if let SlotStatus::Occupied(s) = &pcie_root_bus.bus.slots[0].status {
+        if let SlotStatus::Occupied(s) = &pcie_root_bus.unwrap().bus.slots[0].status {
             assert_eq!(s, "reserved");
         }
     }

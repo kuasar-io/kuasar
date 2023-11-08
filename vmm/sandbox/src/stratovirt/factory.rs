@@ -32,9 +32,8 @@ use super::devices::{
     DEFAULT_SERIAL_DEVICE_ID, PCIE_ROOTPORT_CAPACITY,
 };
 use crate::{
-    device::Transport,
     stratovirt::{
-        config::{QmpSocket, StratoVirtVMConfig},
+        config::{QmpSocket, StratoVirtVMConfig, MACHINE_TYPE_MICROVM},
         devices::vsock::{find_context_id, VSockDevice},
         StratoVirtVM,
     },
@@ -82,21 +81,30 @@ impl VMFactory for StratoVirtVMFactory {
             no_wait: true,
         });
 
-        // create pcie.0 root bus object
-        vm.pcie_root_bus = create_pcie_root_bus();
+        let machine_clone = vm.config.machine.r#type.clone();
+        let machine_array: Vec<_> = machine_clone.split(',').collect();
+        if machine_array[0] != MACHINE_TYPE_MICROVM {
+            // create pcie.0 root bus object
+            vm.pcie_root_bus = create_pcie_root_bus();
+        }
 
+        let transport = vm.config.machine.transport();
         // set virtio-rng device
         let rng_device = VirtioRngDevice::new(
             DEFAULT_RNG_DEVICE_ID,
             "/dev/urandom",
-            Transport::Pci,
+            transport.clone(),
             DEFAULT_PCIE_BUS,
         );
-        vm.attach_to_pcie_rootbus(rng_device)?;
+        vm.attach_to_bus(rng_device)?;
 
         // set console
-        let serial = SerialDevice::new(DEFAULT_SERIAL_DEVICE_ID, Transport::Pci, DEFAULT_PCIE_BUS);
-        vm.attach_to_pcie_rootbus(serial)?;
+        let serial = SerialDevice::new(
+            DEFAULT_SERIAL_DEVICE_ID,
+            transport.clone(),
+            DEFAULT_PCIE_BUS,
+        );
+        vm.attach_to_bus(serial)?;
         let console_backend_chardev =
             CharDevice::new("socket", DEFAULT_CONSOLE_CHARDEV_ID, &vm.console_socket);
         vm.attach_device(console_backend_chardev);
@@ -106,22 +114,22 @@ impl VMFactory for StratoVirtVMFactory {
 
         if vm.config.kernel.image.is_some() {
             let mut image_device: VirtioBlockDevice = VirtioBlockDevice::new(
-                &Transport::Pci.to_driver(VIRTIO_BLK_DRIVER),
+                &transport.clone().to_driver(VIRTIO_BLK_DRIVER),
                 "rootfs",
                 "blk-0",
                 vm.config.kernel.image.clone(),
                 Some(true),
             );
             image_device.bus = Some(DEFAULT_PCIE_BUS.to_string());
-            vm.attach_to_pcie_rootbus(image_device)?;
+            vm.attach_to_bus(image_device)?;
         }
 
         // set vsock port as the rpc channel to agent
         let (fd, cid) = find_context_id().await?;
         let fd_index = vm.append_fd(fd);
         let vhost_vsock_device =
-            VSockDevice::new(cid, Transport::Pci, DEFAULT_PCIE_BUS, fd_index as i32);
-        vm.attach_to_pcie_rootbus(vhost_vsock_device)?;
+            VSockDevice::new(cid, transport.clone(), DEFAULT_PCIE_BUS, fd_index as i32);
+        vm.attach_to_bus(vhost_vsock_device)?;
         vm.agent_socket = format!("vsock://{}:1024", cid);
 
         //share fs, stratovirt only support virtiofs share
@@ -133,12 +141,12 @@ impl VMFactory for StratoVirtVMFactory {
         vm.attach_device(virtiofs_chardev);
         let vhost_user_fs_device = VhostUserFs::new(
             &format!("vhost-user-fs-{}", id),
-            Transport::Pci,
+            transport.clone(),
             &chardev_id,
             DEFAULT_MOUNT_TAG_NAME,
             DEFAULT_PCIE_BUS,
         );
-        vm.attach_to_pcie_rootbus(vhost_user_fs_device)?;
+        vm.attach_to_bus(vhost_user_fs_device)?;
 
         // create virtiofs daemon
         vm.create_vitiofs_daemon(
@@ -146,9 +154,10 @@ impl VMFactory for StratoVirtVMFactory {
             s.base_dir.as_str(),
             share_fs_path.as_str(),
         );
-
-        // set pcie-root-ports for hotplugging
-        vm.create_pcie_root_ports(PCIE_ROOTPORT_CAPACITY)?;
+        if machine_array[0] != MACHINE_TYPE_MICROVM {
+            // set pcie-root-ports for hotplugging
+            vm.create_pcie_root_ports(PCIE_ROOTPORT_CAPACITY)?;
+        }
 
         Ok(vm)
     }

@@ -39,7 +39,9 @@ pub struct VSockDevice {
     pub id: String,
     #[property(key = "guest-cid")]
     pub context_id: u64,
+    #[property(param = "device", predicate = "self.addr.len()>0")]
     pub bus: String,
+    #[property(param = "device", predicate = "self.addr.len()>0")]
     pub addr: String,
     pub vhostfd: i32,
 }
