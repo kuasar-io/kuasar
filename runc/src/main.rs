@@ -1,42 +1,50 @@
 use std::ffi::CString;
-use std::fs::File;
-use std::io::{Read, Write};
 use std::os::fd::RawFd;
-use std::path::Path;
-use std::process::{exit, id};
+use std::process::exit;
 
 use anyhow::anyhow;
-use byteorder::WriteBytesExt;
 use containerd_shim::asynchronous::monitor::monitor_notify_by_pid;
 use futures::StreamExt;
 use log::{debug, error, warn};
-use nix::{errno::Errno, libc, NixPath, sys::{
-    wait,
-    wait::{WaitPidFlag, WaitStatus},
-}, unistd::Pid};
 use nix::fcntl::{fcntl, FcntlArg, FdFlag, OFlag};
-use nix::sched::{CloneFlags, setns, unshare};
-use nix::sys::signal::{SaFlags, SigAction, sigaction, SIGCHLD, SigHandler, SigSet};
+use nix::sched::{setns, unshare, CloneFlags};
+use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, SIGCHLD};
 use nix::sys::stat::Mode;
-use nix::unistd::{close, fork, ForkResult, pause, pipe, read, write};
+use nix::unistd::{close, fork, pause, pipe, read, write, ForkResult};
+use nix::{
+    errno::Errno,
+    libc,
+    sys::{
+        wait,
+        wait::{WaitPidFlag, WaitStatus},
+    },
+    unistd::Pid,
+};
 use prctl::PrctlMM;
 use signal_hook_tokio::Signals;
-use tokio::fs::create_dir_all;
+use uuid::Uuid;
 
 use crate::sandbox::{RuncSandboxer, SandboxParent};
+use crate::task::fork_task_server;
 
-mod sandbox;
-mod runc;
 mod common;
-
-pub const TASK_ADDRESS_SOCK: &str = "/run/kuasar/task.sock";
+mod runc;
+mod sandbox;
+mod task;
 
 fn main() {
     env_logger::builder().format_timestamp_micros().init();
     let sandbox_parent = fork_sandbox_parent().unwrap();
+    let os_args: Vec<_> = std::env::args_os().collect();
+    // TODO avoid parse args multiple times
+    let flags = containerd_sandbox::args::parse(&os_args[1..]).unwrap();
+    let task_socket = format!("{}/task-{}.sock", flags.dir, Uuid::new_v4().to_string());
+    fork_task_server(&task_socket, &flags.dir).unwrap();
     let runtime = tokio::runtime::Runtime::new().unwrap();
     runtime.block_on(async move {
-        start_sandboxer(sandbox_parent).await.unwrap();
+        start_sandboxer(sandbox_parent, task_socket, flags.dir)
+            .await
+            .unwrap();
     });
 }
 
@@ -57,6 +65,7 @@ fn fork_sandbox_parent() -> Result<SandboxParent, anyhow::Error> {
         ForkResult::Child => {
             close(reqw).unwrap_or_default();
             close(respr).unwrap_or_default();
+            prctl::set_child_subreaper(true).unwrap();
             let comm = format!("[sandbox-parent]");
             let comm_cstr = CString::new(comm).unwrap();
             let addr = comm_cstr.as_ptr();
@@ -66,7 +75,9 @@ fn fork_sandbox_parent() -> Result<SandboxParent, anyhow::Error> {
                 SaFlags::empty(),
                 SigSet::empty(),
             );
-            unsafe { sigaction(SIGCHLD, &sig_action).unwrap(); }
+            unsafe {
+                sigaction(SIGCHLD, &sig_action).unwrap();
+            }
             loop {
                 let buffer = read_count(reqr, 512).unwrap();
                 let id = String::from_utf8_lossy(&buffer[0..64]).to_string();
@@ -135,16 +146,17 @@ fn fork_sandbox(id: &str, netns: &str) -> Result<i32, anyhow::Error> {
     match unsafe { fork().map_err(|e| anyhow!("failed to fork sandbox {}", e))? } {
         ForkResult::Parent { child } => {
             debug!("forked process {} for the sandbox {}", child, id);
-            close(w);
+            close(w).unwrap_or_default();
             let mut resp = [0u8; 4];
-            let mut r = read_count(r, 4)?;
+            let r = read_count(r, 4)?;
             resp[..].copy_from_slice(r.as_slice());
             let pid = i32::from_le_bytes(resp);
             return Ok(pid);
         }
         ForkResult::Child => {
-            close(r);
-            unshare(CloneFlags::CLONE_NEWIPC | CloneFlags::CLONE_NEWUTS | CloneFlags::CLONE_NEWPID).unwrap();
+            close(r).unwrap_or_default();
+            unshare(CloneFlags::CLONE_NEWIPC | CloneFlags::CLONE_NEWUTS | CloneFlags::CLONE_NEWPID)
+                .unwrap();
             match unsafe { fork().unwrap() } {
                 ForkResult::Parent { child } => {
                     debug!("forked process {} for the sandbox {}", child, id);
@@ -179,30 +191,6 @@ fn set_process_comm(addr: u64, len: u64) {
     }
 }
 
-async fn start_sandboxer(sandbox_parent: SandboxParent) -> anyhow::Result<()> {
-    tokio::spawn(async move {
-        let signals = Signals::new([libc::SIGTERM, libc::SIGINT, libc::SIGPIPE, libc::SIGCHLD])
-            .expect("new signal failed");
-        handle_signals(signals).await;
-    });
-    prctl::set_child_subreaper(true).unwrap();
-    let sock_path = Path::new(TASK_ADDRESS_SOCK);
-    if sock_path.exists() {
-        tokio::fs::remove_file(sock_path).await?;
-    }
-    if let Some(sock_parent) = sock_path.parent() {
-        create_dir_all(sock_parent)
-            .await
-            .map_err(|e| anyhow!("failed to create {}, {}", sock_parent.display(), e))?;
-    }
-    let sock_addr = format!("unix://{}", TASK_ADDRESS_SOCK);
-    let sandboxer = RuncSandboxer::new(sandbox_parent, &sock_addr).await?;
-    containerd_sandbox::run("runc-sandboxer", sandboxer)
-        .await
-        .unwrap();
-    Ok(())
-}
-
 extern "C" fn sandbox_parent_handle_signals(_: libc::c_int) {
     loop {
         match wait::waitpid(Some(Pid::from_raw(-1)), Some(WaitPidFlag::WNOHANG)) {
@@ -221,6 +209,18 @@ extern "C" fn sandbox_parent_handle_signals(_: libc::c_int) {
             _ => {}
         }
     }
+}
+
+async fn start_sandboxer(
+    sandbox_parent: SandboxParent,
+    task_socket: String,
+    dir: String,
+) -> anyhow::Result<()> {
+    let task_address = format!("unix://{}", task_socket);
+    let sandboxer = RuncSandboxer::new(sandbox_parent, &task_address).await?;
+    sandboxer.recover(&dir).await?;
+    containerd_sandbox::run("runc-sandboxer", sandboxer).await?;
+    Ok(())
 }
 
 async fn handle_signals(signals: Signals) {

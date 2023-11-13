@@ -22,8 +22,9 @@ procfs = "0.15.1"
 prctl = "1.0.0"
 os_pipe = "1.1.4"
 byteorder = "1.4.3"
+go-flag = "0.1.0"
+uuid = { version = "1.1.2", features = ["v4"] }
 
 containerd-sandbox = { git = "https://github.com/kuasar-io/rust-extensions.git", rev = "6ae99540b754cd28c5389d5d6fdeff6ec7290ec5" }
 containerd-shim = { git = "https://github.com/kuasar-io/rust-extensions.git", rev = "6ae99540b754cd28c5389d5d6fdeff6ec7290ec5", features = ["async"] }
 runc = { git = "https://github.com/kuasar-io/rust-extensions.git", rev = "6ae99540b754cd28c5389d5d6fdeff6ec7290ec5", features = ["async"] }
-

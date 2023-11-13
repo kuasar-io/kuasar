@@ -1566,6 +1566,7 @@ dependencies = [
  "containerd-shim",
  "env_logger",
  "futures",
+ "go-flag",
  "log",
  "nix 0.25.1",
  "oci-spec",
@@ -1578,6 +1579,7 @@ dependencies = [
  "signal-hook-tokio",
  "time",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

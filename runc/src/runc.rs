@@ -24,9 +24,9 @@ use std::{
     process::ExitStatus,
     sync::Arc,
 };
-use std::collections::HashMap;
 
 use async_trait::async_trait;
+use containerd_sandbox::spec::{get_sandbox_id, JsonSpec};
 use containerd_shim::{
     api::{CreateTaskRequest, ExecProcessRequest, Options, Status},
     asynchronous::{
@@ -35,34 +35,36 @@ use containerd_shim::{
         monitor::{monitor_subscribe, monitor_unsubscribe, Subscription},
         processes::{ProcessLifecycle, ProcessTemplate},
     },
-    Console,
-    Error,
-    ExitSignal,
-    io::Stdio, io_error,
+    io::Stdio,
+    io_error,
     monitor::{ExitEvent, Subject, Topic},
-    other,
-    other_error, protos::{
+    other, other_error,
+    protos::{
         api::ProcessInfo,
         cgroups::metrics::Metrics,
         protobuf::{CodedInputStream, Message},
-    }, Result, util::{asyncify, mkdir, mount_rootfs, read_file_to_str, write_options, write_runtime},
+    },
+    util::{asyncify, mkdir, mount_rootfs, read_file_to_str, write_options, write_runtime},
+    Console, Error, ExitSignal, Result,
 };
-use containerd_shim::asynchronous::util::{read_options, write_str_to_file};
+use containerd_shim::{
+    asynchronous::util::write_str_to_file,
+    util::{read_spec, CONFIG_FILE_NAME},
+};
 use log::{debug, error};
 use nix::{sys::signal::kill, unistd::Pid};
 use oci_spec::runtime::{LinuxResources, Process};
 use runc::{Command, Runc, Spawner};
-use runc::options::DeleteOpts;
 use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::{
     fs::{File, OpenOptions},
     io::{AsyncRead, AsyncReadExt, AsyncWrite},
 };
-use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::common::{
-    check_kill_error, create_io, create_runc, CreateConfig, get_spec_from_request, INIT_PID_FILE,
-    ProcessIO, receive_socket, ShimExecutor,
+    check_kill_error, create_io, create_runc, get_spec_from_request, receive_socket, CreateConfig,
+    ProcessIO, ShimExecutor, INIT_PID_FILE,
 };
 
 pub type ExecProcess = ProcessTemplate<RuncExecLifecycle>;
@@ -70,8 +72,10 @@ pub type InitProcess = ProcessTemplate<RuncInitLifecycle>;
 
 pub type RuncContainer = ContainerTemplate<InitProcess, ExecProcess, RuncExecFactory>;
 
-#[derive(Clone, Default)]
-pub(crate) struct RuncFactory;
+#[derive(Clone)]
+pub(crate) struct RuncFactory {
+    sandbox_parent_dir: String,
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct SerializableStdio {
@@ -122,6 +126,8 @@ impl ContainerFactory<RuncContainer> for RuncFactory {
         let runtime = opts.binary_name.as_str();
         write_options(bundle, &opts).await?;
         write_runtime(bundle, runtime).await?;
+
+        self.rewrite_spec(bundle).await?;
 
         let rootfs_vec = req.rootfs().to_vec();
         let rootfs = if !rootfs_vec.is_empty() {
@@ -177,6 +183,12 @@ impl ContainerFactory<RuncContainer> for RuncFactory {
 }
 
 impl RuncFactory {
+    pub fn new(sandbox_parent_dir: &str) -> Self {
+        Self {
+            sandbox_parent_dir: sandbox_parent_dir.to_string(),
+        }
+    }
+
     async fn do_create(&self, init: &mut InitProcess, _config: CreateConfig) -> Result<()> {
         let id = init.id.to_string();
         let stdio = &init.stdio;
@@ -213,6 +225,34 @@ impl RuncFactory {
         copy_io_or_console(init, socket, pio, init.lifecycle.exit_signal.clone()).await?;
         let pid = read_file_to_str(pid_path).await?.parse::<i32>()?;
         init.pid = pid;
+        Ok(())
+    }
+
+    async fn rewrite_spec(&self, bundle: &str) -> Result<()> {
+        let mut spec: JsonSpec = read_spec(bundle).await?;
+        let sandbox_id = if let Some(id) = get_sandbox_id(&spec.annotations) {
+            id
+        } else {
+            return Ok(());
+        };
+
+        if let Some(l) = &mut spec.linux {
+            for ns in &mut l.namespaces {
+                if ns.r#type == "uts" && ns.path == "/proc/0/ns/uts" {
+                    ns.path = format!("{}/{}/uts", self.sandbox_parent_dir, sandbox_id);
+                }
+                if ns.r#type == "ipc" && ns.path == "/proc/0/ns/ipc" {
+                    ns.path = format!("{}/{}/ipc", self.sandbox_parent_dir, sandbox_id);
+                }
+                if ns.r#type == "network" && ns.path == "/proc/0/ns/net" {
+                    ns.path = format!("{}/{}/net", self.sandbox_parent_dir, sandbox_id);
+                }
+            }
+        }
+        let config_file_path = format!("{}/{}", bundle, CONFIG_FILE_NAME);
+        let spec_content_new = serde_json::to_string(&spec)
+            .map_err(other_error!(e, "failed to marshal spec to string"))?;
+        write_str_to_file(&config_file_path, &spec_content_new).await?;
         Ok(())
     }
 }
@@ -437,7 +477,7 @@ impl ProcessLifecycle<ExecProcess> for RuncExecLifecycle {
                 Pid::from_raw(p.pid as i32),
                 nix::sys::signal::Signal::try_from(signal as i32).unwrap(),
             )
-                .map_err(Into::into)
+            .map_err(Into::into)
         }
     }
 
@@ -605,10 +645,10 @@ pub async fn copy_io(pio: &ProcessIO, stdio: &Stdio, exit_signal: Arc<ExitSignal
 }
 
 fn spawn_copy<R, W, F>(from: R, to: W, exit_signal: Arc<ExitSignal>, on_close: Option<F>)
-    where
-        R: AsyncRead + Send + Unpin + 'static,
-        W: AsyncWrite + Send + Unpin + 'static,
-        F: FnOnce() + Send + 'static,
+where
+    R: AsyncRead + Send + Unpin + 'static,
+    W: AsyncWrite + Send + Unpin + 'static,
+    F: FnOnce() + Send + 'static,
 {
     let mut src = from;
     let mut dst = to;
@@ -656,7 +696,12 @@ async fn copy_io_or_console<P>(
 
 #[async_trait]
 impl Spawner for ShimExecutor {
-    async fn execute(&self, cmd: Command, after_start: Box<dyn Fn() + Send>, wait_output: bool) -> runc::Result<(ExitStatus, u32, String, String)> {
+    async fn execute(
+        &self,
+        cmd: Command,
+        after_start: Box<dyn Fn() + Send>,
+        wait_output: bool,
+    ) -> runc::Result<(ExitStatus, u32, String, String)> {
         let mut cmd = cmd;
         let subscription = monitor_subscribe(Topic::Pid)
             .await
@@ -673,12 +718,16 @@ impl Spawner for ShimExecutor {
         let pid = child.id().unwrap();
         let (stdout, stderr, exit_code) = if wait_output {
             tokio::join!(
-            read_std(child.stdout),
-            read_std(child.stderr),
-            wait_pid(pid as i32, subscription)
-        )
+                read_std(child.stdout),
+                read_std(child.stderr),
+                wait_pid(pid as i32, subscription)
+            )
         } else {
-            ("".to_string(), "".to_string(), wait_pid(pid as i32, subscription).await)
+            (
+                "".to_string(),
+                "".to_string(),
+                wait_pid(pid as i32, subscription).await,
+            )
         };
         let status = ExitStatus::from_raw(exit_code);
         monitor_unsubscribe(sid).await.unwrap_or_default();
@@ -686,70 +735,9 @@ impl Spawner for ShimExecutor {
     }
 }
 
-pub async fn recover() -> Result<HashMap<String, RuncContainer>> {
-    let mut opts = Options::new();
-    let mut runc_containers = HashMap::new();
-    for ns in ["k8s.io", "moby", "default"] {
-        let runc = create_runc("", ns, Path::new("/tmp"), &opts, Some(Arc::new(ShimExecutor::default())))?;
-        let containers = runc.list().await
-            .map_err(other_error!(e, "failed to call runc list"))?;
-        for c in containers {
-            if !Path::new(&c.bundle).exists() {
-                runc.delete(&c.id, Some(&DeleteOpts { force: true })).await.unwrap_or_default();
-                continue;
-            }
-            let runc_container = recover_one(&c, &runc).await;
-            runc_containers.insert(c.id.to_string(), runc_container);
-        }
-    }
-    Ok(runc_containers)
-}
-
-pub async fn recover_one(c: &runc::container::Container, runtime: &Runc) -> RuncContainer {
-    let stdio = if let Ok(s) = read_stdio(&*c.bundle).await {
-        s
-    } else {
-        Stdio {
-            stdin: "".to_string(),
-            stdout: "".to_string(),
-            stderr: "".to_string(),
-            terminal: false,
-        }
-    };
-    let opts = if let Ok(r) = read_options(&c.bundle).await {
-        r
-    } else {
-        Options::new()
-    };
-    let mut init = InitProcess::new(
-        &c.id,
-        stdio,
-        RuncInitLifecycle::new(runtime.clone(), opts.clone(), &c.bundle),
-    );
-    init.state = match &*c.status {
-        "created" => Status::CREATED,
-        "running" => Status::RUNNING,
-        "stopped" => Status::STOPPED,
-        _ => Status::CREATED,
-    };
-    init.pid = c.pid as i32;
-    RuncContainer {
-        id: "".to_string(),
-        bundle: "".to_string(),
-        init,
-        process_factory: RuncExecFactory {
-            runtime: runtime.clone(),
-            bundle: c.bundle.to_string(),
-            io_uid: opts.io_uid,
-            io_gid: opts.io_gid,
-        },
-        processes: Default::default(),
-    }
-}
-
 async fn read_std<T>(std: Option<T>) -> String
-    where
-        T: AsyncRead + Unpin,
+where
+    T: AsyncRead + Unpin,
 {
     let mut std = std;
     if let Some(mut std) = std.take() {
@@ -767,9 +755,9 @@ async fn wait_pid(pid: i32, s: Subscription) -> i32 {
     let mut s = s;
     loop {
         if let Some(ExitEvent {
-                        subject: Subject::Pid(epid),
-                        exit_code: code,
-                    }) = s.rx.recv().await
+            subject: Subject::Pid(epid),
+            exit_code: code,
+        }) = s.rx.recv().await
         {
             if pid == epid {
                 monitor_unsubscribe(s.id).await.unwrap_or_default();
@@ -812,11 +800,3 @@ async fn write_stdio(bundle: &str, stdio: &Stdio) -> Result<()> {
         .map_err(other_error!(e, "failed to serialize stdio"))?;
     write_str_to_file(Path::new(bundle).join("stdio"), stdio_str).await
 }
-
-async fn read_stdio(bundle: &str) -> Result<Stdio> {
-    let stdio_str = read_file_to_str(Path::new(bundle).join("stdio")).await?;
-    let serializable_stdio: SerializableStdio = serde_json::from_str(&stdio_str)
-        .map_err(other_error!(e, "failed to deserialize stdio"))?;
-    Ok(serializable_stdio.into())
-}
-

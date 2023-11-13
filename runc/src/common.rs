@@ -16,6 +16,7 @@
 
 use std::{io::IoSliceMut, ops::Deref, os::unix::io::RawFd, path::Path, sync::Arc};
 
+use anyhow::anyhow;
 use containerd_shim::{
     api::{ExecProcessRequest, Options},
     io::Stdio,
@@ -38,10 +39,6 @@ use runc::{
     Runc, Spawner,
 };
 
-pub const GROUP_LABELS: [&str; 2] = [
-    "io.containerd.runc.v2.group",
-    "io.kubernetes.cri.sandbox-id",
-];
 pub const INIT_PID_FILE: &str = "init.pid";
 
 pub struct ProcessIO {
@@ -223,4 +220,16 @@ pub fn has_shared_pid_namespace(spec: &Spec) -> bool {
             }
         },
     }
+}
+
+pub fn prepare_unix_socket(unix_socket: &str) -> Result<(), anyhow::Error> {
+    let sock_path = Path::new(unix_socket);
+    if sock_path.exists() {
+        std::fs::remove_file(sock_path)?;
+    }
+    if let Some(sock_parent) = sock_path.parent() {
+        std::fs::create_dir_all(sock_parent)
+            .map_err(|e| anyhow!("failed to create {}, {}", sock_parent.display(), e))?;
+    }
+    Ok(())
 }

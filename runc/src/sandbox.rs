@@ -1,49 +1,43 @@
 use std::collections::HashMap;
-use std::ffi::CString;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::os::fd::RawFd;
 use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use containerd_sandbox::{Container, ContainerOption, Sandbox, Sandboxer, SandboxOption, SandboxStatus};
+use containerd_sandbox::cri::api::v1::NamespaceMode;
 use containerd_sandbox::data::{ContainerData, SandboxData};
 use containerd_sandbox::error::{Error, Result};
 use containerd_sandbox::signal::ExitSignal;
-use containerd_shim::api::Options;
-use containerd_shim::asynchronous::monitor::{monitor_subscribe, monitor_unsubscribe};
-use containerd_shim::asynchronous::task::TaskService;
-use containerd_shim::monitor::{Subject, Topic};
-use containerd_shim::processes::Process;
-use containerd_shim::protos::shim_async::create_task;
-use containerd_shim::protos::ttrpc::asynchronous::Server;
-use log::debug;
-use nix::errno::Errno;
-use nix::fcntl::OFlag;
-use nix::NixPath;
-use nix::sched::{CloneFlags, setns, unshare};
-use nix::sys::signal::{kill, Signal};
-use nix::sys::stat::Mode;
-use nix::unistd::{close, fork, ForkResult, pause, Pid};
-use os_pipe::{PipeReader, PipeWriter};
-use prctl::PrctlMM;
-use runc::options::DeleteOpts;
+use containerd_sandbox::{
+    Container, ContainerOption, Sandbox, SandboxOption, SandboxStatus, Sandboxer,
+};
+use log::warn;
+use nix::{
+    mount::MsFlags,
+    unistd::{close, Pid},
+};
+use nix::{
+    mount::{mount, umount},
+    sys::signal::{kill, Signal},
+};
 use serde::{Deserialize, Serialize};
-use tokio::fs::{create_dir_all, OpenOptions};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::{Mutex, RwLock};
-use tokio::sync::mpsc::channel;
+use tokio::{
+    fs::{create_dir_all, remove_dir_all},
+    io::{AsyncReadExt, AsyncWriteExt},
+};
+use tokio::{
+    fs::{File, OpenOptions},
+    sync::{Mutex, RwLock},
+};
 
 use crate::{read_count, write_all};
-use crate::common::{create_runc, ShimExecutor};
-use crate::runc::{recover, RuncContainer, RuncFactory};
 
 pub struct RuncSandboxer {
     #[allow(clippy::type_complexity)]
     pub(crate) sandboxes: Arc<RwLock<HashMap<String, Arc<Mutex<RuncSandbox>>>>>,
     task_address: String,
-    server: Server,
     sandbox_parent: Arc<Mutex<SandboxParent>>,
 }
 
@@ -76,21 +70,15 @@ pub struct SandboxParent {
 
 impl SandboxParent {
     pub fn new(req: RawFd, resp: RawFd) -> Self {
-        Self {
-            req,
-            resp,
-        }
+        Self { req, resp }
     }
     pub fn fork_sandbox_process(&mut self, id: &str, netns: &str) -> Result<i32> {
         let mut req = [0u8; 512];
-        use std::io::Write;
-        unsafe {
-            (&mut req[0..64]).write_all(id.as_bytes())?;
-            (&mut req[64..]).write_all(netns.as_bytes())?;
-        }
+        (&mut req[0..64]).write_all(id.as_bytes())?;
+        (&mut req[64..]).write_all(netns.as_bytes())?;
         write_all(self.req, &req)?;
         let mut resp = [0u8; 4];
-        let mut r = read_count(self.resp, 4)?;
+        let r = read_count(self.resp, 4)?;
         resp[..].copy_from_slice(r.as_slice());
         let pid = i32::from_le_bytes(resp);
         Ok(pid)
@@ -106,22 +94,42 @@ impl Drop for SandboxParent {
 
 impl RuncSandboxer {
     pub async fn new(sandbox_parent: SandboxParent, task_address: &str) -> Result<Self> {
-        let task = start_task_service().await?;
-        let task_service = create_task(Arc::new(Box::new(task)));
-        let mut server = Server::new().register_service(task_service);
-        server = server
-            .bind(&task_address)
-            .map_err(|e| anyhow!("failed to bind socket {}, {}", task_address, e))?;
-        server
-            .start()
-            .await
-            .map_err(|e| anyhow!("failed to start task server, {}", e))?;
-        Ok(Self {
+        return Ok(Self {
             task_address: task_address.to_string(),
-            server,
             sandboxes: Default::default(),
             sandbox_parent: Arc::new(Mutex::new(sandbox_parent)),
-        })
+        });
+    }
+
+    pub async fn recover(&self, dir: &str) -> Result<()> {
+        let mut subs = tokio::fs::read_dir(dir).await.map_err(Error::IO)?;
+        let mut pids = Vec::new();
+        while let Some(entry) = subs.next_entry().await.unwrap() {
+            if let Ok(t) = entry.file_type().await {
+                if t.is_dir() {
+                    let path = Path::new(dir).join(entry.file_name());
+                    match RuncSandbox::recover(&path).await {
+                        Ok(sb) => {
+                            if let SandboxStatus::Running(pid) = sb.status {
+                                // TODO need to check if the sandbox process is still running.
+                                pids.push(pid);
+                            }
+                            let sb_mutex = Arc::new(Mutex::new(sb));
+                            self.sandboxes
+                                .write()
+                                .await
+                                .insert(entry.file_name().to_str().unwrap().to_string(), sb_mutex);
+                        }
+                        Err(e) => {
+                            warn!("failed to recover sandbox {:?}, {:?}", entry.file_name(), e);
+                            remove_dir_all(&path).await.unwrap_or_default();
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -152,9 +160,16 @@ impl Sandboxer for RuncSandboxer {
         let mut sandbox = sandbox.lock().await;
         let mut sandbox_parent = self.sandbox_parent.lock().await;
         let sandbox_pid = sandbox_parent.fork_sandbox_process(id, &sandbox.data.netns)?;
-        sandbox.status = SandboxStatus::Running(sandbox_pid as u32);
+        sandbox.prepare_sandbox_ns(sandbox_pid).await.map_err(|e| {
+            kill(Pid::from_raw(sandbox_pid as i32), Signal::SIGKILL).unwrap_or_default();
+            e
+        })?;
+
         sandbox.data.task_address = self.task_address.clone();
-        sandbox.dump().await?;
+        sandbox.dump().await.map_err(|e| {
+            kill(Pid::from_raw(sandbox_pid as i32), Signal::SIGKILL).unwrap_or_default();
+            e
+        })?;
         Ok(())
     }
 
@@ -183,8 +198,16 @@ impl Sandboxer for RuncSandboxer {
 impl RuncSandbox {
     async fn stop(&mut self) -> Result<()> {
         if let SandboxStatus::Running(pid) = self.status {
-            kill(Pid::from_raw(pid as i32), Signal::SIGKILL)
-                .map_err(|e| anyhow!("failed to kill sandbox process {}", e))?;
+            if pid != 0 {
+                kill(Pid::from_raw(pid as i32), Signal::SIGKILL).unwrap_or_default();
+            } else {
+                let uts_path = format!("{}/uts", self.base_dir);
+                umount(&*uts_path)
+                    .map_err(|e| anyhow!("failed to umount sandbox uts ns, {}", e))?;
+                let ipc_path = format!("{}/ipc", self.base_dir);
+                umount(&*ipc_path)
+                    .map_err(|e| anyhow!("failed to umount sandbox ipc ns, {}", e))?;
+            }
         }
         let ts = time::OffsetDateTime::now_utc().unix_timestamp_nanos();
         self.status = SandboxStatus::Stopped(0, ts);
@@ -204,7 +227,7 @@ impl RuncSandbox {
             .read_to_end(&mut content)
             .await
             .map_err(Error::IO)?;
-        let mut sb = serde_json::from_slice::<RuncSandbox>(content.as_slice())
+        let sb = serde_json::from_slice::<RuncSandbox>(content.as_slice())
             .map_err(|e| anyhow!("failed to deserialize sandbox, {}", e))?;
         Ok(sb)
     }
@@ -224,6 +247,75 @@ impl RuncSandbox {
             .await
             .map_err(Error::IO)?;
         Ok(())
+    }
+
+    async fn prepare_sandbox_ns(&mut self, sandbox_pid: i32) -> Result<()> {
+        if !self.has_shared_pid_namespace() {
+            let uts_path = format!("{}/uts", self.base_dir);
+            {
+                File::create(&uts_path).await.map_err(Error::IO)?;
+            }
+            mount(
+                Some(&*format!("/proc/{}/ns/uts", sandbox_pid)),
+                &*uts_path,
+                None::<&str>,
+                MsFlags::MS_BIND,
+                None::<&str>,
+            )
+            .map_err(|e| anyhow!("failed to mount sandbox uts ns, {}", e))?;
+
+            let ipc_path = format!("{}/ipc", self.base_dir);
+            {
+                File::create(&ipc_path).await.map_err(Error::IO)?;
+            }
+            mount(
+                Some(&*format!("/proc/{}/ns/ipc", sandbox_pid)),
+                &*ipc_path,
+                None::<&str>,
+                MsFlags::MS_BIND,
+                None::<&str>,
+            )
+            .map_err(|e| anyhow!("failed to mount sandbox ipc ns, {}", e))?;
+
+            let net_path = format!("{}/net", self.base_dir);
+            {
+                File::create(&net_path).await.map_err(Error::IO)?;
+            }
+            mount(
+                Some(&*format!("/proc/{}/ns/net", sandbox_pid)),
+                &*net_path,
+                None::<&str>,
+                MsFlags::MS_BIND,
+                None::<&str>,
+            )
+            .map_err(|e| anyhow!("failed to mount sandbox network ns, {}", e))?;
+
+            kill(Pid::from_raw(sandbox_pid as i32), Signal::SIGKILL).unwrap_or_default();
+            self.status = SandboxStatus::Running(0);
+        } else {
+            self.status = SandboxStatus::Running(sandbox_pid as u32);
+        }
+        Ok(())
+    }
+
+    fn has_shared_pid_namespace(&self) -> bool {
+        if let Some(conf) = &self.data.config {
+            let a = conf
+                .linux
+                .as_ref()
+                .unwrap()
+                .security_context
+                .as_ref()
+                .unwrap()
+                .namespace_options
+                .as_ref()
+                .unwrap()
+                .pid();
+            if a == NamespaceMode::Pod {
+                return true;
+            }
+        }
+        return false;
     }
 }
 
@@ -246,9 +338,12 @@ impl Sandbox for RuncSandbox {
     }
 
     async fn append_container(&mut self, id: &str, option: ContainerOption) -> Result<()> {
-        self.containers.insert(id.to_string(), RuncContainerData {
-            data: option.container
-        });
+        self.containers.insert(
+            id.to_string(),
+            RuncContainerData {
+                data: option.container,
+            },
+        );
         self.dump().await?;
         Ok(())
     }
@@ -270,74 +365,4 @@ impl Sandbox for RuncSandbox {
     fn get_data(&self) -> Result<SandboxData> {
         Ok(self.data.clone())
     }
-}
-
-// any wasm runtime implementation should implement this function
-pub async fn process_exits<F>(task: &TaskService<F, RuncContainer>) {
-    let containers = task.containers.clone();
-    let exit_signal = task.exit.clone();
-    let mut s = monitor_subscribe(Topic::Pid)
-        .await
-        .expect("monitor subscribe failed");
-    tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                _ = exit_signal.wait() => {
-                    debug!("sandbox exit, should break");
-                    monitor_unsubscribe(s.id).await.unwrap_or_default();
-                    return;
-                },
-                res = s.rx.recv() => {
-                    if let Some(e) = res {
-                        if let Subject::Pid(pid) = e.subject {
-                            debug!("receive exit event: {}", &e);
-                            let exit_code = e.exit_code;
-                            for (_k, cont) in containers.lock().await.iter_mut() {
-                                // pid belongs to container init process
-                                if cont.init.pid == pid {
-                                    // set exit for init process
-                                    cont.init.set_exited(exit_code).await;
-                                    break;
-                                }
-
-                                // pid belongs to container common process
-                                for (_exec_id, p) in cont.processes.iter_mut() {
-                                    // set exit for exec process
-                                    if p.pid == pid {
-                                        p.set_exited(exit_code).await;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        monitor_unsubscribe(s.id).await.unwrap_or_default();
-                        return;
-                    }
-                }
-            }
-        }
-    });
-}
-
-async fn start_task_service() -> Result<TaskService<RuncFactory, RuncContainer>> {
-    let (tx, mut rx) = channel(128);
-    let factory = RuncFactory::default();
-    let containers = recover().await.map_err(|e| anyhow!("failed to recover containers {}", e))?;
-    let task = TaskService {
-        factory,
-        containers: Arc::new(Mutex::new(containers)),
-        namespace: "k8s.io".to_string(),
-        exit: Arc::new(Default::default()),
-        tx: tx.clone(),
-    };
-
-    process_exits(&task).await;
-
-    tokio::spawn(async move {
-        while let Some((_topic, e)) = rx.recv().await {
-            debug!("received event {:?}", e);
-        }
-    });
-    Ok(task)
 }
