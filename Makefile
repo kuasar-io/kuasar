@@ -42,8 +42,13 @@ bin/quark-sandboxer:
 	@cd quark && cargo build --release
 	@mkdir -p bin && cp quark/target/release/quark-sandboxer bin/quark-sandboxer
 
+bin/runc-sandboxer:
+	@cd runc && cargo build --release
+	@mkdir -p bin && cp runc/target/release/runc-sandboxer bin/runc-sandboxer
+
 wasm: bin/wasm-sandboxer
 quark: bin/quark-sandboxer
+runc: bin/runc-sandboxer
 
 ifeq ($(HYPERVISOR), stratovirt)
 vmm: bin/vmm-sandboxer bin/kuasar.initrd bin/vmlinux.bin
@@ -57,6 +62,7 @@ clean:
 	@cd vmm/task && cargo clean
 	@cd wasm && cargo clean
 	@cd quark && cargo clean
+	@cd runc && cargo clean
 
 install-vmm:
 	@install -d -m 750 ${DEST_DIR}${BIN_DIR}
@@ -82,4 +88,7 @@ install-wasm:
 install-quark:
 	@install -p -m 550 bin/quark-sandboxer ${DEST_DIR}${BIN_DIR}/quark-sandboxer
 
-install: all install-vmm install-wasm install-quark
+install-runc:
+	@install -p -m 550 bin/runc-sandboxer ${DEST_DIR}${BIN_DIR}/runc-sandboxer
+
+install: all install-vmm install-wasm install-quark install-runc

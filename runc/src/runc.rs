@@ -219,7 +219,7 @@ impl RuncFactory {
             if let Some(s) = socket {
                 s.clean().await;
             }
-            let runtime_e = runtime_error(e, &*bundle).await;
+            let runtime_e = runtime_error(e, bundle).await;
             return Err(runtime_e);
         }
         copy_io_or_console(init, socket, pio, init.lifecycle.exit_signal.clone()).await?;
@@ -474,7 +474,7 @@ impl ProcessLifecycle<ExecProcess> for RuncExecLifecycle {
         } else {
             // TODO this is kill from nix crate, it is os specific, maybe have annotated with target os
             kill(
-                Pid::from_raw(p.pid as i32),
+                Pid::from_raw(p.pid),
                 nix::sys::signal::Signal::try_from(signal as i32).unwrap(),
             )
             .map_err(Into::into)

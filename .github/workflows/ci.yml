@@ -12,7 +12,7 @@ jobs:
   checks:
     strategy:
       matrix:
-        directories: [vmm/sandbox, vmm/task, shim, quark]
+        directories: [vmm/sandbox, vmm/task, shim, quark, runc]
         features: [--all-features]
         include:
           - directories: wasm
@@ -49,7 +49,7 @@ jobs:
   tests:
     strategy:
       matrix:
-        directories: [vmm/sandbox, vmm/task, shim, quark]
+        directories: [vmm/sandbox, vmm/task, shim, quark, runc]
         features: [--all-features]
         include:
           - directories: wasm

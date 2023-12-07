@@ -1,3 +1,19 @@
+/*
+Copyright 2022 The Kuasar Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 use std::collections::HashMap;
 use std::io::Write;
 use std::os::fd::RawFd;
@@ -94,11 +110,11 @@ impl Drop for SandboxParent {
 
 impl RuncSandboxer {
     pub async fn new(sandbox_parent: SandboxParent, task_address: &str) -> Result<Self> {
-        return Ok(Self {
+        Ok(Self {
             task_address: task_address.to_string(),
             sandboxes: Default::default(),
             sandbox_parent: Arc::new(Mutex::new(sandbox_parent)),
-        });
+        })
     }
 
     pub async fn recover(&self, dir: &str) -> Result<()> {
@@ -161,13 +177,13 @@ impl Sandboxer for RuncSandboxer {
         let mut sandbox_parent = self.sandbox_parent.lock().await;
         let sandbox_pid = sandbox_parent.fork_sandbox_process(id, &sandbox.data.netns)?;
         sandbox.prepare_sandbox_ns(sandbox_pid).await.map_err(|e| {
-            kill(Pid::from_raw(sandbox_pid as i32), Signal::SIGKILL).unwrap_or_default();
+            kill(Pid::from_raw(sandbox_pid), Signal::SIGKILL).unwrap_or_default();
             e
         })?;
 
         sandbox.data.task_address = self.task_address.clone();
         sandbox.dump().await.map_err(|e| {
-            kill(Pid::from_raw(sandbox_pid as i32), Signal::SIGKILL).unwrap_or_default();
+            kill(Pid::from_raw(sandbox_pid), Signal::SIGKILL).unwrap_or_default();
             e
         })?;
         Ok(())
@@ -290,7 +306,7 @@ impl RuncSandbox {
             )
             .map_err(|e| anyhow!("failed to mount sandbox network ns, {}", e))?;
 
-            kill(Pid::from_raw(sandbox_pid as i32), Signal::SIGKILL).unwrap_or_default();
+            kill(Pid::from_raw(sandbox_pid), Signal::SIGKILL).unwrap_or_default();
             self.status = SandboxStatus::Running(0);
         } else {
             self.status = SandboxStatus::Running(sandbox_pid as u32);
@@ -315,7 +331,7 @@ impl RuncSandbox {
                 return true;
             }
         }
-        return false;
+        false
     }
 }
 

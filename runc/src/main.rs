@@ -1,3 +1,19 @@
+/*
+Copyright 2022 The Kuasar Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 use std::ffi::CString;
 use std::os::fd::RawFd;
 use std::process::exit;
@@ -38,7 +54,7 @@ fn main() {
     let os_args: Vec<_> = std::env::args_os().collect();
     // TODO avoid parse args multiple times
     let flags = containerd_sandbox::args::parse(&os_args[1..]).unwrap();
-    let task_socket = format!("{}/task-{}.sock", flags.dir, Uuid::new_v4().to_string());
+    let task_socket = format!("{}/task-{}.sock", flags.dir, Uuid::new_v4());
     fork_task_server(&task_socket, &flags.dir).unwrap();
     let runtime = tokio::runtime::Runtime::new().unwrap();
     runtime.block_on(async move {
@@ -66,7 +82,7 @@ fn fork_sandbox_parent() -> Result<SandboxParent, anyhow::Error> {
             close(reqw).unwrap_or_default();
             close(respr).unwrap_or_default();
             prctl::set_child_subreaper(true).unwrap();
-            let comm = format!("[sandbox-parent]");
+            let comm = "[sandbox-parent]";
             let comm_cstr = CString::new(comm).unwrap();
             let addr = comm_cstr.as_ptr();
             set_process_comm(addr as u64, comm_cstr.as_bytes_with_nul().len() as u64);
@@ -82,8 +98,8 @@ fn fork_sandbox_parent() -> Result<SandboxParent, anyhow::Error> {
                 let buffer = read_count(reqr, 512).unwrap();
                 let id = String::from_utf8_lossy(&buffer[0..64]).to_string();
                 let mut zero_index = 64;
-                for i in 64..512 {
-                    if buffer[i] == 0 {
+                for (i, &b) in buffer.iter().enumerate().take(512).skip(64) {
+                    if b == 0 {
                         zero_index = i;
                         break;
                     }
@@ -151,7 +167,7 @@ fn fork_sandbox(id: &str, netns: &str) -> Result<i32, anyhow::Error> {
             let r = read_count(r, 4)?;
             resp[..].copy_from_slice(r.as_slice());
             let pid = i32::from_le_bytes(resp);
-            return Ok(pid);
+            Ok(pid)
         }
         ForkResult::Child => {
             close(r).unwrap_or_default();
@@ -170,7 +186,7 @@ fn fork_sandbox(id: &str, netns: &str) -> Result<i32, anyhow::Error> {
                     set_process_comm(addr as u64, comm_cstr.as_bytes_with_nul().len() as u64);
                     if !netns.is_empty() {
                         let netns_fd =
-                            nix::fcntl::open(&*netns, OFlag::O_CLOEXEC, Mode::empty()).unwrap();
+                            nix::fcntl::open(netns, OFlag::O_CLOEXEC, Mode::empty()).unwrap();
                         setns(netns_fd, CloneFlags::CLONE_NEWNET).unwrap();
                     }
                     loop {
@@ -183,7 +199,7 @@ fn fork_sandbox(id: &str, netns: &str) -> Result<i32, anyhow::Error> {
 }
 
 fn set_process_comm(addr: u64, len: u64) {
-    if let Err(_) = prctl::set_mm(PrctlMM::PR_SET_MM_ARG_START, addr) {
+    if prctl::set_mm(PrctlMM::PR_SET_MM_ARG_START, addr).is_err() {
         prctl::set_mm(PrctlMM::PR_SET_MM_ARG_END, addr + len).unwrap();
         prctl::set_mm(PrctlMM::PR_SET_MM_ARG_START, addr).unwrap()
     } else {
