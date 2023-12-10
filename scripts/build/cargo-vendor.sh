@@ -23,6 +23,7 @@ directories=(
     "vmm/task"
     "vmm/common"
     "wasm"
+    "runc"
 )
 
 for dir in "${directories[@]}"; do

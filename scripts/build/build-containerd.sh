@@ -25,6 +25,8 @@ version = 2
 disable_apparmor = true
 
 [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+runtime_type = "io.containerd.runc.v2"
+sandboxer = "runc"
 
 [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.vmm]
 runtime_type = "io.containerd.kuasar.v1"
@@ -50,4 +52,8 @@ address = "/run/quark-sandboxer.sock"
 [proxy_plugins.wasm]
 type = "sandbox"
 address = "/run/wasm-sandboxer.sock"
+
+[proxy_plugins.runc]
+type = "sandbox"
+address = "/run/runc-sandboxer.sock"
 EOF
