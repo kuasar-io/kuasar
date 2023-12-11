@@ -20,18 +20,18 @@ Kuasar is an efficient container runtime that provides cloud-native, all-scenari
 
 # Supported Sandboxes
 
-| Sandboxer  | Sandbox          | Status             |
-|------------|------------------|--------------------|
-| MicroVM    | Cloud Hypervisor | Supported          |
-|            | QEMU             | Supported          |
-|            | Firecracker      | Planned in 2024    |
-|            | StratoVirt       | Supported          |
-| Wasm       | WasmEdge         | Supported          |
-|            | Wasmtime         | Supported          |
-|            | Wasmer           | Planned in 2024    |
-| App Kernel | gVisor           | Planned in 2024    |
-|            | Quark            | Supported          |
-| runC       | runC             | Planned in 2023 H2 |
+| Sandboxer  | Sandbox          | Status          |
+|------------|------------------|-----------------|
+| MicroVM    | Cloud Hypervisor | Supported       |
+|            | QEMU             | Supported       |
+|            | Firecracker      | Planned in 2024 |
+|            | StratoVirt       | Supported       |
+| Wasm       | WasmEdge         | Supported       |
+|            | Wasmtime         | Supported       |
+|            | Wasmer           | Planned in 2024 |
+| App Kernel | gVisor           | Planned in 2024 |
+|            | Quark            | Supported       |
+| runC       | runC             | Supported       |
 # Why Kuasar?
 
 In the container world, a sandbox is a technique used to separate container processes from each other, and from the operating system itself. After the introduction of the [Sandbox API](https://github.com/containerd/containerd/issues/4131), sandbox has become the first-class citizen in containerd. With more and more sandbox techniques available in the container world, a management service called "sandboxer" is expected to be proposed.
@@ -57,7 +57,7 @@ Additionally, Kuasar is also a platform under active development, and we welcome
 
 ## MicroVM Sandboxer
 
-In the microVM sandbox scenario, the VM process provides complete virtual machines and Linux kernels based on open-source VMMs such as [Cloud Hypervisor](https://www.cloudhypervisor.org/), [StratoVirt](https://gitee.com/openeuler/stratovirt), [Firecracker](https://firecracker-microvm.github.io/) and [QEMU](https://www.qemu.org/). Hence, the `vmm-sandboxer` of MicroVM sandboxer is responsible for launching VMs and calling APIs, and the `vmm-task`, as the init process in VMs, plays the role of running container processes. The container IO can be exported via vsock or uds.
+In the microVM sandbox scenario, the VM process provides complete virtual machines and Linux kernels based on open-source VMMs such as [Cloud Hypervisor](https://www.cloudhypervisor.org/), [StratoVirt](https://gitee.com/openeuler/stratovirt), [Firecracker](https://firecracker-microvm.github.io/) and [QEMU](https://www.qemu.org/). **All of these vm must be running on virtualization-enabled node, otherwise, it won't work!**. Hence, the `vmm-sandboxer` of MicroVM sandboxer is responsible for launching VMs and calling APIs, and the `vmm-task`, as the init process in VMs, plays the role of running container processes. The container IO can be exported via vsock or uds.
 
 The microVM sandboxer avoids the necessity of running shim process on the host, bringing about a cleaner and more manageable architecture with only one process per pod.
 
@@ -82,7 +82,11 @@ The `quark-sandboxer` of app kernel sandboxer starts `Qvisor` and an app kernel 
 The wasm sandbox, such as [WasmEdge](https://wasmedge.org/) or [Wasmtime](https://wasmtime.dev/), is incredibly lightweight, but it may have constraints for some applications at present. The `wasm-sandboxer` and `wasm-task` launch containers within a WebAssembly runtime. Whenever containerd needs to start a container in the sandbox, the `wasm-task` will fork a new process, start a new WasmEdge runtime, and run the Wasm code inside it. All containers within the same pod will share the same Namespace/Cgroup resources with the `wasm-task` process.
 ![wasm](docs/images/wasm-arch.png)
 
-*Please note that only WasmEdge is currently supported.*
+## Runc Sandboxer
+
+Except secure containers, Kuasar also has provide the ability for [runC](https://github.com/opencontainers/runc) containers. In order to generate a seperate namespace, a slight process is created by the `runc-sandboxer` through double folked and then becomes the PID 1. Based on this namespace, the `runc-task` can create the container process and join the namespace. If the container need a private namespace, it will unshare a new namespace for itself.
+
+![wasm](docs/images/runc-arch.png)
 
 # Performance
 
@@ -106,7 +110,7 @@ Please also note that Quark requires a Linux kernel version >= 5.15.
 
 ### 2. Sandbox
 
-+ MicroVM: To launch a microVM-based sandbox, a hypervisor must be installed on the host. 
++ MicroVM: To launch a microVM-based sandbox, a hypervisor must be installed on the **virtualization-enabled** host. 
   + It is recommended to install Cloud Hypervisor by default. You can find Cloud Hypervisor installation instructions [here](https://github.com/cloud-hypervisor/cloud-hypervisor/blob/main/docs/building.md).
   + If you want to run kuasar with iSulad container engine and StratoVirt hypervisor, you can refer to this guide [how-to-run-kuasar-with-isulad-and-stratovirt](docs/vmm/how-to-run-kuasar-with-isulad-and-stratovirt.md).
 + Quark: To use Quark, please refer to the installation instructions [here](docs/quark/README.md).
@@ -154,14 +158,15 @@ Launch the sandboxers by the following commands:
 + For vmm: `nohup vmm-sandboxer --listen /run/vmm-sandboxer.sock --dir /run/kuasar-vmm &`
 + For quark: `nohup quark-sandboxer --listen /run/quark-sandboxer.sock --dir /var/lib/kuasar-quark &`
 + For wasm: `nohup wasm-sandboxer --listen /run/wasm-sandboxer.sock --dir /run/kuasar-wasm &`
++ For runc: `nohup runc-sandboxer --listen /run/runc-sandboxer.sock --dir /run/kuasar-runc &`
 
 ## Start Container
 
 Since Kuasar is a low-level container runtime, all interactions should be done via CRI in containerd, such as crictl or Kubernetes. We use crictl as examples:
 
-+ For vmm and quark, run the following scripts:
++ For vmm, quark or runc, run the following scripts:
 
-  `examples/run_example_container.sh vmm` or `examples/run_example_container.sh quark`
+  `examples/run_example_container.sh vmm`, `examples/run_example_container.sh quark` or `examples/run_example_container.sh runc`
 
 + For wasm: Wasm container needs its own container image so our script has to build and import the container image at first.
 

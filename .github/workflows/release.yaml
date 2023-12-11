@@ -95,6 +95,19 @@ jobs:
           name: wasm-sandboxer ${{ matrix.features }}
           path: bin/wasm-sandboxer
 
+  runc:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build runc
+        run: make runc
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: runc
+          path: bin/runc-sandboxer
+
   containerd:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
@@ -120,6 +133,7 @@ jobs:
       - kernel
       - quark
       - wasm
+      - runc
       - containerd
     runs-on: ubuntu-22.04
     steps:
@@ -129,10 +143,12 @@ jobs:
           releasever=${{ github.ref }}
           releasever="${releasever#refs/tags/}"
           bash ./scripts/build/cargo-vendor.sh
-          mkdir -p /tmp/kuasar-$releasever
-          cp -r ./* /tmp/kuasar-$releasever
+          dir="kuasar-${releasever}-vensor"
+          mkdir -p /tmp/${dir}
+          cp -r ./* /tmp/${dir}
+          sudo -E chown -R root:root /tmp/${dir}
           mkdir _release
-          tar -czvf _release/kuasar-$releasever-vendor.tar.gz -C /tmp/ kuasar-$releasever
+          sudo -E tar -czf _release/${dir}.tar.gz -C /tmp/ ${dir}
       - uses: actions/download-artifact@v3
         with:
           path: _artifacts
@@ -140,9 +156,11 @@ jobs:
         run: |
           releasever=${{ github.ref }}
           releasever="${releasever#refs/tags/}"
-          mkdir _dist
-          find _artifacts -type f | xargs -I {} cp {} _dist/
-          tar -czvf _release/kuasar-$releasever-linux-amd64.tar.gz -C _dist .
+          dir="kuasar-${releasever}-linux-amd64"
+          mkdir -p ${dir}
+          find _artifacts -type f | xargs -I {} cp {} ${dir}/
+          sudo -E chown -R root:root ${dir}
+          sudo -E tar -czf _release/${dir}.tar.gz ${dir}
       - name: Update Release
         uses: softprops/action-gh-release@v1
         with:
