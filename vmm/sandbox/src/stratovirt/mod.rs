@@ -45,7 +45,7 @@ use self::{
     hooks::StratoVirtHooks,
 };
 use crate::{
-    device::{Bus, BusType, DeviceInfo, Slot, SlotStatus, Transport},
+    device::{Bus, BusType, DeviceInfo, Slot, SlotStatus},
     impl_recoverable, load_config,
     param::ToCmdLineParams,
     sandbox::KuasarSandboxer,
@@ -200,7 +200,7 @@ impl VM for StratoVirtVM {
                     .id(&tap_info.id)
                     .name(&tap_info.name)
                     .mac_address(&tap_info.mac_address)
-                    .transport(Transport::Pci)
+                    .transport(self.config.machine.transport())
                     .fds(fd_ints)
                     .vhost(false)
                     .vhostfds(vec![])
