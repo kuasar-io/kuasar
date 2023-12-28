@@ -125,7 +125,7 @@ impl CloudHypervisorVM {
         let mut cmd = tokio::process::Command::new(&self.virtiofsd_config.path);
         cmd.args(params.as_slice());
         debug!("start virtiofsd with cmdline: {:?}", cmd);
-        set_cmd_netns(&mut cmd, &self.netns)?;
+        set_cmd_netns(&mut cmd, self.netns.to_string())?;
         cmd.stderr(Stdio::piped());
         cmd.stdout(Stdio::piped());
         let child = cmd
@@ -164,7 +164,7 @@ impl VM for CloudHypervisorVM {
         cmd.args(params.as_slice());
 
         set_cmd_fd(&mut cmd, self.fds.to_vec())?;
-        set_cmd_netns(&mut cmd, &self.netns)?;
+        set_cmd_netns(&mut cmd, self.netns.to_string())?;
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
         debug!("start cloud hypervisor with cmdline: {:?}", cmd);
