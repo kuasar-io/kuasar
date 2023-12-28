@@ -16,7 +16,6 @@ limitations under the License.
 
 use std::{
     os::unix::net::UnixStream,
-    path::Path,
     thread::sleep,
     time::{Duration, SystemTime},
 };
@@ -24,7 +23,7 @@ use std::{
 use anyhow::anyhow;
 use api_client::{simple_api_command, simple_api_full_command_with_fds_and_response};
 use containerd_sandbox::error::Result;
-use log::{error, trace};
+use log::error;
 
 use crate::{
     cloud_hypervisor::devices::{block::DiskConfig, AddDeviceResponse, RemoveDeviceRequest},
@@ -38,25 +37,26 @@ pub struct ChClient {
 }
 
 impl ChClient {
-    pub fn new<P: AsRef<Path>>(socket_path: P) -> Result<Self> {
+    pub async fn new(socket_path: String) -> Result<Self> {
         let start_time = SystemTime::now();
-        loop {
+        tokio::task::spawn_blocking(move || loop {
             match UnixStream::connect(&socket_path) {
                 Ok(socket) => {
                     return Ok(Self { socket });
                 }
                 Err(e) => {
-                    trace!("failed to create client: {:?}", e);
                     if start_time.elapsed().unwrap().as_secs()
                         > CLOUD_HYPERVISOR_START_TIMEOUT_IN_SEC
                     {
-                        error!("failed to create client: {:?}", e);
+                        error!("failed to connect api server: {:?}", e);
                         return Err(anyhow!("timeout connect client, {}", e).into());
                     }
                     sleep(Duration::from_millis(10));
                 }
             }
-        }
+        })
+        .await
+        .map_err(|e| anyhow!("failed to spawn a task {}", e))?
     }
 
     pub fn hot_attach(&mut self, device_info: DeviceInfo) -> Result<String> {
