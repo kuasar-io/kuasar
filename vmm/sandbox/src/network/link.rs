@@ -215,7 +215,7 @@ pub struct NetworkInterface {
 impl NetworkInterface {
     pub async fn parse_from_message(
         msg: LinkMessage,
-        _netns: &str,
+        netns: &str,
         queue: u32,
         handle: &Handle,
     ) -> Result<Self> {
@@ -264,6 +264,20 @@ impl NetworkInterface {
                     }
                     intf.ip_addresses.push(IpNet::new(address, mask_len));
                 }
+            }
+        }
+        // find the pci device for unknown type interface, maybe it is a physical interface.
+        if let LinkType::Unkonwn = intf.r#type {
+            // only search those with ip addresses
+            if !intf.ip_addresses.is_empty() {
+                let if_name = intf.name.to_string();
+                let bdf = if !netns.is_empty() {
+                    run_in_new_netns(netns, move || get_bdf_for_eth(&if_name)).await??
+                } else {
+                    get_bdf_for_eth(&if_name)?
+                };
+                let driver = get_pci_driver(&bdf).await?;
+                intf.r#type = LinkType::Physical(bdf, driver);
             }
         }
         Ok(intf)
@@ -411,7 +425,6 @@ impl NetworkInterface {
     }
 }
 
-#[allow(dead_code)]
 fn get_bdf_for_eth(if_name: &str) -> Result<String> {
     if if_name.len() > 16 {
         return Err(anyhow!("the interface name length is larger than 16").into());
@@ -544,10 +557,11 @@ fn create_tap_device(tap_name: &str, mut queue: u32) -> Result<Vec<OwnedFd>> {
     Ok(fds)
 }
 
-#[allow(dead_code)]
 async fn get_pci_driver(bdf: &str) -> Result<String> {
     let driver_path = format!("/sys/bus/pci/devices/{}/driver", bdf);
-    let driver_dest = tokio::fs::read_link(driver_path).await?;
+    let driver_dest = tokio::fs::read_link(&driver_path)
+        .await
+        .map_err(|e| anyhow!("fail to readlink of {} : {}", driver_path, e))?;
     let file_name = driver_dest.file_name().ok_or(anyhow!(
         "failed to get file name from driver path {:?}",
         driver_dest
@@ -560,14 +574,21 @@ async fn get_pci_driver(bdf: &str) -> Result<String> {
 }
 
 async fn bind_device_to_driver(driver: &str, bdf: &str) -> Result<()> {
+    // 1. Switch the device driver
     let driver_override_path = format!("/sys/bus/pci/devices/{}/driver_override", bdf);
     write_file_async(&driver_override_path, driver).await?;
+
+    // 2. Unbind the device from its native driver
     let unbind_path = format!("/sys/bus/pci/devices/{}/driver/unbind", bdf);
     if Path::new(&*unbind_path).exists() {
         write_file_async(&unbind_path, bdf).await?;
     }
+
+    // 3. Probe driver for device
     let probe_path = "/sys/bus/pci/drivers_probe";
     write_file_async(probe_path, bdf).await?;
+
+    // 4. Check the result
     let driver_link = format!("/sys/bus/pci/devices/{}/driver", bdf);
     let driver_path = tokio::fs::read_link(&*driver_link).await?;
 

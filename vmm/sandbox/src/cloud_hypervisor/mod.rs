@@ -35,7 +35,9 @@ use crate::{
     cloud_hypervisor::{
         client::ChClient,
         config::{CloudHypervisorConfig, CloudHypervisorVMConfig, VirtiofsdConfig},
-        devices::{block::Disk, virtio_net::VirtioNetDevice, CloudHypervisorDevice},
+        devices::{
+            block::Disk, vfio::VfioDevice, virtio_net::VirtioNetDevice, CloudHypervisorDevice,
+        },
     },
     device::{BusType, DeviceInfo},
     impl_recoverable, load_config,
@@ -221,8 +223,9 @@ impl VM for CloudHypervisorVM {
                 );
                 self.add_device(device);
             }
-            DeviceInfo::Physical(_vfio_info) => {
-                todo!()
+            DeviceInfo::Physical(vfio_info) => {
+                let device = VfioDevice::new(&vfio_info.id, &vfio_info.bdf);
+                self.add_device(device);
             }
             DeviceInfo::VhostUser(_vhost_user_info) => {
                 todo!()

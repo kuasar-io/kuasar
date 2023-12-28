@@ -24,6 +24,7 @@ pub mod device;
 pub mod fs;
 pub mod pmem;
 pub mod rng;
+pub mod vfio;
 pub mod virtio_net;
 pub mod vsock;
 
