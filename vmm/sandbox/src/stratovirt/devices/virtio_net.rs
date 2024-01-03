@@ -62,9 +62,9 @@ pub struct VirtioNetDevice {
     pub(crate) fds: Vec<i32>,
     #[property(param = "netdev", predicate = "self.fds.len()<=0")]
     pub(crate) ifname: Option<String>,
-    #[property(param = "device", key = "bus")]
+    #[property(param = "device", key = "bus", predicate = "self.addr.len()>0")]
     pub(crate) pci_bus: Option<String>,
-    #[property(param = "device", key = "addr")]
+    #[property(param = "device", predicate = "self.addr.len()>0")]
     pub(crate) addr: String,
     #[property(param = "netdev")]
     pub(crate) script: Option<String>,
@@ -170,12 +170,10 @@ impl VirtioNetDevice {
 #[cfg(test)]
 mod tests {
     use crate::{
+        device::Transport,
         network::NetType,
         param::ToCmdLineParams,
-        stratovirt::{
-            devices::{virtio_net::VirtioNetDevice, DEFAULT_PCIE_BUS},
-            Transport,
-        },
+        stratovirt::devices::{virtio_net::VirtioNetDevice, DEFAULT_PCIE_BUS},
     };
 
     #[test]
@@ -211,6 +209,43 @@ mod tests {
         assert!(params
             .iter()
             .position(|x| x == "virtio-net-pci,netdev=intf-tap0,id=virtio-net-intf-tap0,bus=pcie.0,addr=0x0f,mac=a1:b2:c3:d5:f4,mq=on")
+            .is_some());
+    }
+
+    #[test]
+    fn test_virtio_net_params_microvm() {
+        let device = VirtioNetDevice {
+            r#type: NetType::Tap,
+            transport: Transport::Mmio,
+            driver: "virtio-net-device".to_string(),
+            id: "intf-tap0".to_string(),
+            device_id: "virtio-net-intf-tap0".to_string(),
+            vhost: false,
+            vhostfds: vec![],
+            fds: vec![],
+            ifname: Some("tap0".to_string()),
+            pci_bus: Some(DEFAULT_PCIE_BUS.to_string()),
+            addr: "".to_string(),
+            script: None,
+            down_script: None,
+            mac_address: "a1:b2:c3:d5:f4".to_string(),
+            multi_queue: false,
+            disable_modern: None,
+            romfile: None,
+            queues: None,
+        };
+        let params = device.to_cmdline_params("-");
+
+        println!("params: {:?}", params);
+
+        assert!(params
+            .iter()
+            .position(|x| x == "tap,id=intf-tap0,ifname=tap0")
+            .is_some());
+        assert!(params
+            .iter()
+            .position(|x| x
+                == "virtio-net-device,netdev=intf-tap0,id=virtio-net-intf-tap0,mac=a1:b2:c3:d5:f4,mq=off")
             .is_some());
     }
 }
