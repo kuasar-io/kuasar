@@ -41,8 +41,8 @@ use containerd_shim::{
     util::read_spec,
     ExitSignal,
 };
-use log::{debug, error};
-use nix::{sys::signalfd::signal::kill, unistd::Pid};
+use log::{debug, error, warn};
+use nix::{mount, mount::MsFlags, sys::signalfd::signal::kill, unistd::Pid};
 use oci_spec::runtime::{LinuxResources, Process, Spec};
 use runc::{options::GlobalOpts, Runc, Spawner};
 use serde::Deserialize;
@@ -52,7 +52,9 @@ use tokio::{
     process::Command,
     sync::Mutex,
 };
-use vmm_common::{mount::get_mount_type, storage::Storage, KUASAR_STATE_DIR};
+use vmm_common::{
+    mount::get_mount_type, storage::Storage, ETC_RESOLV, KUASAR_STATE_DIR, RESOLV_FILENAME,
+};
 
 use crate::{
     device::rescan_pci_bus,
@@ -193,6 +195,26 @@ impl ContainerFactory<KuasarContainer> for KuasarFactory {
 impl KuasarFactory {
     pub fn new(sandbox: Arc<Mutex<SandboxResources>>) -> Self {
         Self { sandbox }
+    }
+
+    // create_sandbox will do some preparation to provide a livable environment for containers,
+    // such as adding guest hooks, setting kernel paras, preparing sandbox files and namespaces
+    pub fn create_sandbox(&self) -> Result<()> {
+        // Setup DNS, bind mount to /etc/resolv.conf
+        let dns_file = Path::new(KUASAR_STATE_DIR).join(RESOLV_FILENAME);
+        if dns_file.exists() {
+            mount::mount(
+                Some(&dns_file),
+                ETC_RESOLV,
+                Some("bind"),
+                MsFlags::MS_BIND,
+                None::<&str>,
+            )?;
+        } else {
+            warn!("unable to find DNS files in kuasar state dir");
+        }
+
+        Ok(())
     }
 
     async fn do_create(&self, init: &mut InitProcess) -> Result<()> {

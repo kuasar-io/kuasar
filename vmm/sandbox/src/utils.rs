@@ -26,7 +26,7 @@ use std::{
 
 use anyhow::anyhow;
 use containerd_sandbox::{
-    cri::api::v1::LinuxContainerResources,
+    cri::api::v1::{DnsConfig, LinuxContainerResources},
     data::SandboxData,
     error::{Error, Result},
 };
@@ -85,6 +85,16 @@ pub fn get_overhead_resources(data: &SandboxData) -> Option<&LinuxContainerResou
         .as_ref()
         .and_then(|c| c.linux.as_ref())
         .and_then(|l| l.overhead.as_ref())
+}
+pub fn get_hostname(data: &SandboxData) -> String {
+    data.config
+        .as_ref()
+        .map(|c| c.hostname.clone())
+        .unwrap_or_default()
+}
+
+pub fn get_dns_config(data: &SandboxData) -> Option<&DnsConfig> {
+    data.config.as_ref().and_then(|c| c.dns_config.as_ref())
 }
 
 #[allow(dead_code)]

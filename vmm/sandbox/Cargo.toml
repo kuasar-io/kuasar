@@ -43,6 +43,8 @@ ttrpc = { version = "0.7", features = ["async"] }
 protobuf = "3.2"
 cgroups-rs = "0.3.2"
 proc-macro2 = "1.0.66"
+hostname = "0.3"
+path-clean = "1.0.1"
 
 [[bin]]
 name = "qemu" 
@@ -55,3 +57,7 @@ path = "src/bin/cloud_hypervisor/main.rs"
 [[bin]]
 name = "stratovirt" 
 path = "src/bin/stratovirt/main.rs"
+
+[dev-dependencies]
+temp-dir = "0.1.11"
+

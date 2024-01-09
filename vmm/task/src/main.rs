@@ -291,7 +291,7 @@ async fn mount_static_mounts(mounts: Vec<StaticMount>) -> containerd_shim::Resul
 // start_ttrpc_server will create all the ttrpc service and register them to a server that
 // bind to vsock 1024 port.
 async fn start_ttrpc_server() -> containerd_shim::Result<Server> {
-    let task = create_task_service().await;
+    let task = create_task_service().await?;
     let task_service = create_task(Arc::new(Box::new(task)));
 
     let sandbox = SandboxService::new()?;

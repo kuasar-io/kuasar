@@ -16,11 +16,12 @@ limitations under the License.
 
 use anyhow::anyhow;
 use containerd_sandbox::{error::Result, spec::Mount};
+use vmm_common::DEV_SHM;
 
 use crate::{storage::MountInfo, utils::read_file};
 
 pub fn is_bind_shm(m: &Mount) -> bool {
-    is_bind(m) && m.destination == "/dev/shm"
+    is_bind(m) && m.destination == DEV_SHM
 }
 
 pub fn is_bind(m: &Mount) -> bool {
