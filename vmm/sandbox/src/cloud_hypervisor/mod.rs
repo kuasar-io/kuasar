@@ -35,7 +35,9 @@ use crate::{
     cloud_hypervisor::{
         client::ChClient,
         config::{CloudHypervisorConfig, CloudHypervisorVMConfig, VirtiofsdConfig},
-        devices::{block::Disk, virtio_net::VirtioNetDevice, CloudHypervisorDevice},
+        devices::{
+            block::Disk, vfio::VfioDevice, virtio_net::VirtioNetDevice, CloudHypervisorDevice,
+        },
     },
     device::{BusType, DeviceInfo},
     impl_recoverable, load_config,
@@ -110,7 +112,7 @@ impl CloudHypervisorVM {
     }
 
     async fn create_client(&self) -> Result<ChClient> {
-        ChClient::new(&self.config.api_socket)
+        ChClient::new(self.config.api_socket.to_string()).await
     }
 
     fn get_client(&mut self) -> Result<&mut ChClient> {
@@ -125,7 +127,7 @@ impl CloudHypervisorVM {
         let mut cmd = tokio::process::Command::new(&self.virtiofsd_config.path);
         cmd.args(params.as_slice());
         debug!("start virtiofsd with cmdline: {:?}", cmd);
-        set_cmd_netns(&mut cmd, &self.netns)?;
+        set_cmd_netns(&mut cmd, self.netns.to_string())?;
         cmd.stderr(Stdio::piped());
         cmd.stdout(Stdio::piped());
         let child = cmd
@@ -164,7 +166,7 @@ impl VM for CloudHypervisorVM {
         cmd.args(params.as_slice());
 
         set_cmd_fd(&mut cmd, self.fds.to_vec())?;
-        set_cmd_netns(&mut cmd, &self.netns)?;
+        set_cmd_netns(&mut cmd, self.netns.to_string())?;
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
         debug!("start cloud hypervisor with cmdline: {:?}", cmd);
@@ -221,8 +223,9 @@ impl VM for CloudHypervisorVM {
                 );
                 self.add_device(device);
             }
-            DeviceInfo::Physical(_vfio_info) => {
-                todo!()
+            DeviceInfo::Physical(vfio_info) => {
+                let device = VfioDevice::new(&vfio_info.id, &vfio_info.bdf);
+                self.add_device(device);
             }
             DeviceInfo::VhostUser(_vhost_user_info) => {
                 todo!()

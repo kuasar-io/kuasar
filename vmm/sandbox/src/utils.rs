@@ -33,7 +33,7 @@ use containerd_sandbox::{
 use log::{debug, error};
 use nix::{
     fcntl::{open, OFlag},
-    libc::{dup2, exit, fcntl, kill, setns, FD_CLOEXEC, F_GETFD, F_SETFD},
+    libc::{dup2, fcntl, kill, setns, FD_CLOEXEC, F_GETFD, F_SETFD},
     sched::CloneFlags,
     sys::stat::Mode,
 };
@@ -428,16 +428,15 @@ pub fn safe_open_file<P: ?Sized + nix::NixPath>(
     Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 
-pub fn set_cmd_netns(cmd: &mut Command, netns: &str) -> Result<()> {
+pub fn set_cmd_netns(cmd: &mut Command, netns: String) -> Result<()> {
     if !netns.is_empty() {
-        let netns_fd = safe_open_file(netns, OFlag::O_CLOEXEC, Mode::empty())
-            .map_err(|e| anyhow!("failed to open netns {}", e))?;
         unsafe {
             cmd.pre_exec(move || {
-                let setns_result = setns(netns_fd.as_raw_fd(), CloneFlags::CLONE_NEWNET.bits());
-                if setns_result != 0 {
-                    eprintln!("failed to set netns: {}", setns_result);
-                    exit(127);
+                let netns_fd = safe_open_file(Path::new(&netns), OFlag::O_CLOEXEC, Mode::empty())?;
+                if setns(netns_fd.as_raw_fd(), CloneFlags::CLONE_NEWNET.bits()) != 0 {
+                    let e = std::io::Error::last_os_error();
+                    eprintln!("failed to set netns: {}, fd: {}", e, netns_fd.as_raw_fd());
+                    return Err(e);
                 }
                 Ok(())
             })
@@ -456,12 +455,14 @@ pub fn set_cmd_fd(cmd: &mut Command, fds: Vec<RawFd>) -> Result<()> {
                 if src_fd == dest_fd {
                     let flags = fcntl(src_fd, F_GETFD);
                     if flags < 0 || fcntl(src_fd, F_SETFD, flags & !FD_CLOEXEC) < 0 {
-                        eprintln!("failed to call fnctl");
-                        exit(127);
+                        let e = std::io::Error::last_os_error();
+                        eprintln!("failed to call fnctl: {}", e);
+                        return Err(e);
                     }
                 } else if dup2(src_fd, dest_fd) < 0 {
-                    eprintln!("failed to call dup2");
-                    exit(127);
+                    let e = std::io::Error::last_os_error();
+                    eprintln!("failed to call dup2: {}", e);
+                    return Err(e);
                 }
             }
             Ok(())
