@@ -22,6 +22,7 @@ use containerd_shim::{
     io_error, other,
     protos::{shim::shim_ttrpc_async::create_task, ttrpc::asynchronous::Server},
     util::IntoOption,
+    Result,
 };
 use futures::StreamExt;
 use lazy_static::lazy_static;
@@ -35,7 +36,10 @@ use nix::{
     unistd::Pid,
 };
 use signal_hook_tokio::Signals;
-use vmm_common::{api::sandbox_ttrpc::create_sandbox_service, mount::mount, KUASAR_STATE_DIR};
+use vmm_common::{
+    api::sandbox_ttrpc::create_sandbox_service, mount::mount, ETC_RESOLV, KUASAR_STATE_DIR,
+    RESOLV_FILENAME,
+};
 
 use crate::{
     config::TaskConfig,
@@ -66,6 +70,11 @@ pub struct StaticMount {
     dest: &'static str,
     options: Vec<&'static str>,
 }
+
+const ENVS: [(&str, &str); 2] = [
+    ("PATH", "/bin:/sbin/:/usr/bin/:/usr/sbin/"),
+    ("XDG_RUNTIME_DIR", "/run"),
+];
 
 lazy_static! {
     pub static ref VM_ROOTFS_MOUNTS: Vec<StaticMount> = vec![
@@ -122,9 +131,7 @@ lazy_static! {
 
 #[tokio::main]
 async fn main() {
-    std::env::set_var("PATH", "/bin:/sbin/:/usr/bin/:/usr/sbin/");
-    std::env::set_var("XDG_RUNTIME_DIR", "/run");
-    init_vm_rootfs().await.unwrap();
+    early_init_call().await.expect("early init call");
     let config = TaskConfig::new().await.unwrap();
     let log_level = LevelFilter::from_str(&config.log_level).unwrap();
     env_logger::Builder::from_default_env()
@@ -154,6 +161,8 @@ async fn main() {
         }
     }
 
+    late_init_call().await.expect("late init call");
+
     // Start ttrpc server
     let mut server = start_ttrpc_server()
         .await
@@ -164,6 +173,17 @@ async fn main() {
         .expect("new signal failed");
     info!("Task server successfully started, waiting for exit signal...");
     handle_signals(signals).await;
+}
+
+// Do some initialization before everything starts.
+// Such as setting envs, preparing cgroup mounts, setting kernel paras.
+async fn early_init_call() -> Result<()> {
+    // Set environment variables from ENVS vector(ordered).
+    for (k, v) in ENVS.iter() {
+        std::env::set_var(k, v);
+    }
+    init_vm_rootfs().await?;
+    Ok(())
 }
 
 async fn handle_signals(signals: Signals) {
@@ -248,7 +268,7 @@ async fn handle_signals(signals: Signals) {
     }
 }
 
-async fn init_vm_rootfs() -> containerd_shim::Result<()> {
+async fn init_vm_rootfs() -> Result<()> {
     let mounts = VM_ROOTFS_MOUNTS.clone();
     mount_static_mounts(mounts).await?;
     // has to mount /proc before find cgroup mounts
@@ -258,11 +278,30 @@ async fn init_vm_rootfs() -> containerd_shim::Result<()> {
     // For more information see https://www.kernel.org/doc/Documentation/cgroup-v1/memory.txt
     tokio::fs::write("/sys/fs/cgroup/memory/memory.use_hierarchy", "1")
         .await
-        .unwrap();
+        .map_err(io_error!(e, "failed to set cgroup hierarchy to 1"))
+}
+
+// Continue to do initialization that depend on shared path.
+// such as adding guest hook, preparing sandbox files and namespaces.
+async fn late_init_call() -> Result<()> {
+    // Setup DNS, bind mount to /etc/resolv.conf
+    let dns_file = Path::new(KUASAR_STATE_DIR).join(RESOLV_FILENAME);
+    if dns_file.exists() {
+        nix::mount::mount(
+            Some(&dns_file),
+            ETC_RESOLV,
+            Some("bind"),
+            nix::mount::MsFlags::MS_BIND,
+            None::<&str>,
+        )?;
+    } else {
+        warn!("unable to find DNS files in kuasar state dir");
+    }
+
     Ok(())
 }
 
-async fn mount_static_mounts(mounts: Vec<StaticMount>) -> containerd_shim::Result<()> {
+async fn mount_static_mounts(mounts: Vec<StaticMount>) -> Result<()> {
     for m in mounts {
         tokio::fs::create_dir_all(Path::new(m.dest))
             .await
@@ -290,8 +329,8 @@ async fn mount_static_mounts(mounts: Vec<StaticMount>) -> containerd_shim::Resul
 
 // start_ttrpc_server will create all the ttrpc service and register them to a server that
 // bind to vsock 1024 port.
-async fn start_ttrpc_server() -> containerd_shim::Result<Server> {
-    let task = create_task_service().await?;
+async fn start_ttrpc_server() -> Result<Server> {
+    let task = create_task_service().await;
     let task_service = create_task(Arc::new(Box::new(task)));
 
     let sandbox = SandboxService::new()?;

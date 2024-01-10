@@ -35,14 +35,11 @@ use crate::{
     sandbox::SandboxResources,
 };
 
-pub(crate) async fn create_task_service(
-) -> containerd_shim::Result<TaskService<KuasarFactory, KuasarContainer>> {
+pub(crate) async fn create_task_service() -> TaskService<KuasarFactory, KuasarContainer> {
     let (tx, mut rx) = channel(128);
     let sandbox = Arc::new(Mutex::new(SandboxResources::new().await));
-    let factory = KuasarFactory::new(sandbox);
-    factory.create_sandbox()?;
     let task = TaskService {
-        factory,
+        factory: KuasarFactory::new(sandbox),
         containers: Arc::new(Default::default()),
         namespace: "k8s.io".to_string(),
         exit: Arc::new(Default::default()),
@@ -57,7 +54,7 @@ pub(crate) async fn create_task_service(
             debug!("received event {:?}", e);
         }
     });
-    Ok(task)
+    task
 }
 
 async fn process_exits(s: Subscription, task: &TaskService<KuasarFactory, KuasarContainer>) {
