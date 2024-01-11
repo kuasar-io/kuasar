@@ -28,7 +28,7 @@ pub use utils::*;
 use vmm_common::{
     mount::{bind_mount, unmount, MNT_NOFOLLOW},
     storage::{Storage, DRIVEREPHEMERALTYPE},
-    KUASAR_STATE_DIR, SHARED_DIR_SUFFIX,
+    KUASAR_STATE_DIR,
 };
 
 use crate::{
@@ -158,7 +158,7 @@ where
         } else {
             m.source.clone()
         };
-        let host_dest = format!("{}/{}/{}", self.base_dir, SHARED_DIR_SUFFIX, &storage_id);
+        let host_dest = format!("{}/{}", self.get_sandbox_shared_path(), &storage_id);
         debug!("bind mount storage for mount {:?}, dest: {}", m, &host_dest);
         let source_path = Path::new(&*source);
         if source_path.is_dir() {
@@ -206,7 +206,7 @@ where
                 m
             )));
         }
-        let host_dest = format!("{}/{}/{}", self.base_dir, SHARED_DIR_SUFFIX, &storage_id);
+        let host_dest = format!("{}/{}", self.get_sandbox_shared_path(), &storage_id);
         debug!("overlay mount storage for {:?}, dest: {}", m, &host_dest);
         tokio::fs::create_dir_all(&host_dest).await?;
         mount_rootfs(Some(&m.r#type), Some(&m.source), &m.options, &host_dest)
@@ -288,7 +288,7 @@ where
         if device_id.is_some() {
             self.vm.hot_detach(&device_id.unwrap()).await?;
         } else if fs_type == "bind" {
-            let mount_point = format!("{}/{}/{}", self.base_dir, SHARED_DIR_SUFFIX, id);
+            let mount_point = format!("{}/{}", self.get_sandbox_shared_path(), &id);
             unmount(&mount_point, MNT_DETACH | MNT_NOFOLLOW)?;
             if Path::new(&mount_point).is_dir() {
                 tokio::fs::remove_dir(&mount_point).await.map_err(|e| {

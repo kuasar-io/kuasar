@@ -21,7 +21,7 @@ use containerd_sandbox::{
     Sandbox,
 };
 use log::debug;
-use vmm_common::{storage::ANNOTATION_KEY_STORAGE, STORAGE_FILE_PREFIX};
+use vmm_common::{storage::ANNOTATION_KEY_STORAGE, DEV_SHM, STORAGE_FILE_PREFIX};
 
 use crate::{
     container::handler::Handler, sandbox::KuasarSandbox, storage::mount::is_bind_shm,
@@ -68,7 +68,7 @@ where
             }
             // TODO if vmm-task mount shm when startup, then just use the same shm
             if is_bind_shm(&m) {
-                m.source = "/dev/shm".to_string();
+                m.source = DEV_SHM.to_string();
                 m.options.push("rbind".to_string());
             }
             handled_mounts.push(m);

@@ -25,3 +25,11 @@ pub const KUASAR_STATE_DIR: &str = "/run/kuasar/state";
 pub const IO_FILE_PREFIX: &str = "io";
 pub const STORAGE_FILE_PREFIX: &str = "storage";
 pub const SHARED_DIR_SUFFIX: &str = "shared";
+
+pub const ETC_HOSTS: &str = "/etc/hosts";
+pub const ETC_HOSTNAME: &str = "/etc/hostname";
+pub const ETC_RESOLV: &str = "/etc/resolv.conf";
+pub const DEV_SHM: &str = "/dev/shm";
+pub const HOSTS_FILENAME: &str = "hosts";
+pub const HOSTNAME_FILENAME: &str = "hostname";
+pub const RESOLV_FILENAME: &str = "resolv.conf";

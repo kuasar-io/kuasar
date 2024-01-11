@@ -17,7 +17,6 @@ limitations under the License.
 use anyhow::anyhow;
 use async_trait::async_trait;
 use containerd_sandbox::{error::Result, ContainerOption};
-use vmm_common::SHARED_DIR_SUFFIX;
 
 use crate::{
     container::{handler::Handler, KuasarContainer},
@@ -52,8 +51,9 @@ where
             processes: vec![],
         };
         let bundle = format!(
-            "{}/{}/{}",
-            sandbox.base_dir, SHARED_DIR_SUFFIX, self.option.container.id
+            "{}/{}",
+            sandbox.get_sandbox_shared_path(),
+            self.option.container.id
         );
         tokio::fs::create_dir_all(&bundle)
             .await

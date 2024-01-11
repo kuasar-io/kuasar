@@ -25,14 +25,18 @@ use containerd_sandbox::{
     utils::cleanup_mounts,
     ContainerOption, Sandbox, SandboxOption, SandboxStatus, Sandboxer,
 };
+use containerd_shim::util::write_str_to_file;
 use log::{debug, error, info, warn};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::{
-    fs::{remove_dir_all, OpenOptions},
+    fs::{copy, create_dir_all, remove_dir_all, OpenOptions},
     io::{AsyncReadExt, AsyncWriteExt},
     sync::{Mutex, RwLock},
 };
-use vmm_common::{api::sandbox_ttrpc::SandboxServiceClient, storage::Storage, SHARED_DIR_SUFFIX};
+use vmm_common::{
+    api::sandbox_ttrpc::SandboxServiceClient, storage::Storage, ETC_HOSTS, ETC_RESOLV,
+    HOSTNAME_FILENAME, HOSTS_FILENAME, RESOLV_FILENAME, SHARED_DIR_SUFFIX,
+};
 
 use crate::{
     cgroup::SandboxCgroup,
@@ -42,7 +46,7 @@ use crate::{
     },
     container::KuasarContainer,
     network::{Network, NetworkConfig},
-    utils::{get_resources, get_sandbox_cgroup_parent_path},
+    utils::{get_dns_config, get_hostname, get_resources, get_sandbox_cgroup_parent_path},
     vm::{Hooks, Recoverable, VMFactory, VM},
 };
 
@@ -236,6 +240,9 @@ where
             let network = Network::new(network_config).await?;
             network.attach_to(&mut sandbox).await?;
         }
+
+        // setup sandbox files: hosts, hostname and resolv.conf for guest
+        sandbox.setup_sandbox_files().await?;
         self.hooks.post_create(&mut sandbox).await?;
         sandbox.dump().await?;
         self.sandboxes
@@ -363,7 +370,7 @@ where
     async fn remove_container(&mut self, id: &str) -> Result<()> {
         self.deference_container_storages(id).await?;
 
-        let bundle = format!("{}/{}/{}", self.base_dir, SHARED_DIR_SUFFIX, id);
+        let bundle = format!("{}/{}", self.get_sandbox_shared_path(), &id);
         if let Err(e) = tokio::fs::remove_dir_all(&*bundle).await {
             if e.kind() != ErrorKind::NotFound {
                 return Err(anyhow!("failed to remove bundle {}, {}", bundle, e).into());
@@ -540,6 +547,83 @@ where
             client_sync_clock(client).await;
         }
     }
+
+    async fn setup_sandbox_files(&self) -> Result<()> {
+        let shared_path = self.get_sandbox_shared_path();
+        create_dir_all(&shared_path)
+            .await
+            .map_err(|e| anyhow!("create host sandbox path({}): {}", shared_path, e))?;
+
+        // Handle hostname
+        let mut hostname = get_hostname(&self.data);
+        if hostname.is_empty() {
+            hostname = hostname::get()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+        }
+        hostname.push('\n');
+        let hostname_path = Path::new(&shared_path).join(HOSTNAME_FILENAME);
+        write_str_to_file(hostname_path, &hostname)
+            .await
+            .map_err(|e| anyhow!("write hostname: {:?}", e))?;
+
+        // handle hosts
+        let hosts_path = Path::new(&shared_path).join(HOSTS_FILENAME);
+        copy(ETC_HOSTS, hosts_path)
+            .await
+            .map_err(|e| anyhow!("copy hosts: {}", e))?;
+
+        // handle resolv.conf
+        let resolv_path = Path::new(&shared_path).join(RESOLV_FILENAME);
+        match get_dns_config(&self.data).map(|dns_config| {
+            parse_dnsoptions(
+                &dns_config.servers,
+                &dns_config.searches,
+                &dns_config.options,
+            )
+        }) {
+            Some(resolv_content) if !resolv_content.is_empty() => {
+                write_str_to_file(resolv_path, &resolv_content)
+                    .await
+                    .map_err(|e| anyhow!("write reslov.conf: {:?}", e))?;
+            }
+            _ => {
+                copy(ETC_RESOLV, resolv_path)
+                    .await
+                    .map_err(|e| anyhow!("copy resolv.conf: {}", e))?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn get_sandbox_shared_path(&self) -> String {
+        format!("{}/{}", self.base_dir, SHARED_DIR_SUFFIX)
+    }
+}
+
+// parse_dnsoptions parse DNS options into resolv.conf format content,
+// if none option is specified, will return empty with no error.
+fn parse_dnsoptions(
+    servers: &Vec<String>,
+    searches: &Vec<String>,
+    options: &Vec<String>,
+) -> String {
+    let mut resolv_content = String::new();
+
+    if !searches.is_empty() {
+        resolv_content.push_str(&format!("search {}\n", searches.join(" ")));
+    }
+
+    if !servers.is_empty() {
+        resolv_content.push_str(&format!("nameserver {}\n", servers.join("\nnameserver ")));
+    }
+
+    if !options.is_empty() {
+        resolv_content.push_str(&format!("options {}\n", options.join(" ")));
+    }
+
+    resolv_content
 }
 
 #[derive(Default, Debug, Deserialize)]
@@ -594,4 +678,58 @@ fn monitor<V: VM + 'static>(sandbox_mutex: Arc<Mutex<KuasarSandbox<V>>>) {
             sandbox.exit_signal.signal();
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    mod dns {
+        use crate::sandbox::parse_dnsoptions;
+
+        #[derive(Default)]
+        struct DnsConfig {
+            servers: Vec<String>,
+            searches: Vec<String>,
+            options: Vec<String>,
+        }
+
+        #[test]
+        fn test_parse_empty_dns_option() {
+            let mut dns_test = DnsConfig::default();
+            let resolv_content =
+                parse_dnsoptions(&dns_test.servers, &dns_test.searches, &dns_test.options);
+            assert!(resolv_content.is_empty())
+        }
+
+        #[test]
+        fn test_parse_non_empty_dns_option() {
+            let dns_test = DnsConfig {
+                servers: vec!["8.8.8.8", "server.google.com"]
+                    .into_iter()
+                    .map(String::from)
+                    .collect(),
+                searches: vec![
+                    "server0.google.com",
+                    "server1.google.com",
+                    "server2.google.com",
+                    "server3.google.com",
+                    "server4.google.com",
+                    "server5.google.com",
+                    "server6.google.com",
+                ]
+                .into_iter()
+                .map(String::from)
+                .collect(),
+                options: vec!["timeout:1"].into_iter().map(String::from).collect(),
+            };
+            let expected_content = "search server0.google.com server1.google.com server2.google.com server3.google.com server4.google.com server5.google.com server6.google.com
+nameserver 8.8.8.8
+nameserver server.google.com
+options timeout:1
+".to_string();
+            let resolv_content =
+                parse_dnsoptions(&dns_test.servers, &dns_test.searches, &dns_test.options);
+            assert!(!resolv_content.is_empty());
+            assert_eq!(resolv_content, expected_content)
+        }
+    }
 }
