@@ -1,0 +1,13 @@
+fragments/x86_64.conf
+fragments/base.conf
+fragments/block.conf
+fragments/cgroup.conf
+fragments/character.conf
+fragments/cpu.conf
+fragments/device.conf
+fragments/filesystem.conf
+fragments/mem.conf
+fragments/namespace.conf
+fragments/net.conf
+fragments/security.conf
+fragments/virtio.conf
