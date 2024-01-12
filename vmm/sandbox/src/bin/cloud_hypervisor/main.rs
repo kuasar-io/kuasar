@@ -14,12 +14,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use vmm_sandboxer::{cloud_hypervisor::init_cloud_hypervisor_sandboxer, utils::init_logger};
+use clap::Parser;
+use vmm_sandboxer::{
+    args, cloud_hypervisor::init_cloud_hypervisor_sandboxer, utils::init_logger, version,
+};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let args = args::Args::parse();
+    if args.version {
+        version::print_version_info();
+        return Ok(());
+    }
     // Initialize sandboxer
-    let sandboxer = init_cloud_hypervisor_sandboxer().await?;
+    let sandboxer = init_cloud_hypervisor_sandboxer(&args).await?;
 
     // Initialize log
     init_logger(sandboxer.log_level());
