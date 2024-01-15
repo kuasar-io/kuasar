@@ -39,6 +39,7 @@ use unshare::Fd;
 
 use self::{factory::QemuVMFactory, hooks::QemuHooks};
 use crate::{
+    args::Args,
     device::{BusType, DeviceInfo, SlotStatus, Transport},
     impl_recoverable,
     kata_config::KataConfig,
@@ -533,7 +534,7 @@ impl QemuVM {
 
 impl_recoverable!(QemuVM);
 
-pub async fn init_qemu_sandboxer() -> Result<KuasarSandboxer<QemuVMFactory, QemuHooks>> {
+pub async fn init_qemu_sandboxer(args: &Args) -> Result<KuasarSandboxer<QemuVMFactory, QemuHooks>> {
     // For compatibility with kata config
     let config_path = std::env::var("KATA_CONFIG_PATH")
         .unwrap_or_else(|_| "/usr/share/defaults/kata-containers/configuration.toml".to_string());
@@ -550,13 +551,9 @@ pub async fn init_qemu_sandboxer() -> Result<KuasarSandboxer<QemuVMFactory, Qemu
     let mut s = KuasarSandboxer::new(sandbox_config, vmm_config, hooks);
 
     // Check for "--dir" argument and recover from persisted directory
-    let os_args: Vec<_> = std::env::args_os().collect();
-    for i in 0..os_args.len() {
-        if os_args[i].to_str().unwrap() == "--dir" {
-            let persist_dir_path = os_args[i + 1].to_str().unwrap().to_string();
-            if std::path::Path::new(&persist_dir_path).exists() {
-                s.recover(&persist_dir_path).await?;
-            }
+    if let Some(persist_dir_path) = &args.dir {
+        if std::path::Path::new(&persist_dir_path).exists() {
+            s.recover(persist_dir_path).await?;
         }
     }
 

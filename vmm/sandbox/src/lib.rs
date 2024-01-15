@@ -14,9 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+use anyhow::Context;
 use serde::de::DeserializeOwned;
 
-use crate::{config::Config, sandbox::KuasarSandbox};
+use crate::{args::Args, config::Config, sandbox::KuasarSandbox};
 
 #[macro_use]
 mod device;
@@ -30,6 +31,7 @@ mod param;
 mod storage;
 mod vm;
 
+pub mod args;
 pub mod cloud_hypervisor;
 pub mod config;
 pub mod kata_config;
@@ -37,24 +39,26 @@ pub mod qemu;
 pub mod sandbox;
 pub mod stratovirt;
 pub mod utils;
+pub mod version;
 
 async fn load_config<T: DeserializeOwned>(
+    args: &Args,
     default_config_path: &str,
 ) -> anyhow::Result<(Config<T>, String)> {
-    let os_args: Vec<_> = std::env::args_os().collect();
     let mut config_path = default_config_path.to_string();
     let mut dir_path = String::new();
-    for i in 0..os_args.len() {
-        if os_args[i].to_str().unwrap() == "--config" {
-            config_path = os_args[i + 1].to_str().unwrap().to_string()
-        }
-        if os_args[i].to_str().unwrap() == "--dir" {
-            dir_path = os_args[i + 1].to_str().unwrap().to_string();
-            if !std::path::Path::new(&dir_path).exists() {
-                tokio::fs::create_dir_all(&dir_path).await.unwrap();
-            }
+    if let Some(c) = &args.config {
+        config_path = c.to_string();
+    }
+    if let Some(d) = &args.dir {
+        dir_path = d.to_string();
+        if !std::path::Path::new(&dir_path).exists() {
+            tokio::fs::create_dir_all(&dir_path)
+                .await
+                .with_context(|| format!("Failed to mkdir for {}", dir_path))?;
         }
     }
+
     let path = std::path::Path::new(&config_path);
     let config: Config<T> = if path.exists() {
         Config::parse(path).await?

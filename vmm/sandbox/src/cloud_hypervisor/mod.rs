@@ -32,6 +32,7 @@ use vmm_common::SHARED_DIR_SUFFIX;
 
 use self::{factory::CloudHypervisorVMFactory, hooks::CloudHypervisorHooks};
 use crate::{
+    args::Args,
     cloud_hypervisor::{
         client::ChClient,
         config::{CloudHypervisorConfig, CloudHypervisorVMConfig, VirtiofsdConfig},
@@ -346,9 +347,10 @@ fn spawn_wait(
 }
 
 pub async fn init_cloud_hypervisor_sandboxer(
+    args: &Args,
 ) -> Result<KuasarSandboxer<CloudHypervisorVMFactory, CloudHypervisorHooks>> {
     let (config, persist_dir_path) =
-        load_config::<CloudHypervisorVMConfig>(CONFIG_CLH_PATH).await?;
+        load_config::<CloudHypervisorVMConfig>(args, CONFIG_CLH_PATH).await?;
     let hooks = CloudHypervisorHooks {};
     let mut s = KuasarSandboxer::new(config.sandbox, config.hypervisor, hooks);
     if !persist_dir_path.is_empty() {
