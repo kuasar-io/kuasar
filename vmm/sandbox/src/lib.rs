@@ -38,11 +38,6 @@ pub mod sandbox;
 pub mod stratovirt;
 pub mod utils;
 
-pub const NAMESPACE_PID: &str = "pid";
-pub const NAMESPACE_NET: &str = "network";
-pub const NAMESPACE_MNT: &str = "mount";
-pub const NAMESPACE_CGROUP: &str = "cgroup";
-
 async fn load_config<T: DeserializeOwned>(
     default_config_path: &str,
 ) -> anyhow::Result<(Config<T>, String)> {

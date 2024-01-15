@@ -16,15 +16,9 @@ limitations under the License.
 
 use async_trait::async_trait;
 use containerd_sandbox::error::Result;
+use vmm_common::{CGROUP_NAMESPACE, IPC_NAMESPACE, NET_NAMESPACE, SANDBOX_NS_PATH, UTS_NAMESPACE};
 
 use crate::{container::handler::Handler, sandbox::KuasarSandbox, vm::VM};
-
-#[allow(dead_code)]
-pub const NAMESPACE_PID: &str = "pid";
-pub const NAMESPACE_NET: &str = "network";
-#[allow(dead_code)]
-pub const NAMESPACE_MNT: &str = "mount";
-pub const NAMESPACE_CGROUP: &str = "cgroup";
 
 pub struct NamespaceHandler {
     container_id: String,
@@ -52,10 +46,14 @@ where
         };
         if let Some(l) = spec.linux.as_mut() {
             l.namespaces
-                .retain(|n| n.r#type != NAMESPACE_NET && n.r#type != NAMESPACE_CGROUP);
-            l.namespaces
-                .iter_mut()
-                .for_each(|n| n.path = "".to_string());
+                .retain(|n| n.r#type != NET_NAMESPACE && n.r#type != CGROUP_NAMESPACE);
+            l.namespaces.iter_mut().for_each(|n| {
+                n.path = if n.r#type == IPC_NAMESPACE || n.r#type == UTS_NAMESPACE {
+                    format!("{}/{}", SANDBOX_NS_PATH, n.r#type)
+                } else {
+                    "".to_string()
+                }
+            });
         };
         Ok(())
     }

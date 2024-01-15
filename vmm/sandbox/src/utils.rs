@@ -45,8 +45,7 @@ use tokio::{
     sync::watch::Receiver,
     time::sleep,
 };
-
-use crate::NAMESPACE_NET;
+use vmm_common::NET_NAMESPACE;
 
 pub async fn read_file<P: AsRef<Path>>(filename: P) -> Result<String> {
     let mut file = tokio::fs::File::open(&filename).await?;
@@ -62,7 +61,7 @@ pub fn get_netns(data: &SandboxData) -> String {
         let mut netns = "".to_string();
         if let Some(l) = &spec.linux {
             for ns in &l.namespaces {
-                if ns.r#type == NAMESPACE_NET {
+                if ns.r#type == NET_NAMESPACE {
                     netns = ns.path.clone();
                 }
             }

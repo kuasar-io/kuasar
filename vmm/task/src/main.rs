@@ -14,14 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::{convert::TryFrom, path::Path, str::FromStr, sync::Arc};
+use std::{collections::HashMap, convert::TryFrom, path::Path, str::FromStr, sync::Arc, thread};
 
 use containerd_shim::{
     asynchronous::{monitor::monitor_notify_by_pid, util::asyncify},
     error::Error,
     io_error, other,
     protos::{shim::shim_ttrpc_async::create_task, ttrpc::asynchronous::Server},
-    util::IntoOption,
+    util::{mkdir, IntoOption},
     Result,
 };
 use futures::StreamExt;
@@ -29,16 +29,19 @@ use lazy_static::lazy_static;
 use log::{debug, error, info, warn, LevelFilter};
 use nix::{
     errno::Errno,
+    sched::{unshare, CloneFlags},
     sys::{
         wait,
         wait::{WaitPidFlag, WaitStatus},
     },
-    unistd::Pid,
+    unistd::{getpid, gettid, Pid},
 };
 use signal_hook_tokio::Signals;
+use tokio::fs::File;
 use vmm_common::{
-    api::sandbox_ttrpc::create_sandbox_service, mount::mount, ETC_RESOLV, KUASAR_STATE_DIR,
-    RESOLV_FILENAME,
+    api::sandbox_ttrpc::create_sandbox_service, mount::mount, ETC_RESOLV, HOSTNAME_FILENAME,
+    IPC_NAMESPACE, KUASAR_STATE_DIR, NET_NAMESPACE, RESOLV_FILENAME, SANDBOX_NS_PATH,
+    UTS_NAMESPACE,
 };
 
 use crate::{
@@ -127,6 +130,11 @@ lazy_static! {
         dest: KUASAR_STATE_DIR,
         options: vec!["relatime", "nodev", "sync", "dirsync",]
     },];
+    static ref CLONE_FLAG_TABLE: HashMap<String, CloneFlags> = HashMap::from([
+        (String::from(NET_NAMESPACE), CloneFlags::CLONE_NEWNET),
+        (String::from(IPC_NAMESPACE), CloneFlags::CLONE_NEWIPC),
+        (String::from(UTS_NAMESPACE), CloneFlags::CLONE_NEWUTS),
+    ]);
 }
 
 #[tokio::main]
@@ -298,6 +306,9 @@ async fn late_init_call() -> Result<()> {
         warn!("unable to find DNS files in kuasar state dir");
     }
 
+    // Setup sandbox namespace
+    setup_sandbox_ns().await?;
+
     Ok(())
 }
 
@@ -341,4 +352,60 @@ async fn start_ttrpc_server() -> Result<Server> {
         .bind("vsock://-1:1024")?
         .register_service(task_service)
         .register_service(sandbox_service))
+}
+
+async fn setup_sandbox_ns() -> Result<()> {
+    setup_persistent_ns(vec![
+        String::from(IPC_NAMESPACE),
+        String::from(UTS_NAMESPACE),
+    ])
+    .await?;
+    Ok(())
+}
+
+async fn setup_persistent_ns(ns_types: Vec<String>) -> Result<()> {
+    if ns_types.is_empty() {
+        return Ok(());
+    }
+    mkdir(SANDBOX_NS_PATH, 0o711).await?;
+
+    let mut clone_type = CloneFlags::empty();
+
+    for ns_type in &ns_types {
+        let sandbox_ns_path = format!("{}/{}", SANDBOX_NS_PATH, ns_type);
+        File::create(&sandbox_ns_path).await.map_err(io_error!(
+            e,
+            "failed to create: {}",
+            sandbox_ns_path
+        ))?;
+
+        clone_type |= *CLONE_FLAG_TABLE
+            .get(ns_type)
+            .ok_or(other!("bad ns type {}", ns_type))?;
+    }
+
+    thread::spawn(move || {
+        unshare(clone_type).expect("failed to do unshare");
+        // set hostname
+        let hostname = std::fs::read_to_string(Path::new(KUASAR_STATE_DIR).join(HOSTNAME_FILENAME))
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default();
+        if !hostname.is_empty() {
+            nix::unistd::sethostname(hostname).expect("set hostname");
+        }
+
+        for ns_type in &ns_types {
+            let sandbox_ns_path = format!("{}/{}", SANDBOX_NS_PATH, ns_type);
+            let ns_path = format!("/proc/{}/task/{}/ns/{}", getpid(), gettid(), ns_type);
+            mount(
+                Some("none"),
+                Some(ns_path.as_str()),
+                &["bind".to_string()],
+                &sandbox_ns_path,
+            )
+            .expect("failed to mount sandbox ns");
+        }
+    });
+
+    Ok(())
 }
