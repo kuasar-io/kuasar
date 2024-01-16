@@ -450,7 +450,7 @@ install_prerequisites() {
 		os_distro=$ID
 	fi
 	case "${os_distro}" in
-		ubuntu) apt-get install -y qemu-utils parted ;;
+		ubuntu) apt-get update && apt-get install -y qemu-utils parted ;;
 		centos) yum install -y qemu-img parted ;;
 		euleros) yum install -y qemu-img parted ;;
 		openEuler) yum install -y qemu-img parted ;;
