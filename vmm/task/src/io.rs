@@ -127,7 +127,7 @@ pub(crate) async fn copy_io_or_console<P>(
 ) -> Result<()> {
     if p.stdio.terminal {
         if let Some(console_socket) = socket {
-            let console_result = copy_console(&console_socket, &p.stdio, exit_signal).await;
+            let console_result = copy_console(p, &console_socket, &p.stdio, exit_signal).await;
             console_socket.clean().await;
             match console_result {
                 Ok(c) => {
@@ -144,7 +144,8 @@ pub(crate) async fn copy_io_or_console<P>(
     Ok(())
 }
 
-async fn copy_console(
+async fn copy_console<P>(
+    p: &ProcessTemplate<P>,
     console_socket: &ConsoleSocket,
     stdio: &Stdio,
     exit_signal: Arc<ExitSignal>,
@@ -155,6 +156,18 @@ async fn copy_console(
     let f = unsafe { File::from_raw_fd(fd) };
     if !stdio.stdin.is_empty() {
         debug!("copy_console: pipe stdin to console");
+
+        let stdin_clone = stdio.stdin.clone();
+        let stdin_w = p.stdin.clone();
+        // open the write side to make sure read side unblock, as open write side
+        // will block too, open it in another thread
+        tokio::spawn(async move {
+            if let Ok(stdin_file) = OpenOptions::new().write(true).open(stdin_clone).await {
+                let mut lock_guard = stdin_w.lock().await;
+                *lock_guard = Some(stdin_file);
+            }
+        });
+
         let console_stdin = f
             .try_clone()
             .await

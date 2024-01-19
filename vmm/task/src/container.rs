@@ -338,6 +338,7 @@ impl ProcessFactory<ExecProcess> for KuasarExecFactory {
                 spec: p,
                 exit_signal: Default::default(),
             }),
+            stdin: Arc::new(Mutex::new(None)),
         })
     }
 }
