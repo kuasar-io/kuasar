@@ -48,7 +48,7 @@ use oci_spec::runtime::{LinuxResources, Process, Spec};
 use runc::{options::GlobalOpts, Runc, Spawner};
 use serde::Deserialize;
 use tokio::{
-    fs::File,
+    fs::{remove_file, File},
     io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncSeekExt, BufReader},
     process::Command,
     sync::Mutex,
@@ -519,8 +519,10 @@ impl ProcessLifecycle<ExecProcess> for KuasarExecLifecycle {
         }
     }
 
-    async fn delete(&self, _p: &mut ExecProcess) -> containerd_shim::Result<()> {
+    async fn delete(&self, p: &mut ExecProcess) -> Result<()> {
         self.exit_signal.signal();
+        let exec_pid_path = Path::new(self.bundle.as_str()).join(format!("{}.pid", p.id));
+        remove_file(exec_pid_path).await.unwrap_or_default();
         Ok(())
     }
 
