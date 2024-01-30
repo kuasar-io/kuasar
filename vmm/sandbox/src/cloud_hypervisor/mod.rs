@@ -19,7 +19,7 @@ use std::{os::unix::io::RawFd, process::Stdio};
 use anyhow::anyhow;
 use async_trait::async_trait;
 use containerd_sandbox::error::{Error, Result};
-use log::{debug, error};
+use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use tokio::{
@@ -137,7 +137,7 @@ impl CloudHypervisorVM {
         let pid = child
             .id()
             .ok_or(anyhow!("the virtiofsd has been polled to completion"))?;
-        spawn_wait(child, "virtiofsd".to_string(), None, None);
+        spawn_wait(child, format!("virtiofsd {}", self.id), None, None);
         Ok(pid)
     }
 
@@ -150,7 +150,6 @@ impl CloudHypervisorVM {
 #[async_trait]
 impl VM for CloudHypervisorVM {
     async fn start(&mut self) -> Result<u32> {
-        debug!("start vm {}", self.id);
         create_dir_all(&self.base_dir).await?;
         let virtiofsd_pid = self.start_virtiofsd().await?;
         let mut params = self.config.to_cmdline_params("--");
@@ -170,7 +169,7 @@ impl VM for CloudHypervisorVM {
         set_cmd_netns(&mut cmd, self.netns.to_string())?;
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
-        debug!("start cloud hypervisor with cmdline: {:?}", cmd);
+        info!("start cloud hypervisor with cmdline: {:?}", cmd);
         let child = cmd
             .spawn()
             .map_err(|e| anyhow!("failed to spawn cloud hypervisor command: {}", e))?;
@@ -179,7 +178,7 @@ impl VM for CloudHypervisorVM {
         let (tx, rx) = tokio::sync::watch::channel((0u32, 0i128));
         spawn_wait(
             child,
-            "cloud-hypervisor".to_string(),
+            format!("cloud-hypervisor {}", self.id),
             Some(pid_file),
             Some(tx),
         );
