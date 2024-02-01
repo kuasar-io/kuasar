@@ -144,7 +144,8 @@ async fn main() {
     let log_level = LevelFilter::from_str(&config.log_level).unwrap();
     env_logger::Builder::from_default_env()
         .format_timestamp_micros()
-        .filter_level(log_level)
+        .filter_module("containerd_shim", log_level)
+        .filter_module("vmm_task", log_level)
         .init();
     info!("Task server start with config: {:?}", config);
     match &*config.sharefs_type {

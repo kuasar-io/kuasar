@@ -30,7 +30,7 @@ use containerd_sandbox::{
     data::SandboxData,
     error::{Error, Result},
 };
-use log::{debug, error};
+use log::{error, info};
 use nix::{
     fcntl::{open, OFlag},
     libc::{dup2, fcntl, kill, setns, FD_CLOEXEC, F_GETFD, F_SETFD},
@@ -96,7 +96,6 @@ pub fn get_dns_config(data: &SandboxData) -> Option<&DnsConfig> {
     data.config.as_ref().and_then(|c| c.dns_config.as_ref())
 }
 
-#[allow(dead_code)]
 pub fn get_total_resources(data: &SandboxData) -> Option<LinuxContainerResources> {
     return data
         .config
@@ -114,7 +113,6 @@ pub fn get_total_resources(data: &SandboxData) -> Option<LinuxContainerResources
         });
 }
 
-#[allow(dead_code)]
 fn merge_resources(
     resource1: &LinuxContainerResources,
     resource2: &LinuxContainerResources,
@@ -148,25 +146,29 @@ fn merge_resources(
         }
     }
 
-    // merge cpuset_cpus, if error happend, log and use resource1
+    // merge cpuset_cpus, if error happened, log and use resource1
     let cpuset_cpus = if let Ok(c) = merge_cpusets(&resource1.cpuset_cpus, &resource2.cpuset_cpus) {
         c
     } else {
-        error!(
-            "failed to merge cpusets {} with {}",
-            resource1.cpuset_cpus, resource2.cpuset_cpus
-        );
+        if !resource1.cpuset_cpus.is_empty() {
+            error!(
+                "failed to merge cpuset cpus {} with {}",
+                resource1.cpuset_cpus, resource2.cpuset_cpus
+            );
+        }
         resource1.cpuset_cpus.to_string()
     };
 
-    // merge cpuset_mems, if error happend, log and use resource1
+    // merge cpuset_mems, if error happened, log and use resource1
     let cpuset_mems = if let Ok(c) = merge_cpusets(&resource1.cpuset_mems, &resource2.cpuset_mems) {
         c
     } else {
-        error!(
-            "failed to merge cpuset mems {} with {}",
-            resource1.cpuset_mems, resource2.cpuset_mems
-        );
+        if !resource1.cpuset_mems.is_empty() {
+            error!(
+                "failed to merge cpuset mems {} with {}",
+                resource1.cpuset_mems, resource2.cpuset_mems
+            );
+        }
         resource1.cpuset_mems.to_string()
     };
 
@@ -189,7 +191,6 @@ fn merge_resources(
     }
 }
 
-#[allow(dead_code)]
 fn merge_cpusets(cpusets1: &str, cpusets2: &str) -> Result<String> {
     let cpuset1_parts = cpuset_parts(cpusets1)?;
     let cpuset2_parts = cpuset_parts(cpusets2)?;
@@ -217,7 +218,6 @@ fn merge_cpusets(cpusets1: &str, cpusets2: &str) -> Result<String> {
         .join(","))
 }
 
-#[allow(dead_code)]
 fn merge_cpuset(base: (u32, u32), delta: (u32, u32)) -> (u32, u32) {
     let (mut low, mut high) = base;
     if delta.1 < low {
@@ -235,7 +235,6 @@ fn merge_cpuset(base: (u32, u32), delta: (u32, u32)) -> (u32, u32) {
     (low, high)
 }
 
-#[allow(dead_code)]
 fn cpuset_intersect(cpuset1: (u32, u32), cpuset2: (u32, u32)) -> bool {
     if cpuset2.1 < cpuset1.0 {
         return false;
@@ -246,7 +245,6 @@ fn cpuset_intersect(cpuset1: (u32, u32), cpuset2: (u32, u32)) -> bool {
     true
 }
 
-#[allow(dead_code)]
 fn cpuset_parts(cpuset: &str) -> Result<Vec<(u32, u32)>> {
     let mut cpuset1_parts = vec![];
     let c1 = cpuset.split(',');
@@ -256,7 +254,6 @@ fn cpuset_parts(cpuset: &str) -> Result<Vec<(u32, u32)>> {
     Ok(cpuset1_parts)
 }
 
-#[allow(dead_code)]
 fn cpuset_one_part(cpuset: &str) -> Result<(u32, u32)> {
     let parts = cpuset.split('-').collect::<Vec<&str>>();
     let low = parts[0]
@@ -273,7 +270,6 @@ fn cpuset_one_part(cpuset: &str) -> Result<(u32, u32)> {
     Ok((low, high))
 }
 
-#[allow(dead_code)]
 pub fn cpuset_tostring(cpuset: (u32, u32)) -> String {
     if cpuset.0 == cpuset.1 {
         return cpuset.0.to_string();
@@ -417,7 +413,7 @@ pub async fn read_std<T: AsyncRead + Unpin>(std: T, prefix: &str) -> Result<()> 
                 if c == 0 {
                     return Ok(());
                 }
-                debug!("{}: {}", prefix, line.trim());
+                info!("{}: {}", prefix, line.trim());
             }
             Err(e) => {
                 error!("failed to read {} log {}", prefix, e);
@@ -491,6 +487,7 @@ pub fn init_logger(level: &str) {
     let log_level = log::LevelFilter::from_str(level).unwrap_or(log::LevelFilter::Info);
     env_logger::Builder::from_default_env()
         .format_timestamp_micros()
-        .filter_level(log_level)
+        .filter_module("containerd_sandbox", log_level)
+        .filter_module("vmm_sandboxer", log_level)
         .init();
 }

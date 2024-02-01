@@ -68,7 +68,7 @@ containerd)
 		--mount type=bind,src="${ROOTFS_DIR}",dst=/tmp/kuasar-rootfs,options=rbind:rw \
 		${IMAGE_NAME} \
 		${container_name} \
-		bash -x /kuasar/vmm/scripts/image/centos/build_rootfs.sh
+		bash /kuasar/vmm/scripts/image/centos/build_rootfs.sh
 	fn_check_result $? "ctr run ${container_name} return error!"
 	;;
 docker)
@@ -80,7 +80,7 @@ docker)
 		-v "${REPO_DIR}":/kuasar \
 		-v "${ROOTFS_DIR}":"/tmp/kuasar-rootfs" \
 		${IMAGE_NAME} \
-		bash -x /kuasar/vmm/scripts/image/centos/build_rootfs.sh
+		bash /kuasar/vmm/scripts/image/centos/build_rootfs.sh
 	fn_check_result $? "docker run ${container_name} return error!"
 	;;
 isulad)
@@ -93,7 +93,7 @@ isulad)
 		-v "${REPO_DIR}":/kuasar \
 		-v "${ROOTFS_DIR}":"/tmp/kuasar-rootfs" \
 		${IMAGE_NAME} \
-		bash -x /kuasar/vmm/scripts/image/centos/build_rootfs.sh
+		bash /kuasar/vmm/scripts/image/centos/build_rootfs.sh
 	fn_check_result $? "isula run ${container_name} return error!"
 	;;
 *)
@@ -109,7 +109,7 @@ fi
 
 case "$1" in
 image)
-	bash -x ${REPO_DIR}/vmm/scripts/image/build_image.sh
+	bash ${REPO_DIR}/vmm/scripts/image/build_image.sh
 	fn_check_result $? "build image failed!"
 	;;
 initrd)

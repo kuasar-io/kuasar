@@ -15,6 +15,8 @@
 
 set -e
 
+[ -n "${DEBUG}" ] && set -x
+
 golang_version="1.20.5"
 cert_file_path="/kuasar/proxy.crt"
 ARCH=$(uname -m)

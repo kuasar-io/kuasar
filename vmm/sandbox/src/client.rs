@@ -253,20 +253,21 @@ pub(crate) async fn client_update_routes(
     Ok(())
 }
 
-pub(crate) async fn client_sync_clock(client: &SandboxServiceClient) {
+pub(crate) async fn client_sync_clock(client: &SandboxServiceClient, id: &str) {
+    let id = id.to_string();
     let client = client.clone();
     let tolerance_nanos = Duration::from_millis(TIME_DIFF_TOLERANCE_IN_MS).as_nanos() as i64;
     let clock_id = ClockId::from_raw(nix::libc::CLOCK_REALTIME);
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(TIME_SYNC_PERIOD)).await;
-            debug!("sync_clock: start sync clock from host to guest");
+            debug!("sync_clock {}: start sync clock from host to guest", id);
 
             let mut req = SyncClockPacket::new();
             match clock_gettime(clock_id) {
                 Ok(ts) => req.ClientSendTime = ts.num_nanoseconds(),
                 Err(e) => {
-                    warn!("failed to get current clock: {}", e);
+                    warn!("sync_clock {}: failed to get current clock: {}", id, e);
                     continue;
                 }
             }
@@ -278,7 +279,7 @@ pub(crate) async fn client_sync_clock(client: &SandboxServiceClient) {
                     match clock_gettime(clock_id) {
                         Ok(ts) => p.ServerArriveTime = ts.num_nanoseconds(),
                         Err(e) => {
-                            warn!("failed to get current clock: {}", e);
+                            warn!("sync_clock {}: failed to get current clock: {}", id, e);
                             continue;
                         }
                     }
@@ -290,12 +291,12 @@ pub(crate) async fn client_sync_clock(client: &SandboxServiceClient) {
                             .sync_clock(with_timeout(Duration::from_secs(1).as_nanos() as i64), &p)
                             .await
                         {
-                            error!("sync clock set delta failed: {:?}", e);
+                            error!("sync_clock {}: sync clock set delta failed: {:?}", id, e);
                         }
                     }
                 }
                 Err(e) => {
-                    error!("sync clock get error: {:?}", e);
+                    error!("sync_clock {}: get error: {:?}", id, e);
                 }
             }
         }

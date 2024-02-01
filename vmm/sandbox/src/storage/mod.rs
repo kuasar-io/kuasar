@@ -53,7 +53,10 @@ where
         }
 
         let id = format!("storage{}", self.increment_and_get_id());
-        debug!("attach storage for mount {:?} with id {}", m, id);
+        debug!(
+            "attach storage to container {} for mount {:?} with id {}",
+            container_id, m, id
+        );
 
         if is_block_device(&*m.source).await? {
             self.handle_block_device(&id, container_id, m).await?;
