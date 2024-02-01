@@ -32,7 +32,8 @@ cp linux-config-x86_64 .config  # x86-64
 # TODO support arm
 # cp linux-config-aarch64 .config # AArch64
 KCFLAGS="-Wa,-mx86-used-note=no" make bzImage -j `nproc`
-make -j `nproc`
+# TODO support arm
+# make -j `nproc`
 popd # pushd /tmp/linux-cloud-hypervisor
 
 cp /tmp/linux-cloud-hypervisor/arch/x86/boot/compressed/vmlinux.bin ${base_dir}/vmlinux.bin
