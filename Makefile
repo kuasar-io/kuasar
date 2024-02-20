@@ -10,7 +10,9 @@ BIN_DIR := /usr/local/bin
 SYSTEMD_SERVICE_DIR := /usr/lib/systemd/system
 SYSTEMD_CONF_DIR := /etc/sysconfig
 
-.PHONY: vmm wasm quark clean all install-vmm install-wasm install-quark install
+.PHONY: vmm wasm quark clean all install-vmm install-wasm install-quark install \
+        bin/vmm-sandboxer bin/vmm-task bin/vmlinux.bin bin/kuasar.img bin/kuasar.initrd \
+        bin/wasm-sandboxer bin/quark-sandboxer bin/runc-sandboxer
 
 all: vmm quark wasm
 
