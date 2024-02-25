@@ -72,5 +72,6 @@ jobs:
       - name: Test
         env:
           RUST_BACKTRACE: full
+          RUSTFLAGS: -D warnings
         working-directory: ${{ matrix.directories }}
         run: sudo -E $(command -v cargo) test ${{ matrix.features }}

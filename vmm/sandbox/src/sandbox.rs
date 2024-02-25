@@ -604,11 +604,7 @@ where
 
 // parse_dnsoptions parse DNS options into resolv.conf format content,
 // if none option is specified, will return empty with no error.
-fn parse_dnsoptions(
-    servers: &Vec<String>,
-    searches: &Vec<String>,
-    options: &Vec<String>,
-) -> String {
+fn parse_dnsoptions(servers: &[String], searches: &[String], options: &[String]) -> String {
     let mut resolv_content = String::new();
 
     if !searches.is_empty() {
@@ -694,7 +690,7 @@ mod tests {
 
         #[test]
         fn test_parse_empty_dns_option() {
-            let mut dns_test = DnsConfig::default();
+            let dns_test = DnsConfig::default();
             let resolv_content =
                 parse_dnsoptions(&dns_test.servers, &dns_test.searches, &dns_test.options);
             assert!(resolv_content.is_empty())

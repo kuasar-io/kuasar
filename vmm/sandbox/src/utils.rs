@@ -391,7 +391,7 @@ pub fn vec_to_string<T: ToString>(v: &[T]) -> String {
         .join(":")
 }
 
-pub fn fds_to_vectors<T>(fds: &Vec<T>) -> String {
+pub fn fds_to_vectors<T>(fds: &[T]) -> String {
     (2 * fds.len() + 2).to_string()
 }
 
