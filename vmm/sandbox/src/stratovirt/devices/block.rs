@@ -190,9 +190,16 @@ impl VirtioBlockDevice {
 
 #[cfg(test)]
 mod tests {
-    use qapi::qmp::BlockdevOptions;
+    use serde_json::Value;
 
     use super::{VirtioBlockDevice, VIRTIO_BLK_DRIVER};
+
+    fn compare_json_strings(json_str1: &str, json_str2: &str) -> bool {
+        let value1: Value = serde_json::from_str(json_str1).unwrap();
+        let value2: Value = serde_json::from_str(json_str2).unwrap();
+
+        value1 == value2
+    }
 
     #[test]
     fn test_block_device_add_qmp_commands() {
@@ -212,13 +219,11 @@ mod tests {
         );
 
         let expected_params_str = r#"{"driver":"raw","read-only":false,"node-name":"drive-0","cache":{"direct":true},"file":{"driver":"file","filename":"/dev/dm-8"}}"#;
-        let expected_add_qmp_cmd: BlockdevOptions =
-            serde_json::from_str(expected_params_str).unwrap();
 
-        if let BlockdevOptions::raw { base, raw } = expected_add_qmp_cmd {
-            // TODO: compare the all elements
-            assert!(true);
-        }
+        assert!(compare_json_strings(
+            &blockdev_add_qmp_json_str,
+            expected_params_str
+        ));
     }
 
     #[test]
@@ -239,7 +244,10 @@ mod tests {
         );
 
         let expected_params_str = r#"{"driver":"virtio-blk-pci","id":"virtio-drive-0","bus":"pcie.1","addr":"0x0","drive":"drive-0"}"#;
-        assert!(true);
+        assert!(compare_json_strings(
+            &device_add_qmp_json_str,
+            expected_params_str
+        ));
     }
 
     #[test]
