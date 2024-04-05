@@ -29,6 +29,7 @@ use crate::{
     vm::VcpuThreads,
 };
 
+pub const DEFAULT_CGROUP_PARENT_PATH: &str = "kuasar-vmm";
 pub const VCPU_CGROUP_NAME: &str = "vcpu";
 pub const POD_OVERHEAD_CGROUP_NAME: &str = "pod_overhead";
 
