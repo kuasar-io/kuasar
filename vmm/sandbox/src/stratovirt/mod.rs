@@ -149,7 +149,7 @@ impl VM for StratoVirtVM {
         self.pids.vmm_pid = Some(vmm_pid);
         if let Some(virtiofsd) = &self.virtiofs_daemon {
             if let Some(pid) = virtiofsd.pid {
-                self.pids.affilicated_pids.push(pid);
+                self.pids.affiliated_pids.push(pid);
             }
         }
 

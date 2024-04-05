@@ -187,7 +187,7 @@ impl VM for CloudHypervisorVM {
 
         // update vmm related pids
         self.pids.vmm_pid = pid;
-        self.pids.affilicated_pids.push(virtiofsd_pid);
+        self.pids.affiliated_pids.push(virtiofsd_pid);
         // TODO: add child virtiofsd process
         Ok(pid.unwrap_or_default())
     }

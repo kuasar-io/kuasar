@@ -271,7 +271,7 @@ where
                     .sandbox_cgroups
                     .add_process_into_sandbox_cgroups(vmm_pid, Some(vcpu_threads))?;
                 // move all vmm-related process into sandbox cgroup
-                for pid in sandbox.vm.pids().affilicated_pids {
+                for pid in sandbox.vm.pids().affiliated_pids {
                     sandbox
                         .sandbox_cgroups
                         .add_process_into_sandbox_cgroups(pid, None)?;

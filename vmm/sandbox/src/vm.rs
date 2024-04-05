@@ -210,5 +210,5 @@ pub struct VcpuThreads {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Pids {
     pub vmm_pid: Option<u32>,
-    pub affilicated_pids: Vec<u32>,
+    pub affiliated_pids: Vec<u32>,
 }
