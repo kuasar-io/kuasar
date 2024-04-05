@@ -15,13 +15,17 @@ limitations under the License.
 */
 
 use std::{
-    os::unix::io::{IntoRawFd, RawFd},
+    os::fd::{IntoRawFd, RawFd},
+    sync::Arc,
     time::Duration,
 };
 
 use anyhow::anyhow;
-use containerd_sandbox::error::{Error, Result};
-use log::{debug, error, warn};
+use containerd_sandbox::{
+    error::{Error, Result},
+    signal::ExitSignal,
+};
+use log::{debug, error};
 use nix::{
     sys::{
         socket::{connect, socket, AddressFamily, SockFlag, SockType, UnixAddr, VsockAddr},
@@ -258,59 +262,91 @@ pub(crate) async fn client_update_routes(
     Ok(())
 }
 
-pub(crate) async fn client_sync_clock(client: &SandboxServiceClient, id: &str) {
+pub(crate) fn client_sync_clock(
+    client: &SandboxServiceClient,
+    id: &str,
+    exit_signal: Arc<ExitSignal>,
+) {
     let id = id.to_string();
     let client = client.clone();
-    let tolerance_nanos = Duration::from_millis(TIME_DIFF_TOLERANCE_IN_MS).as_nanos() as i64;
-    let clock_id = ClockId::from_raw(nix::libc::CLOCK_REALTIME);
+    let tolerance_nanos = Duration::from_millis(TIME_DIFF_TOLERANCE_IN_MS);
     tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(Duration::from_secs(TIME_SYNC_PERIOD)).await;
-            debug!("sync_clock {}: start sync clock from host to guest", id);
+        let fut = async {
+            loop {
+                tokio::time::sleep(Duration::from_secs(TIME_SYNC_PERIOD)).await;
+                if let Err(e) = do_once_sync_clock(&client, tolerance_nanos).await {
+                    debug!("sync_clock {}: {:?}", id, e);
+                }
+            }
+        };
 
-            let mut req = SyncClockPacket::new();
-            match clock_gettime(clock_id) {
-                Ok(ts) => req.ClientSendTime = ts.num_nanoseconds(),
-                Err(e) => {
-                    warn!("sync_clock {}: failed to get current clock: {}", id, e);
-                    continue;
-                }
-            }
-            match client
-                .sync_clock(with_timeout(Duration::from_secs(1).as_nanos() as i64), &req)
-                .await
-            {
-                Ok(mut p) => {
-                    match clock_gettime(clock_id) {
-                        Ok(ts) => p.ServerArriveTime = ts.num_nanoseconds(),
-                        Err(e) => {
-                            warn!("sync_clock {}: failed to get current clock: {}", id, e);
-                            continue;
-                        }
-                    }
-                    p.Delta = ((p.ClientSendTime - p.ClientArriveTime)
-                        + (p.ServerArriveTime - p.ServerSendTime))
-                        / 2;
-                    if p.Delta.abs() > tolerance_nanos {
-                        if let Err(e) = client
-                            .sync_clock(with_timeout(Duration::from_secs(1).as_nanos() as i64), &p)
-                            .await
-                        {
-                            error!("sync_clock {}: sync clock set delta failed: {:?}", id, e);
-                        }
-                    }
-                }
-                Err(e) => {
-                    error!("sync_clock {}: get error: {:?}", id, e);
-                }
-            }
+        tokio::select! {
+            _ = fut => (),
+            _ = exit_signal.wait() => {},
         }
     });
 }
 
+// Introduce a set of mechanism based on Precision Time Protocol to keep guest clock synchronized
+// with host clock periodically.
+async fn do_once_sync_clock(
+    client: &SandboxServiceClient,
+    tolerance_nanos: Duration,
+) -> Result<()> {
+    let mut req = SyncClockPacket::new();
+    let clock_id = ClockId::from_raw(nix::libc::CLOCK_REALTIME);
+    req.ClientSendTime = clock_gettime(clock_id)
+        .map_err(|e| anyhow!("get current clock: {}", e))?
+        .num_nanoseconds();
+
+    let mut p = client
+        .sync_clock(with_timeout(Duration::from_secs(1).as_nanos() as i64), &req)
+        .await
+        .map_err(|e| anyhow!("get guest clock packet: {:?}", e))?;
+
+    p.ServerArriveTime = clock_gettime(clock_id)
+        .map_err(|e| anyhow!("get current clock: {}", e))?
+        .num_nanoseconds();
+
+    p.Delta = checked_compute_delta(
+        p.ClientSendTime,
+        p.ClientArriveTime,
+        p.ServerSendTime,
+        p.ServerArriveTime,
+    )?;
+    if p.Delta.abs() > tolerance_nanos.as_nanos() as i64 {
+        client
+            .sync_clock(with_timeout(Duration::from_secs(1).as_nanos() as i64), &p)
+            .await
+            .map_err(|e| anyhow!("set delta: {:?}", e))?;
+    }
+    Ok(())
+}
+
+// delta = ((c_send - c_arrive) + (s_arrive - s_send)) / 2
+fn checked_compute_delta(c_send: i64, c_arrive: i64, s_send: i64, s_arrive: i64) -> Result<i64> {
+    let delta_client = c_send
+        .checked_sub(c_arrive)
+        .ok_or_else(|| anyhow!("integer overflow {} - {}", c_send, c_arrive))?;
+
+    let delta_server = s_arrive
+        .checked_sub(s_send)
+        .ok_or_else(|| anyhow!("integer overflow {} - {}", s_arrive, s_send))?;
+
+    let delta_sum = delta_client
+        .checked_add(delta_server)
+        .ok_or_else(|| anyhow!("integer overflow {} + {}", delta_client, delta_server))?;
+
+    let delta = delta_sum
+        .checked_div(2)
+        .ok_or_else(|| anyhow!("integer overflow {} / 2", delta_sum))?;
+
+    Ok(delta)
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::client::new_ttrpc_client_with_timeout;
+    use crate::client::{checked_compute_delta, new_ttrpc_client_with_timeout};
 
     #[tokio::test]
     async fn test_new_ttrpc_client_timeout() {
@@ -318,5 +354,17 @@ mod tests {
         assert!(new_ttrpc_client_with_timeout("hvsock://fake.sock:1024", 1)
             .await
             .is_err());
+    }
+
+    #[test]
+    fn test_checked_compute_delta() {
+        let c_send = 231;
+        let c_arrive = 135;
+        let s_send = 137;
+        let s_arrive = 298;
+
+        let expect_delta = 128;
+        let actual_delta = checked_compute_delta(c_send, c_arrive, s_send, s_arrive).unwrap();
+        assert_eq!(expect_delta, actual_delta);
     }
 }

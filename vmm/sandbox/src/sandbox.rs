@@ -535,7 +535,7 @@ where
     pub(crate) async fn sync_clock(&self) {
         let client_guard = self.client.lock().await;
         if let Some(client) = &*client_guard {
-            client_sync_clock(client, self.id.as_str()).await;
+            client_sync_clock(client, self.id.as_str(), self.exit_signal.clone());
         }
     }
 
