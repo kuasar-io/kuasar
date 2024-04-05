@@ -14,12 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::{os::unix::io::RawFd, process::Stdio};
+use std::{os::unix::io::RawFd, process::Stdio, time::Duration};
 
 use anyhow::anyhow;
 use async_trait::async_trait;
 use containerd_sandbox::error::{Error, Result};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
+use nix::{errno::Errno::ESRCH, sys::signal, unistd::Pid};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use tokio::{
@@ -41,10 +42,10 @@ use crate::{
         },
     },
     device::{BusType, DeviceInfo},
-    impl_recoverable, load_config,
+    load_config,
     param::ToCmdLineParams,
     sandbox::KuasarSandboxer,
-    utils::{read_std, set_cmd_fd, set_cmd_netns, wait_pid, write_file_atomic},
+    utils::{read_std, set_cmd_fd, set_cmd_netns, wait_channel, wait_pid, write_file_atomic},
     vm::{Pids, VcpuThreads, VM},
 };
 
@@ -145,6 +146,16 @@ impl CloudHypervisorVM {
         self.fds.push(fd);
         self.fds.len() - 1 + 3
     }
+
+    async fn wait_stop(&mut self, t: Duration) -> Result<()> {
+        if let Some(rx) = self.wait_channel().await {
+            let (_, ts) = *rx.borrow();
+            if ts == 0 {
+                wait_channel(t, rx).await?;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -152,6 +163,8 @@ impl VM for CloudHypervisorVM {
     async fn start(&mut self) -> Result<u32> {
         create_dir_all(&self.base_dir).await?;
         let virtiofsd_pid = self.start_virtiofsd().await?;
+        // TODO: add child virtiofsd process
+        self.pids.affiliated_pids.push(virtiofsd_pid);
         let mut params = self.config.to_cmdline_params("--");
         for d in self.devices.iter() {
             params.extend(d.to_cmdline_params("--"));
@@ -174,31 +187,57 @@ impl VM for CloudHypervisorVM {
             .spawn()
             .map_err(|e| anyhow!("failed to spawn cloud hypervisor command: {}", e))?;
         let pid = child.id();
+        self.pids.vmm_pid = pid;
         let pid_file = format!("{}/pid", self.base_dir);
-        let (tx, rx) = tokio::sync::watch::channel((0u32, 0i128));
+        let (tx, rx) = channel((0u32, 0i128));
+        self.wait_chan = Some(rx);
         spawn_wait(
             child,
             format!("cloud-hypervisor {}", self.id),
             Some(pid_file),
             Some(tx),
         );
-        self.client = Some(self.create_client().await?);
-        self.wait_chan = Some(rx);
 
-        // update vmm related pids
-        self.pids.vmm_pid = pid;
-        self.pids.affiliated_pids.push(virtiofsd_pid);
-        // TODO: add child virtiofsd process
+        match self.create_client().await {
+            Ok(client) => self.client = Some(client),
+            Err(e) => {
+                if let Err(re) = self.stop(true).await {
+                    warn!("roll back in create clh api client: {}", re);
+                    return Err(e);
+                }
+                return Err(e);
+            }
+        };
         Ok(pid.unwrap_or_default())
     }
 
     async fn stop(&mut self, force: bool) -> Result<()> {
-        let pid = self.pid()?;
-        if pid == 0 {
-            return Ok(());
+        let signal = if force {
+            signal::SIGKILL
+        } else {
+            signal::SIGTERM
+        };
+
+        let pids = self.pids();
+        if let Some(vmm_pid) = pids.vmm_pid {
+            if vmm_pid > 0 {
+                // TODO: Consider pid reused
+                match signal::kill(Pid::from_raw(vmm_pid as i32), signal) {
+                    Err(e) => {
+                        if e != ESRCH {
+                            return Err(anyhow!("kill vmm process {}: {}", vmm_pid, e).into());
+                        }
+                    }
+                    Ok(_) => self.wait_stop(Duration::from_secs(10)).await?,
+                }
+            }
         }
-        let signal = if force { 9 } else { 15 };
-        unsafe { nix::libc::kill(pid as i32, signal) };
+        for affiliated_pid in pids.affiliated_pids {
+            if affiliated_pid > 0 {
+                // affiliated process may exits automatically, so it's ok not handle error
+                signal::kill(Pid::from_raw(affiliated_pid as i32), signal).unwrap_or_default();
+            }
+        }
 
         Ok(())
     }
@@ -288,7 +327,20 @@ impl VM for CloudHypervisorVM {
     }
 }
 
-impl_recoverable!(CloudHypervisorVM);
+#[async_trait]
+impl crate::vm::Recoverable for CloudHypervisorVM {
+    async fn recover(&mut self) -> Result<()> {
+        self.client = Some(self.create_client().await?);
+        let pid = self.pid()?;
+        let (tx, rx) = channel((0u32, 0i128));
+        tokio::spawn(async move {
+            let wait_result = wait_pid(pid as i32).await;
+            tx.send(wait_result).unwrap_or_default();
+        });
+        self.wait_chan = Some(rx);
+        Ok(())
+    }
+}
 
 macro_rules! read_stdio {
     ($stdio:expr, $cmd_name:ident) => {
