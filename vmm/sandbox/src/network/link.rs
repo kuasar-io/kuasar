@@ -324,11 +324,11 @@ impl NetworkInterface {
         Ok(())
     }
 
-    pub async fn attach_to<V: VM>(&self, sandbox: &mut KuasarSandbox<V>) -> Result<()> {
+    pub async fn attach_to<V: VM>(&mut self, sandbox: &mut KuasarSandbox<V>) -> Result<()> {
         let id = format!("intf-{}", self.index);
         match &self.r#type {
             LinkType::Veth => {
-                if let Some(intf) = &self.twin {
+                if let Some(intf) = self.twin.as_mut() {
                     sandbox
                         .vm
                         .attach(DeviceInfo::Tap(TapDeviceInfo {
@@ -336,7 +336,7 @@ impl NetworkInterface {
                             index: self.index,
                             name: intf.name.to_string(),
                             mac_address: self.mac_address.to_string(),
-                            fds: intf.fds.iter().map(|fd| fd.as_raw_fd()).collect(),
+                            fds: intf.fds.drain(..).collect(),
                         }))
                         .await?;
                 } else {
@@ -470,6 +470,7 @@ fn get_bdf_for_eth(if_name: &str) -> Result<String> {
             e
         )
     })?;
+    close(sock).unwrap_or_default();
     Ok(bdf.to_string())
 }
 

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::os::unix::io::RawFd;
+use std::os::fd::OwnedFd;
 
 use containerd_sandbox::error::{Error, Result};
 
@@ -182,41 +182,38 @@ impl Transport {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum DeviceInfo {
     Block(BlockDeviceInfo),
-    #[allow(dead_code)]
     Tap(TapDeviceInfo),
-    #[allow(dead_code)]
     Physical(PhysicalDeviceInfo),
-    #[allow(dead_code)]
     VhostUser(VhostUserDeviceInfo),
     Char(CharDeviceInfo),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct BlockDeviceInfo {
     pub id: String,
     pub path: String,
     pub read_only: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct TapDeviceInfo {
     pub id: String,
     pub index: u32,
     pub name: String,
     pub mac_address: String,
-    pub fds: Vec<RawFd>,
+    pub fds: Vec<OwnedFd>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PhysicalDeviceInfo {
     pub id: String,
     pub bdf: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct VhostUserDeviceInfo {
     pub id: String,
     pub socket_path: String,
@@ -224,7 +221,7 @@ pub struct VhostUserDeviceInfo {
     pub r#type: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct CharDeviceInfo {
     pub id: String,
     pub chardev_id: String,
@@ -235,6 +232,5 @@ pub struct CharDeviceInfo {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum CharBackendType {
     Pipe(String),
-    #[allow(dead_code)]
     Socket(String),
 }

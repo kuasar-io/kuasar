@@ -15,9 +15,13 @@ limitations under the License.
 */
 
 use std::{
-    os::unix::{
-        io::RawFd,
-        prelude::{AsRawFd, FromRawFd, OwnedFd},
+    mem,
+    os::{
+        fd::IntoRawFd,
+        unix::{
+            io::RawFd,
+            prelude::{AsRawFd, FromRawFd, OwnedFd},
+        },
     },
     path::Path,
     str::FromStr,
@@ -32,10 +36,11 @@ use containerd_sandbox::{
 };
 use log::{error, info};
 use nix::{
-    fcntl::{open, OFlag},
-    libc::{dup2, fcntl, kill, setns, FD_CLOEXEC, F_GETFD, F_SETFD},
+    fcntl::{fcntl, open, FdFlag, OFlag, F_GETFD, F_SETFD},
+    libc::{kill, setns, FD_CLOEXEC},
     sched::CloneFlags,
     sys::stat::Mode,
+    unistd::dup2,
 };
 use time::OffsetDateTime;
 use tokio::{
@@ -450,24 +455,39 @@ pub fn set_cmd_netns(cmd: &mut Command, netns: String) -> Result<()> {
     Ok(())
 }
 
-pub fn set_cmd_fd(cmd: &mut Command, fds: Vec<RawFd>) -> Result<()> {
+pub fn set_cmd_fd(cmd: &mut Command, mut fds: Vec<OwnedFd>) -> Result<()> {
     unsafe {
         cmd.pre_exec(move || {
-            for (i, &fd) in fds.iter().enumerate() {
-                let dest_fd = (3 + i) as RawFd;
-                let src_fd = fd;
+            for (i, fd) in mem::take(&mut fds).into_iter().enumerate() {
+                let new_fd = (3 + i) as RawFd;
 
-                if src_fd == dest_fd {
-                    let flags = fcntl(src_fd, F_GETFD);
-                    if flags < 0 || fcntl(src_fd, F_SETFD, flags & !FD_CLOEXEC) < 0 {
+                // Closing the fd when its lifecycle finished is unsafe, so transfer it into RawFD
+                // to let its closing not be influenced by rust lifecycle management.
+                let old_fd = fd.into_raw_fd();
+
+                if old_fd == new_fd {
+                    // old_fd equals new_fd means the index is in the right place, so child process
+                    // could used it directly. In this case, should remove CLOEXEC flag to avoid
+                    // closing it after execve.
+                    let flags = fcntl(old_fd, F_GETFD)?;
+                    if flags < 0 {
                         let e = std::io::Error::last_os_error();
-                        eprintln!("failed to call fnctl: {}", e);
+                        eprintln!("failed to get fnctl F_GETFD: {}", e);
                         return Err(e);
+                    } else if let Err(e) = fcntl(
+                        old_fd,
+                        F_SETFD(FdFlag::from_bits_truncate(flags & !FD_CLOEXEC)),
+                    ) {
+                        eprintln!("failed to call fnctl F_SETFD: {}", e);
+                        return Err(e.into());
                     }
-                } else if dup2(src_fd, dest_fd) < 0 {
-                    let e = std::io::Error::last_os_error();
+                } else if let Err(e) = dup2(old_fd, new_fd) {
+                    // If not equals, old_fd will be closed after execve with CLOEXEC flag,
+                    // which is also safe.
                     eprintln!("failed to call dup2: {}", e);
-                    return Err(e);
+                    return Err(e.into());
+                } else {
+                    // dup2 succeeds, do nothing
                 }
             }
             Ok(())
