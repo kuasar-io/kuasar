@@ -15,11 +15,7 @@ limitations under the License.
 */
 
 use std::{
-    io::{BufRead, BufReader, Write},
-    os::unix::{
-        io::{IntoRawFd, RawFd},
-        net::UnixStream,
-    },
+    os::unix::io::{IntoRawFd, RawFd},
     time::Duration,
 };
 
@@ -34,12 +30,17 @@ use nix::{
     time::{clock_gettime, ClockId},
     unistd::close,
 };
-use tokio::time::timeout;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::UnixStream,
+    time::timeout,
+};
 use ttrpc::{context::with_timeout, r#async::Client};
 use vmm_common::api::{sandbox::*, sandbox_ttrpc::SandboxServiceClient};
 
 use crate::network::{NetworkInterface, Route};
 
+const HVSOCK_RETRY_TIMEOUT_IN_MS: u64 = 10;
 const TIME_SYNC_PERIOD: u64 = 60;
 const TIME_DIFF_TOLERANCE_IN_MS: u64 = 10;
 
@@ -67,11 +68,7 @@ async fn new_ttrpc_client(address: &str) -> Result<Client> {
 
     let client = timeout(Duration::from_secs(ctx_timeout), fut)
         .await
-        .map_err(|_| {
-            let e = anyhow!("{}s timeout connecting socket: {}", ctx_timeout, last_err);
-            error!("{}", e);
-            e
-        })?;
+        .map_err(|_| anyhow!("{}s timeout connecting socket: {}", ctx_timeout, last_err))?;
     Ok(client)
 }
 
@@ -165,28 +162,41 @@ async fn connect_to_hvsocket(address: &str) -> Result<RawFd> {
         if v.len() < 2 {
             return Err(anyhow!("hvsock address {} should not less than 2", address).into());
         }
-        (v[0].to_string(), v[1].to_string())
+        (v[0], v[1])
     };
 
-    tokio::task::spawn_blocking(move || {
-        let mut stream =
-            UnixStream::connect(&addr).map_err(|e| anyhow!("failed to connect hvsock: {}", e))?;
-        stream
-            .write_all(format!("CONNECT {}\n", port).as_bytes())
-            .map_err(|e| anyhow!("hvsock connected but failed to write CONNECT: {}", e))?;
+    let fut = async {
+        let mut stream = UnixStream::connect(addr).await?;
 
-        let mut response = String::new();
-        BufReader::new(&stream)
-            .read_line(&mut response)
-            .map_err(|e| anyhow!("CONNECT sent but failed to get response: {}", e))?;
-        if response.starts_with("OK") {
-            Ok(stream.into_raw_fd())
-        } else {
-            Err(anyhow!("CONNECT sent but response is not OK: {}", response).into())
+        match stream.write(format!("CONNECT {}\n", port).as_bytes()).await {
+            Ok(_) => {
+                let mut buf = [0; 4096];
+                match stream.read(&mut buf).await {
+                    Ok(0) => Err(anyhow!("stream closed")),
+                    Ok(n) => {
+                        if String::from_utf8(buf[..n].to_vec())
+                            .unwrap_or_default()
+                            .contains("OK")
+                        {
+                            return Ok(stream.into_std()?.into_raw_fd());
+                        }
+                        Err(anyhow!("failed to connect"))
+                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        Err(anyhow!("{}", e))
+                    }
+                    Err(e) => Err(anyhow!("failed to read from hvsock: {}", e)),
+                }
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => Err(anyhow!("{}", e)),
+            Err(e) => Err(anyhow!("failed to write CONNECT to hvsock: {}", e)),
         }
-    })
-    .await
-    .map_err(|e| anyhow!("failed to spawn blocking task: {}", e))?
+        .map_err(Error::Other)
+    };
+
+    timeout(Duration::from_millis(HVSOCK_RETRY_TIMEOUT_IN_MS), fut)
+        .await
+        .map_err(|_| anyhow!("hvsock retry {}ms timeout", HVSOCK_RETRY_TIMEOUT_IN_MS))?
 }
 
 pub fn unix_sock(r#abstract: bool, socket_path: &str) -> Result<UnixAddr> {
