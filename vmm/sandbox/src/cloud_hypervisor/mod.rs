@@ -113,7 +113,7 @@ impl CloudHypervisorVM {
     }
 
     async fn create_client(&self) -> Result<ChClient> {
-        ChClient::new(&self.config.api_socket)
+        ChClient::new(self.config.api_socket.to_string()).await
     }
 
     fn get_client(&mut self) -> Result<&mut ChClient> {
