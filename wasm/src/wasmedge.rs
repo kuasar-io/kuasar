@@ -53,7 +53,10 @@ use oci_spec::runtime::Spec;
 use wasmedge_sdk::{
     config::{CommonConfigOptions, ConfigBuilder, HostRegistrationConfigOptions},
     error::WasmEdgeError,
-    params, PluginManager, Vm,
+    params,
+    plugin::PluginManager,
+    wasi::WasiInstance,
+    Vm, VmBuilder,
 };
 
 use crate::utils::{get_args, get_cgroup_path, get_envs, get_preopens, get_rootfs};
@@ -83,7 +86,7 @@ pub struct WasmEdgeContainerFactory {
 
 impl Default for WasmEdgeContainerFactory {
     fn default() -> Self {
-        PluginManager::load_from_default_paths();
+        PluginManager::load(None).unwrap();
         let mut host_options = HostRegistrationConfigOptions::default();
         host_options = host_options.wasi(true);
         #[cfg(all(
@@ -98,7 +101,11 @@ impl Default for WasmEdgeContainerFactory {
             .with_host_registration_config(host_options)
             .build()
             .unwrap();
-        let vm = Vm::new(Some(config)).map_err(anyhow::Error::msg).unwrap();
+        let vm = VmBuilder::new()
+            .with_config(config)
+            .build()
+            .map_err(anyhow::Error::msg)
+            .unwrap();
         Self {
             prototype_vm: vm,
             netns: "".to_string(),
@@ -341,15 +348,17 @@ pub enum RunError {
     WasmEdge(Box<WasmEdgeError>),
     IO(std::io::Error),
     NoRootInSpec,
+    NoModule,
     Sys(Errno),
 }
 
 impl RunError {
     pub fn to_exit_code(&self) -> i32 {
         match &self {
-            RunError::WasmEdge(_) => -100,
-            RunError::IO(_) => -101,
+            RunError::WasmEdge(_e) => -100,
+            RunError::IO(_e) => -101,
             RunError::NoRootInSpec => -102,
+            RunError::NoModule => -103,
             RunError::Sys(e) => -(*e as i32),
         }
     }
@@ -368,7 +377,7 @@ fn run_wasi_func(
             nix::fcntl::open(netns, OFlag::O_CLOEXEC, Mode::empty()).map_err(RunError::Sys)?;
         setns(netns_fd, CloneFlags::CLONE_NEWNET).map_err(RunError::Sys)?;
     }
-    let mut wasi_instance = vm.wasi_module().map_err(RunError::WasmEdge)?;
+    let wasi_instance: &mut WasiInstance = vm.wasi_module_mut().ok_or(RunError::NoModule)?;
     wasi_instance.initialize(
         Some(args.iter().map(|s| s as &str).collect()),
         Some(envs.iter().map(|s| s as &str).collect()),
