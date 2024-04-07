@@ -574,6 +574,11 @@ async fn get_pci_driver(bdf: &str) -> Result<String> {
 }
 
 async fn bind_device_to_driver(driver: &str, bdf: &str) -> Result<()> {
+    // 0. Check the current driver
+    if get_pci_driver(bdf).await? == driver {
+        return Ok(());
+    }
+
     // 1. Switch the device driver
     let driver_override_path = format!("/sys/bus/pci/devices/{}/driver_override", bdf);
     write_file_async(&driver_override_path, driver).await?;
@@ -589,23 +594,13 @@ async fn bind_device_to_driver(driver: &str, bdf: &str) -> Result<()> {
     write_file_async(probe_path, bdf).await?;
 
     // 4. Check the result
-    let driver_link = format!("/sys/bus/pci/devices/{}/driver", bdf);
-    let driver_path = tokio::fs::read_link(&*driver_link).await?;
-
-    let result_driver = driver_path.file_name().ok_or(anyhow!(
-        "failed to get driver name from {}",
-        driver_path.display()
-    ))?;
-    let result_driver = result_driver.to_str().ok_or(anyhow!(
-        "failed to convert the driver {} to str",
-        result_driver.to_string_lossy()
-    ))?;
+    let result_driver = get_pci_driver(bdf).await?;
     if result_driver != driver {
         return Err(anyhow!(
-            "device {} driver is {} after executing bind to {}",
+            "device {} driver is expected to {} but got to {}",
             bdf,
-            result_driver,
-            driver
+            driver,
+            result_driver
         )
         .into());
     }
