@@ -35,7 +35,7 @@ pub const HOSTNAME_FILENAME: &str = "hostname";
 pub const RESOLV_FILENAME: &str = "resolv.conf";
 
 pub const SANDBOX_NS_PATH: &str = "/run/sandbox-ns";
-pub const NET_NAMESPACE: &str = "net";
+pub const NET_NAMESPACE: &str = "network";
 pub const IPC_NAMESPACE: &str = "ipc";
 pub const UTS_NAMESPACE: &str = "uts";
 pub const CGROUP_NAMESPACE: &str = "cgroup";

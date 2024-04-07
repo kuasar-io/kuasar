@@ -40,8 +40,7 @@ use signal_hook_tokio::Signals;
 use tokio::fs::File;
 use vmm_common::{
     api::sandbox_ttrpc::create_sandbox_service, mount::mount, ETC_RESOLV, HOSTNAME_FILENAME,
-    IPC_NAMESPACE, KUASAR_STATE_DIR, NET_NAMESPACE, RESOLV_FILENAME, SANDBOX_NS_PATH,
-    UTS_NAMESPACE,
+    IPC_NAMESPACE, KUASAR_STATE_DIR, RESOLV_FILENAME, SANDBOX_NS_PATH, UTS_NAMESPACE,
 };
 
 use crate::{
@@ -131,7 +130,6 @@ lazy_static! {
         options: vec!["relatime", "nodev", "sync", "dirsync",]
     },];
     static ref CLONE_FLAG_TABLE: HashMap<String, CloneFlags> = HashMap::from([
-        (String::from(NET_NAMESPACE), CloneFlags::CLONE_NEWNET),
         (String::from(IPC_NAMESPACE), CloneFlags::CLONE_NEWIPC),
         (String::from(UTS_NAMESPACE), CloneFlags::CLONE_NEWUTS),
     ]);
