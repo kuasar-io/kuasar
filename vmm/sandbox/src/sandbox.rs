@@ -323,7 +323,12 @@ where
             }
 
             cleanup_mounts(&sb.base_dir).await?;
-            remove_dir_all(&sb.base_dir).await?;
+            // Should Ignore the NotFound error of base dir as it may be already deleted.
+            if let Err(e) = remove_dir_all(&sb.base_dir).await {
+                if e.kind() != ErrorKind::NotFound {
+                    return Err(e.into());
+                }
+            }
         }
         self.sandboxes.write().await.remove(id);
         Ok(())

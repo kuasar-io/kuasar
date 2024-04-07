@@ -14,6 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+use std::error::Error;
+
 use anyhow::{anyhow, Ok, Result};
 use cgroups_rs::{
     cgroup_builder::*, cpu::CpuController, cpuset::CpuSetController, hugetlb::HugeTlbController,
@@ -186,10 +188,23 @@ fn remove_sandbox_cgroup(cgroup: &Cgroup) -> Result<()> {
     // get the tids in the current cgroup and then move the tids to parent cgroup
     let tids = cgroup.tasks();
     for tid in tids {
-        cgroup.move_task_to_parent(tid)?;
+        cgroup.move_task_to_parent(tid).unwrap_or_default();
     }
 
-    cgroup.delete()?;
+    // Should ignore the NotFound error of cgroup path as it may be already deleted.
+    if let Err(e) = cgroup.delete() {
+        if e.kind() == &cgroups_rs::error::ErrorKind::RemoveFailed {
+            if let Some(cause) = e.source() {
+                if let Some(ioe) = cause.downcast_ref::<std::io::Error>() {
+                    if ioe.kind() == std::io::ErrorKind::NotFound {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        return Err(e.into());
+    }
     Ok(())
 }
 
