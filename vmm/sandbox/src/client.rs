@@ -15,11 +15,7 @@ limitations under the License.
 */
 
 use std::{
-    io::{BufRead, BufReader, Write},
-    os::unix::{
-        io::{IntoRawFd, RawFd},
-        net::UnixStream,
-    },
+    os::unix::io::{IntoRawFd, RawFd},
     time::Duration,
 };
 
@@ -34,23 +30,28 @@ use nix::{
     time::{clock_gettime, ClockId},
     unistd::close,
 };
-use tokio::time::timeout;
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    net::UnixStream,
+    time::timeout,
+};
 use ttrpc::{context::with_timeout, r#async::Client};
 use vmm_common::api::{sandbox::*, sandbox_ttrpc::SandboxServiceClient};
 
 use crate::network::{NetworkInterface, Route};
 
+const HVSOCK_RETRY_TIMEOUT_IN_MS: u64 = 10;
+// TODO: reduce to 10s
+const NEW_TTRPC_CLIENT_TIMEOUT: u64 = 45;
 const TIME_SYNC_PERIOD: u64 = 60;
 const TIME_DIFF_TOLERANCE_IN_MS: u64 = 10;
 
 pub(crate) async fn new_sandbox_client(address: &str) -> Result<SandboxServiceClient> {
-    let client = new_ttrpc_client(address).await?;
+    let client = new_ttrpc_client_with_timeout(address, NEW_TTRPC_CLIENT_TIMEOUT).await?;
     Ok(SandboxServiceClient::new(client))
 }
 
-async fn new_ttrpc_client(address: &str) -> Result<Client> {
-    let ctx_timeout = 10;
-
+async fn new_ttrpc_client_with_timeout(address: &str, t: u64) -> Result<Client> {
     let mut last_err = Error::Other(anyhow!(""));
 
     let fut = async {
@@ -62,16 +63,17 @@ async fn new_ttrpc_client(address: &str) -> Result<Client> {
                 }
                 Err(e) => last_err = e,
             }
+            // In case that the address doesn't exist, the executed function in this loop are all
+            // sync, making the first time of future poll in timeout hang forever. As a result, the
+            // timeout will hang too. To solve this, add a async function in this loop or call
+            // `tokio::task::yield_now()` to give up current cpu time slice.
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     };
 
-    let client = timeout(Duration::from_secs(ctx_timeout), fut)
+    let client = timeout(Duration::from_secs(t), fut)
         .await
-        .map_err(|_| {
-            let e = anyhow!("{}s timeout connecting socket: {}", ctx_timeout, last_err);
-            error!("{}", e);
-            e
-        })?;
+        .map_err(|_| anyhow!("{}s timeout connecting socket: {}", t, last_err))?;
     Ok(client)
 }
 
@@ -165,28 +167,31 @@ async fn connect_to_hvsocket(address: &str) -> Result<RawFd> {
         if v.len() < 2 {
             return Err(anyhow!("hvsock address {} should not less than 2", address).into());
         }
-        (v[0].to_string(), v[1].to_string())
+        (v[0], v[1])
     };
 
-    tokio::task::spawn_blocking(move || {
-        let mut stream =
-            UnixStream::connect(&addr).map_err(|e| anyhow!("failed to connect hvsock: {}", e))?;
+    let fut = async {
+        let mut stream = UnixStream::connect(addr).await?;
         stream
             .write_all(format!("CONNECT {}\n", port).as_bytes())
+            .await
             .map_err(|e| anyhow!("hvsock connected but failed to write CONNECT: {}", e))?;
 
         let mut response = String::new();
-        BufReader::new(&stream)
+        BufReader::new(&mut stream)
             .read_line(&mut response)
+            .await
             .map_err(|e| anyhow!("CONNECT sent but failed to get response: {}", e))?;
         if response.starts_with("OK") {
-            Ok(stream.into_raw_fd())
+            Ok(stream.into_std()?.into_raw_fd())
         } else {
             Err(anyhow!("CONNECT sent but response is not OK: {}", response).into())
         }
-    })
-    .await
-    .map_err(|e| anyhow!("failed to spawn blocking task: {}", e))?
+    };
+
+    timeout(Duration::from_millis(HVSOCK_RETRY_TIMEOUT_IN_MS), fut)
+        .await
+        .map_err(|_| anyhow!("hvsock retry {}ms timeout", HVSOCK_RETRY_TIMEOUT_IN_MS))?
 }
 
 pub fn unix_sock(r#abstract: bool, socket_path: &str) -> Result<UnixAddr> {
@@ -301,4 +306,17 @@ pub(crate) async fn client_sync_clock(client: &SandboxServiceClient, id: &str) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::client::new_ttrpc_client_with_timeout;
+
+    #[tokio::test]
+    async fn test_new_ttrpc_client_timeout() {
+        // Expect new_ttrpc_client would return timeout error, instead of blocking.
+        assert!(new_ttrpc_client_with_timeout("hvsock://fake.sock:1024", 1)
+            .await
+            .is_err());
+    }
 }

@@ -23,7 +23,8 @@ use std::{
 use anyhow::anyhow;
 use api_client::{simple_api_command, simple_api_full_command_with_fds_and_response};
 use containerd_sandbox::error::Result;
-use log::error;
+use log::{debug, error, trace};
+use tokio::task::spawn_blocking;
 
 use crate::{
     cloud_hypervisor::devices::{block::DiskConfig, AddDeviceResponse, RemoveDeviceRequest},
@@ -38,25 +39,31 @@ pub struct ChClient {
 
 impl ChClient {
     pub async fn new(socket_path: String) -> Result<Self> {
+        let s = socket_path.to_string();
         let start_time = SystemTime::now();
-        tokio::task::spawn_blocking(move || loop {
-            match UnixStream::connect(&socket_path) {
-                Ok(socket) => {
-                    return Ok(Self { socket });
-                }
-                Err(e) => {
-                    if start_time.elapsed().unwrap().as_secs()
-                        > CLOUD_HYPERVISOR_START_TIMEOUT_IN_SEC
-                    {
-                        error!("failed to connect api server: {:?}", e);
-                        return Err(anyhow!("timeout connect client, {}", e).into());
+        let socket = spawn_blocking(move || -> Result<UnixStream> {
+            loop {
+                match UnixStream::connect(&socket_path) {
+                    Ok(socket) => {
+                        return Ok(socket);
                     }
-                    sleep(Duration::from_millis(10));
+                    Err(e) => {
+                        trace!("failed to create client: {:?}", e);
+                        if start_time.elapsed().unwrap().as_secs()
+                            > CLOUD_HYPERVISOR_START_TIMEOUT_IN_SEC
+                        {
+                            error!("failed to create client: {:?}", e);
+                            return Err(anyhow!("timeout connect client, {}", e).into());
+                        }
+                        sleep(Duration::from_millis(10));
+                    }
                 }
             }
         })
         .await
-        .map_err(|e| anyhow!("failed to spawn a task {}", e))?
+        .map_err(|e| anyhow!("failed to join thread {}", e))??;
+        debug!("connected to api server {}", s);
+        Ok(Self { socket })
     }
 
     pub fn hot_attach(&mut self, device_info: DeviceInfo) -> Result<String> {
