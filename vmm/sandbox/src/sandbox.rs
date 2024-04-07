@@ -410,6 +410,7 @@ where
         let mut dump_file = OpenOptions::new()
             .write(true)
             .create(true)
+            .truncate(true)
             .open(&dump_path)
             .await
             .map_err(Error::IO)?;
