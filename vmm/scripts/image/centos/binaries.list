@@ -7,6 +7,9 @@
 /usr/bin/sh /bin
 # procps-ng
 /usr/bin/ps /bin
+/usr/bin/kill /bin
+/usr/bin/free /bin
+/usr/bin/top /bin
 # kmod
 /usr/sbin/modprobe /sbin
 /usr/sbin/depmod /sbin
@@ -23,6 +26,7 @@
 /usr/bin/quotasync /bin
 # cni
 /usr/sbin/arping /sbin
+/usr/bin/ping /sbin
 /usr/bin/echo /bin
 # iptables
 /usr/sbin/iptables /sbin
@@ -32,3 +36,18 @@
 /usr/bin/ls /bin
 /usr/bin/cat /bin
 /usr/bin/cp /bin
+/usr/bin/mv /bin
+/usr/bin/rm /bin
+/usr/bin/mkdir /bin
+/usr/bin/find /bin
+/usr/bin/awk /bin
+/usr/bin/grep /bin
+/usr/bin/chmod /bin
+/usr/bin/chown /bin
+/usr/bin/dmesg /bin
+/usr/bin/ln /bin
+/usr/bin/curl /bin
+/usr/sbin/ethtool /sbin
+/usr/bin/netstat /bin
+/usr/sbin/ip /sbin
+# End of file, do not delete

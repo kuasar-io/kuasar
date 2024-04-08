@@ -20,3 +20,8 @@ libpcap
 iptables
 ipvsadm
 conntrack-tools
+curl
+ethtool
+net-tools
+iproute
+# End of file, do not delete
