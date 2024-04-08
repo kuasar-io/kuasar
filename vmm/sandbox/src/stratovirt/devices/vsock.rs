@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::os::unix::io::{IntoRawFd, RawFd};
+use std::os::fd::{AsRawFd, OwnedFd};
 
 use anyhow::anyhow;
 use containerd_sandbox::error::Result;
@@ -62,7 +62,7 @@ impl VSockDevice {
     }
 }
 
-pub async fn find_context_id() -> Result<(RawFd, u64)> {
+pub async fn find_context_id() -> Result<(OwnedFd, u64)> {
     // TODO make sure if this thread_rng is enough, if we should new a seedable rng everytime.
     let vsock_file = tokio::fs::OpenOptions::new()
         .read(true)
@@ -70,10 +70,10 @@ pub async fn find_context_id() -> Result<(RawFd, u64)> {
         .mode(0o666)
         .open(VHOST_VSOCK_DEV_PATH)
         .await?;
-    let vsockfd = vsock_file.into_std().await.into_raw_fd();
+    let vsockfd = OwnedFd::from(vsock_file.into_std().await);
     for _i in 0..IOCTL_TRY_TIMES {
         let cid = thread_rng().gen_range(3..i32::MAX as u64);
-        let res = unsafe { set_vhost_guest_cid(vsockfd, &cid) };
+        let res = unsafe { set_vhost_guest_cid(vsockfd.as_raw_fd(), &cid) };
         match res {
             Ok(_) => return Ok((vsockfd, cid)),
             Err(_) => continue,

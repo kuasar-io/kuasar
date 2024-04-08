@@ -16,7 +16,10 @@ limitations under the License.
 
 use std::{
     collections::HashMap,
-    os::unix::io::{AsRawFd, FromRawFd, RawFd},
+    os::{
+        fd::OwnedFd,
+        unix::io::{AsRawFd, FromRawFd, RawFd},
+    },
     time::{Duration, SystemTime},
 };
 
@@ -87,7 +90,8 @@ pub struct StratoVirtVM {
     devices: Vec<Box<dyn StratoVirtDevice + Sync + Send>>,
     #[serde(skip)]
     hot_attached_devices: Vec<Box<dyn StratoVirtHotAttachable + Sync + Send>>,
-    fds: Vec<RawFd>,
+    #[serde(skip)]
+    fds: Vec<OwnedFd>,
     console_socket: String,
     agent_socket: String,
     netns: String,
@@ -309,17 +313,17 @@ impl StratoVirtVM {
         self.devices.push(Box::new(device));
     }
 
-    fn append_fd(&mut self, fd: RawFd) -> usize {
+    fn append_fd(&mut self, fd: OwnedFd) -> usize {
         self.fds.push(fd);
         self.fds.len() - 1 + 3
     }
 
-    async fn launch(&self) -> Result<Receiver<(u32, i128)>> {
+    async fn launch(&mut self) -> Result<Receiver<(u32, i128)>> {
         let mut params = self.config.to_cmdline_params("-");
         for d in self.devices.iter() {
             params.extend(d.to_cmdline_params("-"));
         }
-        let fds = self.fds.to_vec();
+        let fds: Vec<OwnedFd> = self.fds.drain(..).collect();
         let path = self.config.path.to_string();
         // pid file should not be empty
         let pid_file = self.config.pid_file.to_string();
@@ -335,11 +339,11 @@ impl StratoVirtVM {
             let mut cmd = unshare::Command::new(&*path_clone);
             cmd.args(params.as_slice());
 
-            for (i, &x) in fds.iter().enumerate() {
-                cmd.file_descriptor(
-                    (3 + i) as RawFd,
-                    Fd::from_file(unsafe { std::fs::File::from_raw_fd(x) }),
-                );
+            let pipe_writer2 = pipe_writer.try_clone()?;
+            cmd.stdout(unshare::Stdio::from_file(pipe_writer));
+            cmd.stderr(unshare::Stdio::from_file(pipe_writer2));
+            for (i, x) in fds.into_iter().enumerate() {
+                cmd.file_descriptor((3 + i) as RawFd, Fd::from_file(std::fs::File::from(x)));
             }
 
             if !netns.is_empty() {
@@ -347,9 +351,6 @@ impl StratoVirtVM {
                     .map_err(|e| anyhow!("failed to open netns {}", e))?;
                 cmd.set_namespace(&netns_fd, unshare::Namespace::Net)?;
             }
-            let pipe_writer2 = pipe_writer.try_clone()?;
-            cmd.stdout(unshare::Stdio::from_file(pipe_writer));
-            cmd.stderr(unshare::Stdio::from_file(pipe_writer2));
             let mut child = cmd
                 .spawn()
                 .map_err(|e| anyhow!("failed to spawn stratovirt command: {}", e))?;

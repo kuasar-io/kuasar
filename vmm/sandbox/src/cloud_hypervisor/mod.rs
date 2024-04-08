@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::{os::unix::io::RawFd, process::Stdio, time::Duration};
+use std::{os::fd::OwnedFd, process::Stdio, time::Duration};
 
 use anyhow::anyhow;
 use async_trait::async_trait;
@@ -72,7 +72,8 @@ pub struct CloudHypervisorVM {
     wait_chan: Option<Receiver<(u32, i128)>>,
     #[serde(skip)]
     client: Option<ChClient>,
-    fds: Vec<RawFd>,
+    #[serde(skip)]
+    fds: Vec<OwnedFd>,
     pids: Pids,
 }
 
@@ -142,7 +143,7 @@ impl CloudHypervisorVM {
         Ok(pid)
     }
 
-    fn append_fd(&mut self, fd: RawFd) -> usize {
+    fn append_fd(&mut self, fd: OwnedFd) -> usize {
         self.fds.push(fd);
         self.fds.len() - 1 + 3
     }
@@ -175,17 +176,19 @@ impl VM for CloudHypervisorVM {
             params.push("-vv".to_string());
         }
 
-        let mut cmd = tokio::process::Command::new(&self.config.path);
-        cmd.args(params.as_slice());
+        // Drop cmd immediately to let the fds in pre_exec be closed.
+        let child = {
+            let mut cmd = tokio::process::Command::new(&self.config.path);
+            cmd.args(params.as_slice());
 
-        set_cmd_fd(&mut cmd, self.fds.to_vec())?;
-        set_cmd_netns(&mut cmd, self.netns.to_string())?;
-        cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::piped());
-        info!("start cloud hypervisor with cmdline: {:?}", cmd);
-        let child = cmd
-            .spawn()
-            .map_err(|e| anyhow!("failed to spawn cloud hypervisor command: {}", e))?;
+            set_cmd_fd(&mut cmd, self.fds.drain(..).collect())?;
+            set_cmd_netns(&mut cmd, self.netns.to_string())?;
+            cmd.stdout(Stdio::piped());
+            cmd.stderr(Stdio::piped());
+            info!("start cloud hypervisor with cmdline: {:?}", cmd);
+            cmd.spawn()
+                .map_err(|e| anyhow!("failed to spawn cloud hypervisor command: {}", e))?
+        };
         let pid = child.id();
         self.pids.vmm_pid = pid;
         let pid_file = format!("{}/pid", self.base_dir);
