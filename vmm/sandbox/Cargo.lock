@@ -426,7 +426,7 @@ dependencies = [
 [[package]]
 name = "containerd-sandbox"
 version = "0.1.0"
-source = "git+https://github.com/kuasar-io/rust-extensions.git#46e401d63850d56f7de02c3f29fb8174bbbb6f4f"
+source = "git+https://github.com/kuasar-io/rust-extensions.git#5f2edcffe9dc4fe41f1f4d9a14843456d0a835ee"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -454,7 +454,7 @@ dependencies = [
 [[package]]
 name = "containerd-shim"
 version = "0.3.0"
-source = "git+https://github.com/kuasar-io/rust-extensions.git#46e401d63850d56f7de02c3f29fb8174bbbb6f4f"
+source = "git+https://github.com/kuasar-io/rust-extensions.git#5f2edcffe9dc4fe41f1f4d9a14843456d0a835ee"
 dependencies = [
  "async-trait",
  "cgroups-rs 0.2.11",
@@ -485,7 +485,7 @@ dependencies = [
 [[package]]
 name = "containerd-shim-protos"
 version = "0.2.0"
-source = "git+https://github.com/kuasar-io/rust-extensions.git#46e401d63850d56f7de02c3f29fb8174bbbb6f4f"
+source = "git+https://github.com/kuasar-io/rust-extensions.git#5f2edcffe9dc4fe41f1f4d9a14843456d0a835ee"
 dependencies = [
  "async-trait",
  "protobuf 3.2.0",
@@ -1561,7 +1561,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "059a34f111a9dee2ce1ac2826a68b24601c4298cfeb1a587c3cb493d5ab46f52"
 dependencies = [
  "libc",
- "nix 0.26.2",
+ "nix 0.20.0",
 ]
 
 [[package]]
