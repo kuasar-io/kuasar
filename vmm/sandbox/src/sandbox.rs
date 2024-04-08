@@ -39,7 +39,7 @@ use vmm_common::{
 };
 
 use crate::{
-    cgroup::SandboxCgroup,
+    cgroup::{SandboxCgroup, DEFAULT_CGROUP_PARENT_PATH},
     client::{
         client_check, client_sync_clock, client_update_interfaces, client_update_routes,
         new_sandbox_client,
@@ -154,14 +154,8 @@ where
         }
 
         let mut sandbox_cgroups = SandboxCgroup::default();
-        let cgroup_parent_path = match get_sandbox_cgroup_parent_path(&s.sandbox) {
-            Some(cgroup_parent_path) => cgroup_parent_path,
-            None => {
-                return Err(Error::Other(anyhow!(
-                    "Failed to get sandbox cgroup parent path."
-                )))
-            }
-        };
+        let cgroup_parent_path = get_sandbox_cgroup_parent_path(&s.sandbox)
+            .unwrap_or(DEFAULT_CGROUP_PARENT_PATH.to_string());
         // Currently only support cgroup V1, cgroup V2 is not supported now
         if !cgroups_rs::hierarchies::is_cgroup2_unified_mode() {
             // Create sandbox's cgroup and apply sandbox's resources limit
