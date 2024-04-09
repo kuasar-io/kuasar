@@ -29,11 +29,11 @@ bin/vmlinux.bin:
 	@mkdir -p bin && cp vmm/scripts/kernel/${HYPERVISOR}/vmlinux.bin bin/vmlinux.bin && rm vmm/scripts/kernel/${HYPERVISOR}/vmlinux.bin
 
 bin/kuasar.img:
-	@bash vmm/scripts/image/${GUESTOS_IMAGE}/build.sh image
+	@bash vmm/scripts/image/build.sh image ${GUESTOS_IMAGE}
 	@mkdir -p bin && cp /tmp/kuasar.img bin/kuasar.img && rm /tmp/kuasar.img
 
 bin/kuasar.initrd:
-	@bash vmm/scripts/image/${GUESTOS_IMAGE}/build.sh initrd
+	@bash vmm/scripts/image/build.sh initrd ${GUESTOS_IMAGE}
 	@mkdir -p bin && cp /tmp/kuasar.initrd bin/kuasar.initrd && rm /tmp/kuasar.initrd
 
 bin/wasm-sandboxer:
