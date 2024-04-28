@@ -14,11 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use anyhow::Context;
-use serde::de::DeserializeOwned;
-
-use crate::{args::Args, config::Config, sandbox::KuasarSandbox};
-
 #[macro_use]
 mod device;
 
@@ -40,30 +35,3 @@ pub mod sandbox;
 pub mod stratovirt;
 pub mod utils;
 pub mod version;
-
-async fn load_config<T: DeserializeOwned>(
-    args: &Args,
-    default_config_path: &str,
-) -> anyhow::Result<(Config<T>, String)> {
-    let mut config_path = default_config_path.to_string();
-    let mut dir_path = String::new();
-    if let Some(c) = &args.config {
-        config_path = c.to_string();
-    }
-    if let Some(d) = &args.dir {
-        dir_path = d.to_string();
-        if !std::path::Path::new(&dir_path).exists() {
-            tokio::fs::create_dir_all(&dir_path)
-                .await
-                .with_context(|| format!("Failed to mkdir for {}", dir_path))?;
-        }
-    }
-
-    let path = std::path::Path::new(&config_path);
-    let config: Config<T> = if path.exists() {
-        Config::parse(path).await?
-    } else {
-        panic!("config file {} not exist", config_path);
-    };
-    Ok((config, dir_path))
-}

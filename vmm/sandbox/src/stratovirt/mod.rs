@@ -41,18 +41,11 @@ use tokio::{
 };
 use unshare::Fd;
 
-use self::{
-    config::StratoVirtVMConfig,
-    devices::{pcie_rootbus::PcieRootBus, rootport::RootPort, PCIE_ROOTBUS_CAPACITY},
-    factory::StratoVirtVMFactory,
-    hooks::StratoVirtHooks,
-};
+use self::devices::{pcie_rootbus::PcieRootBus, rootport::RootPort, PCIE_ROOTBUS_CAPACITY};
 use crate::{
-    args::Args,
     device::{Bus, BusType, DeviceInfo, Slot, SlotStatus},
-    impl_recoverable, load_config,
+    impl_recoverable,
     param::ToCmdLineParams,
-    sandbox::KuasarSandboxer,
     stratovirt::{
         config::StratoVirtConfig,
         devices::{
@@ -554,16 +547,3 @@ impl StratoVirtVM {
 }
 
 impl_recoverable!(StratoVirtVM);
-
-pub async fn init_stratovirt_sandboxer(
-    args: &Args,
-) -> Result<KuasarSandboxer<StratoVirtVMFactory, StratoVirtHooks>> {
-    let (config, persist_dir_path) =
-        load_config::<StratoVirtVMConfig>(args, CONFIG_STRATOVIRT_PATH).await?;
-    let hooks = StratoVirtHooks::new(config.hypervisor.clone());
-    let mut s = KuasarSandboxer::new(config.sandbox, config.hypervisor, hooks);
-    if !persist_dir_path.is_empty() {
-        s.recover(&persist_dir_path).await?;
-    }
-    Ok(s)
-}

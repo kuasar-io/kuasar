@@ -33,10 +33,9 @@ use vmm_common::{
 
 use crate::{
     device::{BlockDeviceInfo, DeviceInfo},
-    sandbox::KUASAR_GUEST_SHARE_DIR,
+    sandbox::{KuasarSandbox, KUASAR_GUEST_SHARE_DIR},
     storage::mount::{get_mount_info, is_bind, is_bind_shm, is_overlay},
     vm::{BlockDriver, VM},
-    KuasarSandbox,
 };
 
 pub mod mount;

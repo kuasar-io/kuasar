@@ -30,8 +30,8 @@ use crate::{
         spec::SpecHandler,
         storage::StorageHandler,
     },
+    sandbox::KuasarSandbox,
     vm::VM,
-    KuasarSandbox,
 };
 
 pub mod append;

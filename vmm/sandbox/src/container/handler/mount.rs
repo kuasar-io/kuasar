@@ -17,7 +17,7 @@ limitations under the License.
 use async_trait::async_trait;
 use containerd_sandbox::{error::Result, spec::Mount};
 
-use crate::{container::handler::Handler, vm::VM, KuasarSandbox};
+use crate::{container::handler::Handler, sandbox::KuasarSandbox, vm::VM};
 
 pub struct MountHandler {
     mount: Mount,

@@ -66,7 +66,7 @@ lazy_static! {
     };
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct QemuVMConfig {
     pub common: HypervisorCommonConfig,
     pub machine_accelerators: String,
