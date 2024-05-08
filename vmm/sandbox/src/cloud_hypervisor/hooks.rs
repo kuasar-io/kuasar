@@ -20,6 +20,7 @@ use crate::{
     cloud_hypervisor::CloudHypervisorVM, sandbox::KuasarSandbox, utils::get_resources, vm::Hooks,
 };
 
+#[derive(Default)]
 pub struct CloudHypervisorHooks {}
 
 #[async_trait::async_trait]

@@ -20,8 +20,8 @@ use containerd_sandbox::{error::Result, ContainerOption};
 
 use crate::{
     container::{handler::Handler, KuasarContainer},
+    sandbox::KuasarSandbox,
     vm::VM,
-    KuasarSandbox,
 };
 
 pub struct MetadataAddHandler {

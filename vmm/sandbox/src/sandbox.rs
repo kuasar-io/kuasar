@@ -75,10 +75,6 @@ where
             sandboxes: Arc::new(Default::default()),
         }
     }
-
-    pub fn log_level(&self) -> &str {
-        &self.config.log_level
-    }
 }
 
 impl<F, H> KuasarSandboxer<F, H>
@@ -87,36 +83,45 @@ where
     H: Hooks<F::VM>,
     F::VM: VM + DeserializeOwned + Recoverable + Sync + Send + 'static,
 {
-    pub async fn recover(&mut self, dir: &str) -> Result<()> {
-        let mut subs = tokio::fs::read_dir(dir).await.map_err(Error::IO)?;
+    pub async fn recover(&mut self, dir: &str) {
+        let mut subs = match tokio::fs::read_dir(dir).await {
+            Ok(subs) => subs,
+            Err(e) => {
+                error!("FATAL! read working dir {} for recovery: {}", dir, e);
+                return;
+            }
+        };
         while let Some(entry) = subs.next_entry().await.unwrap() {
             if let Ok(t) = entry.file_type().await {
-                if t.is_dir() {
-                    let path = Path::new(dir).join(entry.file_name());
-                    match KuasarSandbox::recover(&path).await {
-                        Ok(sb) => {
-                            let status = sb.status.clone();
-                            let sb_mutex = Arc::new(Mutex::new(sb));
-                            // Only running sandbox should be monitored.
-                            if let SandboxStatus::Running(_) = status {
-                                let sb_clone = sb_mutex.clone();
-                                monitor(sb_clone);
-                            }
-                            self.sandboxes
-                                .write()
-                                .await
-                                .insert(entry.file_name().to_str().unwrap().to_string(), sb_mutex);
+                if !t.is_dir() {
+                    continue;
+                }
+                debug!("recovering sandbox {:?}", entry.file_name());
+                let path = Path::new(dir).join(entry.file_name());
+                match KuasarSandbox::recover(&path).await {
+                    Ok(sb) => {
+                        let status = sb.status.clone();
+                        let sb_mutex = Arc::new(Mutex::new(sb));
+                        // Only running sandbox should be monitored.
+                        if let SandboxStatus::Running(_) = status {
+                            let sb_clone = sb_mutex.clone();
+                            monitor(sb_clone);
                         }
-                        Err(e) => {
-                            warn!("failed to recover sandbox {:?}, {:?}", entry.file_name(), e);
-                            cleanup_mounts(path.to_str().unwrap()).await?;
-                            remove_dir_all(&path).await?
-                        }
+                        self.sandboxes
+                            .write()
+                            .await
+                            .insert(entry.file_name().to_str().unwrap().to_string(), sb_mutex);
+                    }
+                    Err(e) => {
+                        warn!("failed to recover sandbox {:?}, {:?}", entry.file_name(), e);
+                        cleanup_mounts(path.to_str().unwrap())
+                            .await
+                            .unwrap_or_default();
+                        remove_dir_all(&path).await.unwrap_or_default();
                     }
                 }
             }
         }
-        Ok(())
     }
 }
 
@@ -666,6 +671,12 @@ fn parse_dnsoptions(servers: &[String], searches: &[String], options: &[String])
 pub struct SandboxConfig {
     #[serde(default)]
     pub log_level: String,
+}
+
+impl SandboxConfig {
+    pub fn log_level(&self) -> String {
+        self.log_level.to_string()
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]

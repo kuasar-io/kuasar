@@ -16,26 +16,44 @@ limitations under the License.
 
 use clap::Parser;
 use vmm_sandboxer::{
-    args, cloud_hypervisor::init_cloud_hypervisor_sandboxer, utils::init_logger, version,
+    args,
+    cloud_hypervisor::{factory::CloudHypervisorVMFactory, hooks::CloudHypervisorHooks},
+    config::Config,
+    sandbox::KuasarSandboxer,
+    utils::init_logger,
+    version,
 };
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() {
     let args = args::Args::parse();
     if args.version {
         version::print_version_info();
-        return Ok(());
+        return;
     }
-    // Initialize sandboxer
-    let sandboxer = init_cloud_hypervisor_sandboxer(&args).await?;
 
-    // Initialize log
-    init_logger(sandboxer.log_level());
+    let config = Config::load_config(&args.config).await.unwrap();
+
+    // Update args log level if it not presents args but in config.
+    init_logger(&args.log_level.unwrap_or(config.sandbox.log_level()));
+
+    let mut sandboxer: KuasarSandboxer<CloudHypervisorVMFactory, CloudHypervisorHooks> =
+        KuasarSandboxer::new(
+            config.sandbox,
+            config.hypervisor,
+            CloudHypervisorHooks::default(),
+        );
+
+    // Do recovery job
+    sandboxer.recover(&args.dir).await;
 
     // Run the sandboxer
-    containerd_sandbox::run("kuasar-sandboxer", sandboxer)
-        .await
-        .unwrap();
-
-    Ok(())
+    containerd_sandbox::run(
+        "kuasar-vmm-sandboxer-clh",
+        &args.listen,
+        &args.dir,
+        sandboxer,
+    )
+    .await
+    .unwrap();
 }

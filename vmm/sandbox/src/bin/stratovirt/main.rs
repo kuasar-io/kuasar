@@ -15,26 +15,46 @@ limitations under the License.
 */
 
 use clap::Parser;
-use vmm_sandboxer::{args, stratovirt::init_stratovirt_sandboxer, utils::init_logger, version};
+use vmm_sandboxer::{
+    args,
+    config::Config,
+    sandbox::KuasarSandboxer,
+    stratovirt::{
+        config::StratoVirtVMConfig, factory::StratoVirtVMFactory, hooks::StratoVirtHooks,
+    },
+    utils::init_logger,
+    version,
+};
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() {
     let args = args::Args::parse();
     if args.version {
         version::print_version_info();
-        return Ok(());
+        return;
     }
 
-    // Initialize sandboxer
-    let sandboxer = init_stratovirt_sandboxer(&args).await?;
+    let config: Config<StratoVirtVMConfig> = Config::load_config(&args.config).await.unwrap();
 
-    // Initialize log
-    init_logger(sandboxer.log_level());
+    // Update args log level if it not presents args but in config.
+    init_logger(&args.log_level.unwrap_or(config.sandbox.log_level()));
+
+    let mut sandboxer: KuasarSandboxer<StratoVirtVMFactory, StratoVirtHooks> = KuasarSandboxer::new(
+        config.sandbox,
+        config.hypervisor.clone(),
+        StratoVirtHooks::new(config.hypervisor),
+    );
+
+    // Do recovery job
+    sandboxer.recover(&args.dir).await;
 
     // Run the sandboxer
-    containerd_sandbox::run("kuasar-sandboxer", sandboxer)
-        .await
-        .unwrap();
-
-    Ok(())
+    containerd_sandbox::run(
+        "kuasar-vmm-sandboxer-stratovirt",
+        &args.listen,
+        &args.dir,
+        sandboxer,
+    )
+    .await
+    .unwrap();
 }
