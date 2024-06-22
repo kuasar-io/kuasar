@@ -2592,7 +2592,7 @@ dependencies = [
  "protobuf 2.28.0",
  "protobuf-codegen 3.2.0",
  "protobuf-support",
- "ttrpc-compiler 0.6.1 (git+https://github.com/kuasar-io/ttrpc-rust.git?branch=v0.7.1-kuasar)",
+ "ttrpc-compiler 0.6.1",
 ]
 
 [[package]]
@@ -2604,14 +2604,13 @@ dependencies = [
  "protobuf 2.28.0",
  "protobuf-codegen 3.2.0",
  "protobuf-support",
- "ttrpc-compiler 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ttrpc-compiler 0.6.2",
 ]
 
 [[package]]
 name = "ttrpc-compiler"
 version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec3cb5dbf1f0865a34fe3f722290fe776cacb16f50428610b779467b76ddf647"
+source = "git+https://github.com/kuasar-io/ttrpc-rust.git?branch=v0.7.1-kuasar#db83ba89c4e315a680860341080deec0aa400609"
 dependencies = [
  "derive-new",
  "prost 0.8.0",
@@ -2624,8 +2623,9 @@ dependencies = [
 
 [[package]]
 name = "ttrpc-compiler"
-version = "0.6.1"
-source = "git+https://github.com/kuasar-io/ttrpc-rust.git?branch=v0.7.1-kuasar#db83ba89c4e315a680860341080deec0aa400609"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0672eb06e5663ad190c7b93b2973f5d730259859b62e4e3381301a12a7441107"
 dependencies = [
  "derive-new",
  "prost 0.8.0",
