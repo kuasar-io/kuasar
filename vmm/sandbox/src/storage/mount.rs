@@ -47,7 +47,11 @@ pub async fn get_mount_info(mount_point: &str) -> Result<Option<MountInfo>> {
         if mp == mount_point {
             let fs_type = fields[2].to_string();
             let options = fields[3].split(',').map(|x| x.to_string()).collect();
-            return Ok(Some(MountInfo { fs_type, options }));
+            return Ok(Some(MountInfo {
+                mount_point: mp,
+                fs_type,
+                options,
+            }));
         }
     }
     Ok(None)
