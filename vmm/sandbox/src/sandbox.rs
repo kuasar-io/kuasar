@@ -686,10 +686,6 @@ pub struct StaticDeviceSpec {
     pub(crate) _host_path: Vec<String>,
     #[serde(default)]
     pub(crate) _bdf: Vec<String>,
-    #[allow(dead_code)]
-    #[deprecated]
-    #[serde(default)]
-    pub(crate) gpu_group_id: i32,
 }
 
 fn monitor<V: VM + 'static>(sandbox_mutex: Arc<Mutex<KuasarSandbox<V>>>) {

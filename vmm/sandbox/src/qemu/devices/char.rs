@@ -19,10 +19,7 @@ use async_trait::async_trait;
 use containerd_sandbox::error::Result;
 use log::{debug, error};
 use qapi::{
-    qmp::{
-        chardev_add, chardev_remove, device_add, device_del, ChardevBackend, ChardevCommon,
-        ChardevHostdev,
-    },
+    qmp::{chardev_add, chardev_remove, device_add, ChardevBackend, ChardevCommon, ChardevHostdev},
     Dictionary,
 };
 use sandbox_derive::CmdLineParams;
@@ -207,13 +204,6 @@ impl CharDevice {
     fn to_chardev_remove(&self) -> chardev_remove {
         chardev_remove {
             id: self.chardev_id.to_string(),
-        }
-    }
-
-    #[allow(dead_code)]
-    fn to_device_del(&self) -> device_del {
-        device_del {
-            id: self.id.to_string(),
         }
     }
 }

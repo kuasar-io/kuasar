@@ -22,12 +22,8 @@ use serde::{Deserialize, Serialize};
 
 mod handler;
 
-#[allow(dead_code)]
-const NULL_DEVICE: &str = "/dev/null";
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct KuasarContainer {
-    #[allow(dead_code)]
     pub(crate) id: String,
     pub(crate) data: ContainerData,
     pub(crate) io_devices: Vec<String>,

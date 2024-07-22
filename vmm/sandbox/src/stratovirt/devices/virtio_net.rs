@@ -93,7 +93,7 @@ impl VirtioNetDevice {
 }
 
 impl_device_no_bus!(VirtioNetDevice);
-impl_set_get_device_addr!(VirtioNetDevice);
+impl_set_device_addr!(VirtioNetDevice);
 
 impl VirtioNetDevice {
     pub fn new() -> Self {

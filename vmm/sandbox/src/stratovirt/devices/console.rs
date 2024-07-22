@@ -30,7 +30,7 @@ pub struct VirtConsole {
 }
 
 impl_device_no_bus!(VirtConsole);
-impl_set_get_device_addr!(VirtConsole);
+impl_set_device_addr!(VirtConsole);
 
 impl VirtConsole {
     pub fn new(id: &str, chardev_id: &str) -> Self {
@@ -43,16 +43,15 @@ impl VirtConsole {
     }
 }
 
+#[cfg(test)]
 mod tests {
-    #[allow(unused_imports)]
     use super::VirtConsole;
-    #[allow(unused_imports)]
     use crate::{
         device::Transport,
         param::ToCmdLineParams,
         stratovirt::devices::{
-            char::CharDevice, device::GetAndSetDeviceAddr, serial::SerialDevice, DEFAULT_PCIE_BUS,
-            VIRTIO_SERIAL_CONSOLE_ADDR,
+            char::CharDevice, device::SetDeviceAddr, serial::SerialDevice,
+            tests::VIRTIO_SERIAL_CONSOLE_ADDR, DEFAULT_PCIE_BUS,
         },
     };
 

@@ -61,14 +61,11 @@ pub trait DeviceMatcher: Sync + Send + 'static {
 pub type DeviceConverter = fn(&Uevent) -> Option<Device>;
 
 pub struct DeviceSubscriber {
-    #[allow(dead_code)]
-    pub(crate) id: u64,
     pub(crate) tx: Sender<Device>,
     pub(crate) matcher: Box<dyn DeviceMatcher>,
 }
 
 pub struct DeviceSubscription {
-    #[allow(dead_code)]
     pub(crate) id: u64,
     pub(crate) rx: Receiver<Device>,
 }
@@ -106,7 +103,6 @@ impl DeviceMonitor {
         ss.insert(
             id,
             DeviceSubscriber {
-                id,
                 tx,
                 matcher: Box::new(matcher),
             },
@@ -115,7 +111,6 @@ impl DeviceMonitor {
         DeviceSubscription { id, rx }
     }
 
-    #[allow(dead_code)]
     pub async fn unsubscribe(&self, id: u64) {
         let mut internal = self.internal.lock().await;
         let ss = &mut internal.subscribers;
@@ -296,24 +291,17 @@ impl Uevent {
     }
 }
 
-#[allow(dead_code)]
-pub const SCSI_HOST_CHANNEL: &str = "0:0:";
 pub const SCSI_BLOCK_SUFFIX: &str = "block";
 pub const SYSFS_SCSI_HOST_PATH: &str = "/sys/class/scsi_host";
 pub const SYSFS_SCSI_DEVICE_PATH: &str = "/sys/class/scsi_device";
 pub const SYSFS_BLK_DEVICE_PATH: &str = "/sys/class/block";
 pub const SYSFS_PCI_BUS_RESCAN_FILE: &str = "/sys/bus/pci/rescan";
-#[allow(dead_code)]
-pub const SYSFS_PCI_BUS_PREFIX: &str = "/sys/bus/pci/devices";
 pub const SYSTEM_DEV_PATH: &str = "/dev";
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum DeviceType {
-    #[allow(dead_code)]
     Blk,
     Scsi,
-    #[allow(dead_code)]
-    Ephemeral,
 }
 
 #[derive(Clone, Debug)]

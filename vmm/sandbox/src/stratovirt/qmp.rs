@@ -14,16 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-#![allow(warnings)]
-
 use qapi::qmp::QmpCommand;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct query_cpus {}
+pub struct QueryCpus {}
 
-impl QmpCommand for query_cpus {}
-impl ::qapi_spec::Command for query_cpus {
+impl QmpCommand for QueryCpus {}
+impl ::qapi_spec::Command for QueryCpus {
     const NAME: &'static str = "query-cpus";
     const ALLOW_OOB: bool = false;
 
@@ -33,7 +31,7 @@ impl ::qapi_spec::Command for query_cpus {
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CpuInfoArch {
     #[serde(rename = "x86")]
-    x86,
+    X86,
     #[serde(rename = "Arm")]
     Arm,
 }
@@ -52,7 +50,7 @@ unsafe impl ::qapi_spec::Enum for CpuInfoArch {
     }
 
     const COUNT: usize = 2;
-    const VARIANTS: &'static [Self] = &[CpuInfoArch::x86, CpuInfoArch::Arm];
+    const VARIANTS: &'static [Self] = &[CpuInfoArch::X86, CpuInfoArch::Arm];
     const NAMES: &'static [&'static str] = &["x86", "Arm"];
 }
 
@@ -66,10 +64,10 @@ pub enum CpuInfo {
         base: CpuInfoBase,
         #[serde(flatten)]
         #[serde(rename = "Arm")]
-        Arm: CpuInfoArm,
+        arm: CpuInfoArm,
     },
     #[serde(rename = "x86")]
-    x86 {
+    X86 {
         #[serde(flatten)]
         #[serde(rename = "base")]
         base: CpuInfoBase,
@@ -82,31 +80,21 @@ pub enum CpuInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CpuInfoBase {
     #[serde(rename = "CPU")]
-    pub CPU: i64,
+    pub cpu: i64,
     #[serde(rename = "current")]
     pub current: bool,
     #[serde(rename = "halted")]
     pub halted: bool,
     #[serde(rename = "qom_path")]
-    pub qom_path: ::std::string::String,
+    pub qom_path: String,
     #[serde(rename = "thread_id")]
     pub thread_id: i64,
-}
-
-impl CpuInfo {
-    pub fn arch(&self) -> CpuInfoArch {
-        match *self {
-            CpuInfo::Arm { .. } => CpuInfoArch::Arm,
-
-            CpuInfo::x86 { .. } => CpuInfoArch::x86,
-        }
-    }
 }
 
 impl From<(CpuInfoArm, CpuInfoBase)> for CpuInfo {
     fn from(val: (CpuInfoArm, CpuInfoBase)) -> Self {
         Self::Arm {
-            Arm: val.0,
+            arm: val.0,
             base: val.1,
         }
     }
@@ -114,7 +102,7 @@ impl From<(CpuInfoArm, CpuInfoBase)> for CpuInfo {
 
 impl From<(CpuInfoX86, CpuInfoBase)> for CpuInfo {
     fn from(val: (CpuInfoX86, CpuInfoBase)) -> Self {
-        Self::x86 {
+        Self::X86 {
             x86: val.0,
             base: val.1,
         }

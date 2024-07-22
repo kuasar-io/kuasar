@@ -32,9 +32,6 @@ pub struct SerialBridge {
     #[property(key = "max_ports")]
     pub max_ports: Option<i32>,
     #[property(ignore)]
-    pub transport: Transport,
-
-    #[property(ignore)]
     pub(crate) bus: Bus,
 }
 
@@ -46,7 +43,6 @@ impl SerialBridge {
             disable_modern: transport.disable_modern(false),
             romfile: None,
             max_ports: None,
-            transport,
             bus: Bus {
                 r#type: BusType::SERIAL,
                 id: id.to_string(),

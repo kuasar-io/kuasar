@@ -317,8 +317,6 @@ where
 }
 
 pub struct MountInfo {
-    pub device: String,
-    pub mount_point: String,
     pub fs_type: String,
     pub options: Vec<String>,
 }

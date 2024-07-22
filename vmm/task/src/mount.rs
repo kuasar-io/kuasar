@@ -16,11 +16,7 @@ use tokio::{
 use crate::StaticMount;
 
 pub const SYSFS_CGROUPPATH: &str = "/sys/fs/cgroup";
-#[allow(dead_code)]
-pub const SYSFS_ONLINE_FILE: &str = "online";
 
-#[allow(dead_code)]
-pub const PROC_MOUNTSTATS: &str = "/proc/self/mountstats";
 pub const PROC_CGROUPS: &str = "/proc/cgroups";
 
 lazy_static! {

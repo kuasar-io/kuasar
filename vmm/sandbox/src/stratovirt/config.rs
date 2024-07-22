@@ -24,18 +24,8 @@ use crate::{
     stratovirt::virtiofs::DEFAULT_VHOST_USER_FS_BIN_PATH, vm::HypervisorCommonConfig,
 };
 
-#[allow(dead_code)]
-pub(crate) const MACHINE_TYPE_Q35: &str = "q35";
-#[allow(dead_code)]
-pub(crate) const MACHINE_TYPE_PC: &str = "pc";
-#[allow(dead_code)]
 pub(crate) const MACHINE_TYPE_VIRT: &str = "virt";
-#[allow(dead_code)]
 pub(crate) const MACHINE_TYPE_MICROVM: &str = "microvm";
-#[allow(dead_code)]
-pub(crate) const MACHINE_TYPE_PSERIES: &str = "pseries";
-#[allow(dead_code)]
-pub(crate) const MACHINE_TYPE_CCW_VIRTIO: &str = "s390-ccw-virtio";
 
 const DEFAULT_STRATOVIRT_PATH: &str = "/usr/bin/stratovirt";
 const DEFAULT_KERNEL_PARAMS: &str = "console=hvc0 console=hvc1 iommu=off panic=1 pcie_ports=native";

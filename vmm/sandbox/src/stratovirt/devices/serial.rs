@@ -30,8 +30,6 @@ pub struct SerialDevice {
     pub bus: String,
     #[property(param = "device", predicate = "self.addr.len()>0")]
     pub addr: String,
-    #[property(ignore)]
-    pub transport: Transport,
 }
 
 impl SerialDevice {
@@ -41,13 +39,12 @@ impl SerialDevice {
             id: id.to_string(),
             bus: bus.to_string(),
             addr: "".to_string(),
-            transport,
         }
     }
 }
 
 impl_device_no_bus!(SerialDevice);
-impl_set_get_device_addr!(SerialDevice);
+impl_set_device_addr!(SerialDevice);
 
 #[cfg(test)]
 mod tests {
@@ -56,7 +53,7 @@ mod tests {
         device::Transport,
         param::ToCmdLineParams,
         stratovirt::devices::{
-            device::GetAndSetDeviceAddr, DEFAULT_PCIE_BUS, VIRTIO_SERIAL_CONSOLE_ADDR,
+            device::SetDeviceAddr, tests::VIRTIO_SERIAL_CONSOLE_ADDR, DEFAULT_PCIE_BUS,
         },
     };
 
