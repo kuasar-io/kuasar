@@ -129,10 +129,8 @@ impl VsockIO {
         }
         Err(other!("timeout connect to port {}", self.port))
     }
-}
 
-impl ToString for VsockIO {
-    fn to_string(&self) -> String {
+    fn convert_to_string(&self) -> String {
         if self.sock_path.is_empty() {
             String::new()
         } else {
@@ -336,15 +334,15 @@ impl ContainerIoTransport for VSockTransport {
     }
 
     fn container_in(&self) -> String {
-        self.stdin.clone().unwrap_or_default().to_string()
+        self.stdin.clone().unwrap_or_default().convert_to_string()
     }
 
     fn container_out(&self) -> String {
-        self.stdout.clone().unwrap_or_default().to_string()
+        self.stdout.clone().unwrap_or_default().convert_to_string()
     }
 
     fn container_err(&self) -> String {
-        self.stderr.clone().unwrap_or_default().to_string()
+        self.stderr.clone().unwrap_or_default().convert_to_string()
     }
 
     async fn new_task_client(address: &str) -> Result<TaskClient> {

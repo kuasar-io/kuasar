@@ -45,7 +45,7 @@ pub struct VirtioRngDevice {
 }
 
 impl_device_no_bus!(VirtioRngDevice);
-impl_set_get_device_addr!(VirtioRngDevice);
+impl_set_device_addr!(VirtioRngDevice);
 
 impl VirtioRngDevice {
     pub fn new(id: &str, filename: &str, transport: Transport, bus: &str) -> Self {
@@ -70,7 +70,7 @@ mod tests {
         device::Transport,
         param::ToCmdLineParams,
         stratovirt::devices::{
-            device::GetAndSetDeviceAddr, DEFAULT_PCIE_BUS, VIRTIO_RND_DEVICE_ADDR,
+            device::SetDeviceAddr, tests::VIRTIO_RND_DEVICE_ADDR, DEFAULT_PCIE_BUS,
         },
     };
 

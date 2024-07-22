@@ -110,7 +110,7 @@ impl IpNet {
     }
 }
 
-#[derive(Default, Clone, Deserialize, Serialize)]
+#[derive(Default, Debug, Clone, Deserialize, Serialize)]
 #[serde(from = "String")]
 #[serde(into = "String")]
 pub struct MacAddress(pub(crate) Vec<u8>);
@@ -131,19 +131,13 @@ impl From<MacAddress> for String {
     }
 }
 
-impl ToString for MacAddress {
-    fn to_string(&self) -> String {
+impl std::fmt::Display for MacAddress {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut segs = vec![];
         for u in self.0.as_slice() {
             segs.push(format!("{:02x}", u));
         }
-        segs.join(":")
-    }
-}
-
-impl Debug for MacAddress {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
+        write!(f, "{}", segs.join(":"))
     }
 }
 

@@ -14,18 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-pub trait GetAndSetDeviceAddr {
-    fn get_device_addr(&self) -> String;
+pub trait SetDeviceAddr {
     fn set_device_addr(&mut self, addr: usize);
 }
 
-macro_rules! impl_set_get_device_addr {
+macro_rules! impl_set_device_addr {
     ($ty:ty) => {
-        impl crate::stratovirt::devices::device::GetAndSetDeviceAddr for $ty {
-            fn get_device_addr(&self) -> String {
-                self.addr.clone()
-            }
-
+        impl crate::stratovirt::devices::device::SetDeviceAddr for $ty {
             fn set_device_addr(&mut self, addr: usize) {
                 self.addr = format!("{:#02x}", addr);
             }

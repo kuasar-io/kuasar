@@ -98,7 +98,7 @@ impl CloudHypervisorVM {
         }
     }
 
-    pub fn add_device(&mut self, device: impl CloudHypervisorDevice + Sync + Send + 'static) {
+    pub fn add_device(&mut self, device: impl CloudHypervisorDevice + 'static) {
         self.devices.push(Box::new(device));
     }
 

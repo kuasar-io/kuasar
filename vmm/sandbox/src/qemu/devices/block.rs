@@ -19,7 +19,7 @@ use containerd_sandbox::error::Result;
 use log::{debug, error};
 use qapi::{
     qmp::{
-        blockdev_add, blockdev_del, device_add, device_del, BlockdevOptions, BlockdevOptionsBase,
+        blockdev_add, blockdev_del, device_add, BlockdevOptions, BlockdevOptionsBase,
         BlockdevOptionsFile,
     },
     Dictionary,
@@ -196,13 +196,6 @@ impl VirtioBlockDevice {
             bus,
             id: Some(format!("virtio-{}", self.id())),
             arguments: args,
-        }
-    }
-
-    #[allow(dead_code)]
-    fn to_device_del(&self) -> device_del {
-        device_del {
-            id: format!("virtio-{}", self.id()),
         }
     }
 

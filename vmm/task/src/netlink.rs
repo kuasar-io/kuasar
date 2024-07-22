@@ -47,9 +47,6 @@ impl fmt::Display for LinkFilter<'_> {
 pub enum AddressFilter {
     /// Return addresses that belong to the given interface.
     LinkIndex(u32),
-    /// Get addresses with the given prefix.
-    #[allow(dead_code)]
-    IpAddress(IpAddr),
 }
 
 /// A high level wrapper for netlink (and `rtnetlink` crate) for use by the Agent's RPC.
@@ -204,7 +201,6 @@ impl Handle {
         if let Some(filter) = filter.into() {
             request = match filter {
                 AddressFilter::LinkIndex(index) => request.set_link_index_filter(index),
-                AddressFilter::IpAddress(addr) => request.set_address_filter(addr),
             };
         };
 
@@ -491,22 +487,6 @@ impl Link {
             .unwrap_or_default()
     }
 
-    /// Extract Mac address.
-    #[allow(dead_code)]
-    fn address(&self) -> String {
-        use packet::nlas::link::Nla;
-        self.nlas
-            .iter()
-            .find_map(|n| {
-                if let Nla::Address(data) = n {
-                    format_address(data).ok()
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_default()
-    }
-
     /// Returns whether the link is UP
     fn is_up(&self) -> bool {
         self.header.flags & packet::rtnl::constants::IFF_UP > 0
@@ -514,18 +494,6 @@ impl Link {
 
     fn index(&self) -> u32 {
         self.header.index
-    }
-
-    #[allow(dead_code)]
-    fn mtu(&self) -> Option<u64> {
-        use packet::nlas::link::Nla;
-        self.nlas.iter().find_map(|n| {
-            if let Nla::Mtu(mtu) = n {
-                Some(*mtu as u64)
-            } else {
-                None
-            }
-        })
     }
 }
 
@@ -574,11 +542,6 @@ impl TryFrom<Address> for IPAddress {
 impl Address {
     fn is_ipv6(&self) -> bool {
         self.0.header.family == packet::constants::AF_INET6 as u8
-    }
-
-    #[allow(dead_code)]
-    fn prefix(&self) -> u8 {
-        self.0.header.prefix_len
     }
 
     fn address(&self) -> String {

@@ -135,6 +135,7 @@ impl SandboxResources {
                 e,
                 format!("timeout waiting for device with addr {} ready", addr)
             ))?;
+        self.device_monitor.unsubscribe(s.id).await;
         res.ok_or_else(|| other!("can not get device with addr {}", addr))
     }
 }

@@ -255,7 +255,7 @@ where
         req_new.stderr = shim_io.container_err();
 
         if !prepare_res.bundle.is_empty() {
-            req_new.bundle = prepare_res.bundle.clone();
+            req_new.bundle.clone_from(&prepare_res.bundle);
         }
 
         let res = self.task.create(ctx, req_new).await?;

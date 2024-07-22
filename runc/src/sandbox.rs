@@ -181,7 +181,7 @@ impl Sandboxer for RuncSandboxer {
             e
         })?;
 
-        sandbox.data.task_address = self.task_address.clone();
+        sandbox.data.task_address.clone_from(&self.task_address);
         sandbox.dump().await.map_err(|e| {
             kill(Pid::from_raw(sandbox_pid), Signal::SIGKILL).unwrap_or_default();
             e

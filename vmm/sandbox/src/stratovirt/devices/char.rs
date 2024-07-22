@@ -42,7 +42,7 @@ pub struct CharDevice {
 }
 
 impl_device_no_bus!(CharDevice);
-impl_set_get_device_addr!(CharDevice);
+impl_set_device_addr!(CharDevice);
 
 impl CharDevice {
     pub fn new(backend: &str, chardev_id: &str, path: &str) -> Self {
@@ -57,10 +57,9 @@ impl CharDevice {
     }
 }
 
+#[cfg(test)]
 mod tests {
-    #[allow(unused_imports)]
     use super::CharDevice;
-    #[allow(unused_imports)]
     use crate::param::ToCmdLineParams;
 
     #[test]

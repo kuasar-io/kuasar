@@ -14,8 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::ptr::NonNull;
-
 use async_trait::async_trait;
 use containerd_sandbox::{error::Result, ContainerOption, Sandbox};
 use log::warn;
@@ -41,40 +39,6 @@ mod ns;
 mod process;
 mod spec;
 mod storage;
-
-pub struct HandlerNode<S> {
-    pub handler: Box<dyn Handler<S> + Sync + Send>,
-    pub next: Option<NonNull<HandlerNode<S>>>,
-    pub prev: Option<NonNull<HandlerNode<S>>>,
-}
-
-unsafe impl<S> Sync for HandlerNode<S> {}
-
-unsafe impl<S> Send for HandlerNode<S> {}
-
-impl<S> HandlerNode<S>
-where
-    S: Sync + Send,
-{
-    #[allow(dead_code)]
-    pub fn new(handler: Box<dyn Handler<S> + Sync + Send>) -> Self {
-        Self {
-            handler,
-            next: None,
-            prev: None,
-        }
-    }
-
-    #[allow(dead_code)]
-    pub async fn handle(&self, sandbox: &mut S) -> Result<()> {
-        self.handler.handle(sandbox).await
-    }
-
-    #[allow(dead_code)]
-    pub async fn rollback(&self, sandbox: &mut S) -> Result<()> {
-        self.handler.rollback(sandbox).await
-    }
-}
 
 pub struct HandlerChain<S> {
     handlers: Vec<Box<dyn Handler<S> + Sync + Send>>,
@@ -123,7 +87,6 @@ where
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub async fn rollback(&self, sandbox: &mut S) -> Result<()> {
         for handler in self.handlers.iter().rev() {
             handler.rollback(sandbox).await.unwrap_or_else(|e| {

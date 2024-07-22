@@ -14,22 +14,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+use std::fmt::{Display, Formatter};
+
 use sandbox_derive::CmdLineParams;
 
 #[derive(Debug, Clone)]
 pub enum VhostUserType {
     VhostUserNet(String),
-    // TODO: support virtiofs
-    #[allow(dead_code)]
-    VhostUserFS(String),
 }
 
-impl ToString for VhostUserType {
-    fn to_string(&self) -> String {
-        match &self {
+impl Display for VhostUserType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let s = match &self {
             VhostUserType::VhostUserNet(r#type) => r#type.to_string(),
-            VhostUserType::VhostUserFS(r#type) => r#type.to_string(),
-        }
+        };
+        write!(f, "{}", s)
     }
 }
 
@@ -75,9 +74,6 @@ impl VhostUserDevice {
         let type_dev_id = match t {
             VhostUserType::VhostUserNet(_) => {
                 format!("{}-{}", "net", id)
-            }
-            VhostUserType::VhostUserFS(_) => {
-                format!("{}-{}", "fs", id)
             }
         };
         Self {

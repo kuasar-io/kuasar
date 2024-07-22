@@ -134,7 +134,7 @@ impl WasmSandbox {
     async fn start(&mut self) -> Result<()> {
         let task = self.start_task_service().await?;
         let task_address = format!("unix://{}/task.sock", self.base_dir);
-        self.data.task_address = task_address.clone();
+        self.data.task_address.clone_from(&task_address);
         let task_service = create_task(Arc::new(Box::new(task)));
         let mut server = Server::new().register_service(task_service);
         server = server
@@ -155,7 +155,7 @@ impl WasmSandbox {
     ) -> Result<TaskService<WasmEdgeContainerFactory, WasmEdgeContainer>> {
         let (tx, mut rx) = channel(128);
         let mut factory = WasmEdgeContainerFactory::default();
-        factory.netns = self.data.netns.clone();
+        factory.netns.clone_from(&self.data.netns);
         let task = TaskService {
             factory,
             containers: Arc::new(Default::default()),

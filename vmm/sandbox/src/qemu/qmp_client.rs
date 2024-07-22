@@ -31,14 +31,11 @@ use tokio::{
         oneshot::{channel, Sender},
         Mutex,
     },
-    task::JoinHandle,
 };
 
 pub struct QmpClient {
     qmp: QapiService<QmpStreamTokio<WriteHalf<UnixStream>>>,
     watchers: Arc<Mutex<Vec<QmpEventWatcher>>>,
-    #[allow(dead_code)]
-    handle: JoinHandle<()>,
 }
 
 pub struct QmpEventWatcher {
@@ -54,7 +51,7 @@ impl QmpClient {
         let event_watchers = Arc::new(Mutex::new(Vec::<QmpEventWatcher>::new()));
 
         let w_clone = event_watchers.clone();
-        let handle = tokio::spawn(async move {
+        tokio::spawn(async move {
             while let Some(Ok(event)) = events.next().await {
                 let mut ws = w_clone.lock().await;
                 let mut retained = vec![];
@@ -76,7 +73,6 @@ impl QmpClient {
         let client = Self {
             qmp: service,
             watchers: event_watchers,
-            handle,
         };
         Ok(client)
     }

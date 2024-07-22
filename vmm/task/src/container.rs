@@ -62,11 +62,6 @@ use crate::{
     util::{read_io, read_storages, wait_pid},
 };
 
-#[allow(dead_code)]
-pub const GROUP_LABELS: [&str; 2] = [
-    "io.containerd.runc.v2.group",
-    "io.kubernetes.cri.sandbox-id",
-];
 pub const INIT_PID_FILE: &str = "init.pid";
 
 const STORAGE_ANNOTATION: &str = "io.kuasar.storages";

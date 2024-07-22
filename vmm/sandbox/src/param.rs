@@ -56,7 +56,6 @@ impl Param {
         }
     }
 
-    #[allow(dead_code)]
     pub fn get(&self, key: &str) -> Option<String> {
         self.properties
             .iter()
@@ -126,7 +125,6 @@ impl ToCmdLineParams for BoolParam {
     }
 }
 
-#[allow(dead_code)]
 impl BoolParam {
     pub fn new(key: &str, value: bool) -> Self {
         Self(key.to_string(), value)
@@ -135,7 +133,6 @@ impl BoolParam {
 
 pub struct VecParam<T>(String, Vec<T>);
 
-#[allow(dead_code)]
 impl<T> VecParam<T> {
     pub fn new(key: &str, val: Vec<T>) -> Self {
         Self(key.to_string(), val)

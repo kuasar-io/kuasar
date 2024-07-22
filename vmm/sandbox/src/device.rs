@@ -55,12 +55,9 @@ pub trait Device {
 #[allow(clippy::upper_case_acronyms)]
 pub enum BusType {
     PCI,
-    #[allow(dead_code)]
     PCIE,
-    #[allow(dead_code)]
     CCW,
     SCSI,
-    #[allow(dead_code)]
     MMIO,
     SERIAL,
     NULL,
@@ -99,7 +96,6 @@ impl Bus {
         None
     }
 
-    #[allow(dead_code)]
     pub fn attach<T: Device>(&mut self, device: &T) -> Result<usize> {
         for (index, s) in self.slots.iter_mut().enumerate() {
             if let SlotStatus::Empty = s.status {
@@ -110,7 +106,6 @@ impl Bus {
         Err(Error::ResourceExhausted("bus is full".to_string()))
     }
 
-    #[allow(dead_code)]
     pub fn device_slot(&self, id: &str) -> Option<usize> {
         for (index, s) in self.slots.iter().enumerate() {
             if index == 0 {
@@ -150,7 +145,6 @@ pub enum SlotStatus {
 pub enum Transport {
     Pci,
     Ccw,
-    #[allow(dead_code)]
     Mmio,
 }
 

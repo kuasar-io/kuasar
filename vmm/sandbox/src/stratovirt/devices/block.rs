@@ -19,7 +19,7 @@ use containerd_sandbox::error::Result;
 use log::{debug, error};
 use qapi::{
     qmp::{
-        blockdev_add, blockdev_del, device_add, device_del, BlockdevCacheOptions, BlockdevOptions,
+        blockdev_add, blockdev_del, device_add, BlockdevCacheOptions, BlockdevOptions,
         BlockdevOptionsBase, BlockdevOptionsFile, BlockdevOptionsGenericFormat, BlockdevOptionsRaw,
         BlockdevRef,
     },
@@ -33,7 +33,6 @@ use crate::{
     stratovirt::{devices::HotAttachable, qmp_client::QmpClient},
 };
 
-#[allow(dead_code)]
 pub const VIRTIO_BLK_DRIVER: &str = "virtio-blk";
 
 #[derive(CmdLineParams, Debug, Clone)]
@@ -61,7 +60,7 @@ pub struct VirtioBlockDevice {
 }
 
 impl_device_no_bus!(VirtioBlockDevice);
-impl_set_get_device_addr!(VirtioBlockDevice);
+impl_set_device_addr!(VirtioBlockDevice);
 
 impl VirtioBlockDevice {
     pub fn new(
@@ -174,13 +173,6 @@ impl VirtioBlockDevice {
         }
     }
 
-    #[allow(dead_code)]
-    fn to_device_del(&self) -> device_del {
-        device_del {
-            id: format!("virtio-{}", self.id()),
-        }
-    }
-
     fn to_blockdev_del(&self) -> blockdev_del {
         blockdev_del {
             node_name: self.id.to_string(),
@@ -222,7 +214,7 @@ mod tests {
 
         assert!(compare_json_strings(
             &blockdev_add_qmp_json_str,
-            expected_params_str
+            expected_params_str,
         ));
     }
 
@@ -246,7 +238,7 @@ mod tests {
         let expected_params_str = r#"{"driver":"virtio-blk-pci","id":"virtio-drive-0","bus":"pcie.1","addr":"0x0","drive":"drive-0"}"#;
         assert!(compare_json_strings(
             &device_add_qmp_json_str,
-            expected_params_str
+            expected_params_str,
         ));
     }
 
@@ -269,26 +261,5 @@ mod tests {
 
         let expected_params_str = r#"{"node-name":"drive-0"}"#;
         assert_eq!(expected_params_str, blockdev_del_qmp_json_str);
-    }
-
-    #[test]
-    fn test_device_del_qmp_commands() {
-        let virtio_blk_device = VirtioBlockDevice::new(
-            VIRTIO_BLK_DRIVER,
-            "drive-0",
-            "",
-            Some("/dev/dm-8".to_string()),
-            Some(false),
-        );
-
-        let device_del_qmp_cmd = virtio_blk_device.to_device_del();
-        let device_del_qmp_json_str = serde_json::to_string(&device_del_qmp_cmd).unwrap();
-        println!(
-            "device_del qmp cmd json string: {}",
-            device_del_qmp_json_str
-        );
-
-        let expected_params_str = r#"{"id":"virtio-drive-0"}"#;
-        assert_eq!(expected_params_str, device_del_qmp_json_str);
     }
 }

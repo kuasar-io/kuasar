@@ -17,11 +17,11 @@ limitations under the License.
 use async_trait::async_trait;
 use containerd_sandbox::error::Result;
 
-use self::{device::GetAndSetDeviceAddr, pcie_rootbus::PcieRootBus};
+use self::pcie_rootbus::PcieRootBus;
 use crate::{
     device::{Bus, BusType, Device, Slot, SlotStatus},
     param::ToCmdLineParams,
-    stratovirt::qmp_client::QmpClient,
+    stratovirt::{devices::device::SetDeviceAddr, qmp_client::QmpClient},
 };
 
 #[macro_use]
@@ -47,20 +47,9 @@ pub(crate) const DEFAULT_SERIAL_DEVICE_ID: &str = "virtio-serial0";
 pub(crate) const DEFAULT_CONSOLE_DEVICE_ID: &str = "virtio-console0";
 pub(crate) const DEFAULT_CONSOLE_CHARDEV_ID: &str = "charconsole0";
 
-#[allow(dead_code)]
-pub(crate) const VIRTIO_RND_DEVICE_ADDR: usize = 1;
-#[allow(dead_code)]
-pub(crate) const VIRTIO_SERIAL_CONSOLE_ADDR: usize = 2;
-#[allow(dead_code)]
-pub(crate) const VHOST_VSOCK_ADDR: usize = 3;
-#[allow(dead_code)]
-pub(crate) const VHOST_USER_FS_ADDR: usize = 4;
-#[allow(dead_code)]
-pub(crate) const ROOTPORT_PCI_START_ADDR: usize = 5;
+pub trait StratoVirtDevice: Device + ToCmdLineParams + SetDeviceAddr {}
 
-pub trait StratoVirtDevice: Device + ToCmdLineParams + GetAndSetDeviceAddr {}
-
-impl<T> StratoVirtDevice for T where T: Device + ToCmdLineParams + GetAndSetDeviceAddr {}
+impl<T> StratoVirtDevice for T where T: Device + ToCmdLineParams + SetDeviceAddr {}
 
 #[async_trait]
 pub trait HotAttachable {
@@ -90,6 +79,12 @@ pub fn create_pcie_root_bus() -> Option<PcieRootBus> {
 
 #[cfg(test)]
 mod tests {
+    pub(crate) const VIRTIO_RND_DEVICE_ADDR: usize = 1;
+    pub(crate) const VIRTIO_SERIAL_CONSOLE_ADDR: usize = 2;
+    pub(crate) const VHOST_VSOCK_ADDR: usize = 3;
+    pub(crate) const VHOST_USER_FS_ADDR: usize = 4;
+    pub(crate) const ROOTPORT_PCI_START_ADDR: usize = 5;
+
     use super::create_pcie_root_bus;
     use crate::device::SlotStatus;
 

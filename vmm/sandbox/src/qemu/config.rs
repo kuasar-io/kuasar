@@ -14,7 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::{collections::HashMap, os::unix::io::RawFd};
+use std::{
+    collections::HashMap,
+    fmt::{Display, Formatter},
+    os::unix::io::RawFd,
+};
 
 use containerd_sandbox::error::{Error, Result};
 #[cfg(target_arch = "x86_64")]
@@ -28,16 +32,8 @@ use crate::{
     vm::{BlockDriver, HypervisorCommonConfig, ShareFsType},
 };
 
-#[allow(dead_code)]
-pub(crate) const MACHINE_TYPE_Q35: &str = "q35";
-#[allow(dead_code)]
-pub(crate) const MACHINE_TYPE_PC: &str = "pc";
 pub(crate) const MACHINE_TYPE_MICROVM_PCI: &str = "microvm-pci";
 pub(crate) const MACHINE_TYPE_VIRT: &str = "virt";
-#[allow(dead_code)]
-pub(crate) const MACHINE_TYPE_PSERIES: &str = "pseries";
-#[allow(dead_code)]
-pub(crate) const MACHINE_TYPE_CCW_VIRTIO: &str = "s390-ccw-virtio";
 
 #[cfg(target_arch = "x86_64")]
 const DEFAULT_QEMU_PATH: &str = "/usr/bin/qemu-system-x86_64";
@@ -416,23 +412,21 @@ impl Default for Incoming {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MigrationType {
-    #[allow(dead_code)]
     FD(RawFd),
-    #[allow(dead_code)]
     Exec(String),
-    #[allow(dead_code)]
     Tcp(String),
     Defer,
 }
 
-impl ToString for MigrationType {
-    fn to_string(&self) -> String {
-        match self {
+impl Display for MigrationType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let s = match &self {
             MigrationType::FD(fd) => format!("fd:{}", fd),
             MigrationType::Exec(cmd) => format!("exec:{}", cmd),
             MigrationType::Tcp(endpoint) => format!("tcp:{}", endpoint),
             MigrationType::Defer => "defer".to_string(),
-        }
+        };
+        write!(f, "{}", s)
     }
 }
 

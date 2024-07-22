@@ -79,7 +79,7 @@ jobs:
         features: ["wasmedge"]
         include:
           - features: wasmedge
-            version: 0.11.2
+            version: 0.13.5
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:

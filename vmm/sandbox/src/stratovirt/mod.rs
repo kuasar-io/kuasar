@@ -242,7 +242,30 @@ impl VM for StratoVirtVM {
         }
     }
 
-    async fn hot_detach(&mut self, _id: &str) -> Result<()> {
+    async fn hot_detach(&mut self, id: &str) -> Result<()> {
+        let index = self.hot_attached_devices.iter().position(|x| x.id() == id);
+        let device = match index {
+            None => {
+                return Ok(());
+            }
+            Some(index) => self.hot_attached_devices.remove(index),
+        };
+
+        let client = match self.get_client() {
+            Ok(c) => c,
+            Err(e) => {
+                // rollback, add it back to the list
+                self.hot_attached_devices.push(device);
+                return Err(e);
+            }
+        };
+
+        if let Err(e) = device.execute_hot_detach(client).await {
+            // rollback, add it back to the list
+            self.hot_attached_devices.push(device);
+            return Err(e);
+        }
+        self.detach_from_bus(id);
         Ok(())
     }
 
@@ -262,12 +285,12 @@ impl VM for StratoVirtVM {
 
     async fn vcpus(&self) -> Result<VcpuThreads> {
         let client = self.get_client()?;
-        let result = client.execute(qmp::query_cpus {}).await?;
+        let result = client.execute(qmp::QueryCpus {}).await?;
         let mut vcpu_threads_map: HashMap<i64, i64> = HashMap::new();
         for vcpu_info in result.iter() {
             match vcpu_info {
-                CpuInfo::Arm { base, .. } | CpuInfo::x86 { base, .. } => {
-                    vcpu_threads_map.insert(base.CPU, base.thread_id);
+                CpuInfo::Arm { base, .. } | CpuInfo::X86 { base, .. } => {
+                    vcpu_threads_map.insert(base.cpu, base.thread_id);
                 }
             }
         }
@@ -543,6 +566,24 @@ impl StratoVirtVM {
             .unwrap()
             .start()
             .map_err(|e| Error::Other(anyhow!("start virtiofs daemon process failed: {}", e)))
+    }
+
+    fn detach_from_bus(&mut self, device_id: &str) {
+        self.devices
+            .iter_mut()
+            .filter_map(|x| x.bus())
+            .for_each(|b| {
+                if let Some(x) = b.slots.iter_mut().find(|s| {
+                    if let SlotStatus::Occupied(id) = &s.status {
+                        if id == device_id {
+                            return true;
+                        }
+                    }
+                    false
+                }) {
+                    x.status = SlotStatus::Empty;
+                }
+            });
     }
 }
 

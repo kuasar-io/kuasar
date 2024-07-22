@@ -54,7 +54,7 @@ impl RootPort {
 }
 
 impl_device_no_bus!(RootPort);
-impl_set_get_device_addr!(RootPort);
+impl_set_device_addr!(RootPort);
 
 #[derive(Debug, Clone, Default)]
 pub struct PCIERootPorts {
@@ -71,7 +71,7 @@ mod tests {
     use crate::{
         param::ToCmdLineParams,
         stratovirt::devices::{
-            device::GetAndSetDeviceAddr, DEFAULT_PCIE_BUS, ROOTPORT_PCI_START_ADDR,
+            device::SetDeviceAddr, tests::ROOTPORT_PCI_START_ADDR, DEFAULT_PCIE_BUS,
         },
     };
 

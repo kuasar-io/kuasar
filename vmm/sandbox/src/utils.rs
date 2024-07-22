@@ -67,7 +67,7 @@ pub fn get_netns(data: &SandboxData) -> String {
         if let Some(l) = &spec.linux {
             for ns in &l.namespaces {
                 if ns.r#type == NET_NAMESPACE {
-                    netns = ns.path.clone();
+                    netns.clone_from(&ns.path);
                 }
             }
         }

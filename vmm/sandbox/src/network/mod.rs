@@ -14,7 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::{fmt::Debug, os::unix::prelude::AsRawFd, path::Path};
+use std::{
+    fmt::{Debug, Display, Formatter},
+    os::unix::prelude::AsRawFd,
+    path::Path,
+};
 
 use anyhow::anyhow;
 use containerd_sandbox::error::Result;
@@ -220,25 +224,22 @@ pub async fn execute_in_netns(netns: &str, mut cmd: std::process::Command) -> Re
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NetType {
     Tap,
-    #[allow(dead_code)]
     MacVtap,
-    #[allow(dead_code)]
     IpVtap,
-    #[allow(dead_code)]
     VethTap,
-    #[allow(dead_code)]
     VhostUser,
 }
 
-impl ToString for NetType {
-    fn to_string(&self) -> String {
-        match self {
+impl Display for NetType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let s = match &self {
             NetType::Tap => "tap".to_string(),
             NetType::MacVtap => "tap".to_string(),
             NetType::IpVtap => "tap".to_string(),
             NetType::VethTap => "tap".to_string(),
             NetType::VhostUser => "vhost-user".to_string(),
-        }
+        };
+        write!(f, "{}", s)
     }
 }
 

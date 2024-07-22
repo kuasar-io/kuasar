@@ -37,7 +37,7 @@ pub struct VhostUserFs {
 }
 
 impl_device_no_bus!(VhostUserFs);
-impl_set_get_device_addr!(VhostUserFs);
+impl_set_device_addr!(VhostUserFs);
 
 impl VhostUserFs {
     pub fn new(id: &str, transport: Transport, chardev: &str, mount_tag: &str, bus: &str) -> Self {
@@ -59,7 +59,7 @@ mod tests {
         device::Transport,
         param::ToCmdLineParams,
         stratovirt::devices::{
-            char::CharDevice, device::GetAndSetDeviceAddr, DEFAULT_PCIE_BUS, VHOST_USER_FS_ADDR,
+            char::CharDevice, device::SetDeviceAddr, tests::VHOST_USER_FS_ADDR, DEFAULT_PCIE_BUS,
         },
     };
 
@@ -93,12 +93,12 @@ mod tests {
         let expected_params: Vec<String> = vec![
             "-chardev",
             "socket,id=virtio-fs-test,path=/path/to/virtiofs.sock,server,nowait",
-            "-device", 
+            "-device",
             "vhost-user-fs-pci,id=vhost-user-fs-test,chardev=virtio-fs-test,tag=myfs,bus=pcie.0,addr=0x4",
-            ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+        ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         assert_eq!(expected_params, result_params);
     }
 }

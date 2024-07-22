@@ -60,7 +60,7 @@ where
         for mut m in mounts {
             if let Some(storage) = sandbox.storages.iter().find(|x| x.is_for_mount(&m)) {
                 debug!("found storage {:?} for mount {:?}", storage, m);
-                m.source = storage.mount_point.clone();
+                m.source.clone_from(&storage.mount_point);
                 m.options = vec!["bind".to_string()];
                 if storage.need_guest_handle {
                     storages.push(storage);

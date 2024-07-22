@@ -49,7 +49,6 @@ use tokio_vsock::{VsockListener, VsockStream};
 use crate::{device::SYSTEM_DEV_PATH, vsock};
 
 pub struct ProcessIO {
-    pub uri: Option<String>,
     pub io: Option<Arc<dyn Io>>,
     pub copy: bool,
 }
@@ -65,7 +64,6 @@ pub fn create_io(
     if stdio.is_null() {
         let nio = NullIo::new().map_err(io_error!(e, "new Null Io"))?;
         let pio = ProcessIO {
-            uri: None,
             io: Some(Arc::new(nio)),
             copy: false,
         };
@@ -73,20 +71,15 @@ pub fn create_io(
     }
     let stdout = stdio.stdout.as_str();
     let scheme_path = stdout.trim().split("://").collect::<Vec<&str>>();
-    let scheme: &str;
-    let uri: String;
-    if scheme_path.len() <= 1 {
+    let scheme = if scheme_path.len() <= 1 {
         // no scheme specified
         // default schema to fifo
-        uri = format!("fifo://{}", stdout);
-        scheme = "fifo"
+        "fifo"
     } else {
-        uri = stdout.to_string();
-        scheme = scheme_path[0];
-    }
+        scheme_path[0]
+    };
 
     let mut pio = ProcessIO {
-        uri: Some(uri),
         io: None,
         copy: false,
     };
