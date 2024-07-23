@@ -15,7 +15,7 @@
 
 exit_flag=0
 export GUESTOS_IMAGE=${2:-"centos"}
-export IMAGE_NAME=${IMAGE_NAME:-"centos:7"}
+export IMAGE_NAME=${IMAGE_NAME:-"registry.fedoraproject.org/fedora:40"}
 export ROOTFS_DIR=${ROOTFS_DIR:-"/tmp/kuasar-rootfs"}
 export CONTAINER_RUNTIME=${RUNTIME:-"containerd"}
 CONTAINERD_NS=${CONTAINERD_NS:-"default"}
