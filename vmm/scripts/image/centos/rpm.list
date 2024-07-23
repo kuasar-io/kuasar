@@ -1,7 +1,6 @@
 nfs-utils
 tcp_wrappers-libs
 rpcbind
-libverto-tevent
 libtirpc
 libtevent
 libtalloc
@@ -17,6 +16,7 @@ keyutils
 gssproxy
 e2fsprogs-libs
 libpcap
+iptables-libs
 iptables
 ipvsadm
 conntrack-tools
@@ -24,4 +24,8 @@ curl
 ethtool
 net-tools
 iproute
+busybox
+psmisc
+procps-ng
+iputils
 # End of file, do not delete

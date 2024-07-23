@@ -24,21 +24,7 @@ ARCH=$(uname -m)
 make_vmm_task() {
     local repo_dir="$1"
 
-    # install cmake3 because some rust modules depends on it
-    # centos 7 install cmake 2.8 by default, has to add epel repo to install cmake3
-    . /etc/os-release
-    if [ ${VERSION_ID} -le 7 ]; then
-        yum install -y epel-release
-        yum install -y cmake3 make gcc gcc-c++ wget
-        rm -f /usr/bin/cmake
-        ln -s /usr/bin/cmake3 /usr/bin/cmake
-    else
-        # CentOS Linux 8 had reached the End Of Life (EOL) on December 31st, 2021. It means that CentOS 8 will no longer receive development resources from the official CentOS project. After Dec 31st, 2021, if you need to update your CentOS, you need to change the mirrors to vault.centos.org where they will be archived permanently. Alternatively, you may want to upgrade to CentOS Stream.
-        sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
-        sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
-        yum clean all
-        yum install cmake make gcc-c++ wget
-    fi
+    yum install -y cmake make gcc-c++ wget
 
     # update cert file under internal proxy scenario
     if [ -f "${cert_file_path}" ]; then
