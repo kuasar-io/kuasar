@@ -14,12 +14,12 @@
   <a href="https://github.com/kuasar-io/kuasar/graphs/contributors">
     <img alt="GitHub contributors" src="https://img.shields.io/github/contributors/kuasar-io/kuasar?label=Contributors&style=flat-square">
   </a>
+  <a href="https://app.fossa.com/projects/git%2Bgithub.com%2Fkuasar-io%2Fkuasar?ref=badge_shield">
+    <img alt="FOSSA Status" src="https://app.fossa.com/api/projects/git%2Bgithub.com%2Fkuasar-io%2Fkuasar.svg?type=shield">
+  </a>
 </p>
 
 Kuasar is an efficient container runtime that provides cloud-native, all-scenario container solutions by supporting multiple sandbox techniques. Written in Rust, it offers a standard sandbox abstraction based on the sandbox API. Additionally, Kuasar provides an optimized framework to accelerate container startup and reduce unnecessary overheads.
-
-
-[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fkuasar-io%2Fkuasar.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fkuasar-io%2Fkuasar?ref=badge_large)
 
 # Supported Sandboxes
 
@@ -51,7 +51,6 @@ Compared with other container runtimes, Kuasar has the following advantages:
 # Kuasar Architecture
 
 ![arch](docs/images/arch.png)
-[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fkuasar-io%2Fkuasar.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fkuasar-io%2Fkuasar?ref=badge_shield)
 
 Sandboxers in Kuasar use their own isolation techniques for the containers, and they are also external plugins of containerd built on the new sandbox plugin mechanism. A discussion about the sandboxer plugin has been raised in this [Containerd issue](https://github.com/containerd/containerd/issues/7739), with a community meeting record and slides attached in this [comment](https://github.com/containerd/containerd/issues/7739#issuecomment-1384797825). Now this feature has been put into 2.0 milestone.
 
