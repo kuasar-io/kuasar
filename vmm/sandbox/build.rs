@@ -13,6 +13,11 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+use std::process::exit;
+
 fn main() {
-    built::write_built_file().expect("Failed to acquire build-time information");
+    if let Err(e) = built::write_built_file() {
+        eprint!("Failed to acquire build-time information: {:?}", e);
+        exit(-1)
+    }
 }

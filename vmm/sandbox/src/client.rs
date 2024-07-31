@@ -40,7 +40,10 @@ use tokio::{
     time::timeout,
 };
 use ttrpc::{context::with_timeout, r#async::Client};
-use vmm_common::api::{sandbox::*, sandbox_ttrpc::SandboxServiceClient};
+use vmm_common::api::{
+    sandbox::{CheckRequest, SyncClockPacket, UpdateInterfacesRequest, UpdateRoutesRequest},
+    sandbox_ttrpc::SandboxServiceClient,
+};
 
 use crate::network::{NetworkInterface, Route};
 

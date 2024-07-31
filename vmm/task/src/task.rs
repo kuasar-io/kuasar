@@ -35,7 +35,8 @@ use crate::{
     sandbox::SandboxResources,
 };
 
-pub(crate) async fn create_task_service() -> TaskService<KuasarFactory, KuasarContainer> {
+pub(crate) async fn create_task_service(
+) -> anyhow::Result<TaskService<KuasarFactory, KuasarContainer>> {
     let (tx, mut rx) = channel(128);
     let sandbox = Arc::new(Mutex::new(SandboxResources::new().await));
     let task = TaskService {
@@ -45,16 +46,14 @@ pub(crate) async fn create_task_service() -> TaskService<KuasarFactory, KuasarCo
         exit: Arc::new(Default::default()),
         tx: tx.clone(),
     };
-    let s = monitor_subscribe(Topic::Pid)
-        .await
-        .expect("monitor subscribe failed");
+    let s = monitor_subscribe(Topic::Pid).await?;
     process_exits(s, &task).await;
     tokio::spawn(async move {
         while let Some((_topic, e)) = rx.recv().await {
             debug!("received event {:?}", e);
         }
     });
-    task
+    Ok(task)
 }
 
 async fn process_exits(s: Subscription, task: &TaskService<KuasarFactory, KuasarContainer>) {

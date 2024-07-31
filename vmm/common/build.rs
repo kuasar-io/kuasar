@@ -29,7 +29,7 @@ fn main() {
         .rust_protobuf()
         .customize(Customize {
             async_all: true,
-            ..Default::default()
+            ..Customize::default()
         })
         .rust_protobuf_customize(ProtobufCustomize::default().gen_mod_rs(false))
         .run()

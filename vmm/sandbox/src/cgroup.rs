@@ -18,8 +18,8 @@ use std::error::Error;
 
 use anyhow::{anyhow, Ok, Result};
 use cgroups_rs::{
-    cgroup_builder::*, cpu::CpuController, cpuset::CpuSetController, hugetlb::HugeTlbController,
-    memory::MemController, Cgroup,
+    cgroup_builder::CgroupBuilder, cpu::CpuController, cpuset::CpuSetController,
+    hugetlb::HugeTlbController, memory::MemController, Cgroup,
 };
 use containerd_sandbox::{cri::api::v1::LinuxContainerResources, data::SandboxData};
 use serde::{Deserialize, Serialize};

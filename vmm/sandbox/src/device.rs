@@ -75,9 +75,9 @@ impl Default for Bus {
     fn default() -> Bus {
         Bus {
             r#type: BusType::PCI,
-            id: Default::default(),
-            bus_addr: Default::default(),
-            slots: Default::default(),
+            id: String::default(),
+            bus_addr: String::default(),
+            slots: Vec::default(),
         }
     }
 }

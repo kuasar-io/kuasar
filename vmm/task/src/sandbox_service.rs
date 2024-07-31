@@ -25,7 +25,13 @@ use nix::{
 use tokio::sync::Mutex;
 use vmm_common::{
     api,
-    api::{empty::Empty, sandbox::*},
+    api::{
+        empty::Empty,
+        sandbox::{
+            CheckRequest, ExecVMProcessRequest, ExecVMProcessResponse, SyncClockPacket,
+            UpdateInterfacesRequest, UpdateRoutesRequest,
+        },
+    },
 };
 
 use crate::netlink::Handle;

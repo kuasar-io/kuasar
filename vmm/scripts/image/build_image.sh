@@ -6,8 +6,6 @@
 
 set -e
 
-[ -n "${DEBUG}" ] && set -x
-
 DOCKER_RUNTIME=${DOCKER_RUNTIME:-runc}
 
 readonly script_name="${0##*/}"
