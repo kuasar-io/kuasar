@@ -102,7 +102,7 @@ pub struct QemuVMConfig {
 impl Default for QemuVMConfig {
     fn default() -> Self {
         Self {
-            common: Default::default(),
+            common: HypervisorCommonConfig::default(),
             machine_accelerators: "".to_string(),
             firmware_path: "".to_string(),
             cpu_features: "".to_string(),

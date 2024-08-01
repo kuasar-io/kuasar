@@ -40,11 +40,11 @@ impl Default for CloudHypervisorVMConfig {
     fn default() -> Self {
         Self {
             path: "/usr/local/bin/cloud-hypervisor".to_string(),
-            common: Default::default(),
+            common: HypervisorCommonConfig::default(),
             hugepages: false,
             entropy_source: "/dev/urandom".to_string(),
-            task: Default::default(),
-            virtiofsd: Default::default(),
+            task: TaskConfig::default(),
+            virtiofsd: VirtiofsdConfig::default(),
         }
     }
 }

@@ -330,7 +330,7 @@ impl QemuVM {
             agent_socket: "".to_string(),
             netns: netns.to_string(),
             pids: Pids::default(),
-            block_driver: Default::default(),
+            block_driver: BlockDriver::default(),
             wait_chan: None,
             client: None,
         }

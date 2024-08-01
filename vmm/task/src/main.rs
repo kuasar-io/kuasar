@@ -14,7 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::{collections::HashMap, convert::TryFrom, path::Path, str::FromStr, sync::Arc, thread};
+#![warn(clippy::expect_fun_call, clippy::expect_used)]
+
+use std::{
+    collections::HashMap, convert::TryFrom, path::Path, process::exit, str::FromStr, sync::Arc,
+    thread,
+};
 
 use containerd_shim::{
     asynchronous::{monitor::monitor_notify_by_pid, util::asyncify},
@@ -135,27 +140,24 @@ lazy_static! {
     ]);
 }
 
-#[tokio::main]
-async fn main() {
-    early_init_call().await.expect("early init call");
-    let config = TaskConfig::new().await.unwrap();
-    let log_level = LevelFilter::from_str(&config.log_level).unwrap();
+async fn start_task_server() -> anyhow::Result<()> {
+    early_init_call().await?;
+
+    let config = TaskConfig::new().await?;
+    let log_level = LevelFilter::from_str(&config.log_level)?;
     env_logger::Builder::from_default_env()
         .format_timestamp_micros()
         .filter_module("containerd_shim", log_level)
         .filter_module("vmm_task", log_level)
         .init();
     info!("Task server start with config: {:?}", config);
+
     match &*config.sharefs_type {
         "9p" => {
-            mount_static_mounts(SHAREFS_9P_MOUNTS.clone())
-                .await
-                .unwrap();
+            mount_static_mounts(SHAREFS_9P_MOUNTS.clone()).await?;
         }
         "virtiofs" => {
-            mount_static_mounts(SHAREFS_VIRTIOFS_MOUNTS.clone())
-                .await
-                .unwrap();
+            mount_static_mounts(SHAREFS_VIRTIOFS_MOUNTS.clone()).await?;
         }
         _ => {
             warn!("sharefs_type should be either 9p or virtiofs");
@@ -168,16 +170,29 @@ async fn main() {
         }
     }
 
-    late_init_call().await.expect("late init call");
+    late_init_call().await?;
 
-    // Start ttrpc server
-    let mut server = start_ttrpc_server()
-        .await
-        .expect("failed to create ttrpc server");
-    server.start().await.expect("failed to start ttrpc server");
+    start_ttrpc_server().await?.start().await?;
 
-    let signals = Signals::new([libc::SIGTERM, libc::SIGINT, libc::SIGPIPE, libc::SIGCHLD])
-        .expect("new signal failed");
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() {
+    // start task server
+    if let Err(e) = start_task_server().await {
+        error!("failed to start task server: {:?}", e);
+        exit(-1);
+    }
+
+    let signals = match Signals::new([libc::SIGTERM, libc::SIGINT, libc::SIGPIPE, libc::SIGCHLD]) {
+        Ok(s) => s,
+        Err(e) => {
+            error!("new signal failed: {:?}", e);
+            exit(-1);
+        }
+    };
+
     info!("Task server successfully started, waiting for exit signal...");
     handle_signals(signals).await;
 }
@@ -339,8 +354,8 @@ async fn mount_static_mounts(mounts: Vec<StaticMount>) -> Result<()> {
 
 // start_ttrpc_server will create all the ttrpc service and register them to a server that
 // bind to vsock 1024 port.
-async fn start_ttrpc_server() -> Result<Server> {
-    let task = create_task_service().await;
+async fn start_ttrpc_server() -> anyhow::Result<Server> {
+    let task = create_task_service().await?;
     let task_service = create_task(Arc::new(Box::new(task)));
 
     let sandbox = SandboxService::new()?;
@@ -383,14 +398,15 @@ async fn setup_persistent_ns(ns_types: Vec<String>) -> Result<()> {
             .ok_or(other!("bad ns type {}", ns_type))?;
     }
 
-    thread::spawn(move || {
-        unshare(clone_type).expect("failed to do unshare");
+    let operator = move || -> anyhow::Result<()> {
+        unshare(clone_type)?;
+
         // set hostname
         let hostname = std::fs::read_to_string(Path::new(KUASAR_STATE_DIR).join(HOSTNAME_FILENAME))
             .map(|s| s.trim().to_string())
             .unwrap_or_default();
         if !hostname.is_empty() {
-            nix::unistd::sethostname(hostname).expect("set hostname");
+            nix::unistd::sethostname(hostname)?;
         }
 
         for ns_type in &ns_types {
@@ -401,8 +417,15 @@ async fn setup_persistent_ns(ns_types: Vec<String>) -> Result<()> {
                 Some(ns_path.as_str()),
                 &["bind".to_string()],
                 &sandbox_ns_path,
-            )
-            .expect("failed to mount sandbox ns");
+            )?;
+        }
+        Ok(())
+    };
+
+    thread::spawn(move || {
+        if let Err(e) = operator() {
+            error!("setup persistent ns failed: {:?}", e);
+            exit(-1)
         }
     });
 

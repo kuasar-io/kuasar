@@ -431,7 +431,7 @@ impl ProcessLifecycle<InitProcess> for KuasarInitLifecycle {
             .iter()
             .map(|&x| ProcessInfo {
                 pid: x as u32,
-                ..Default::default()
+                ..ProcessInfo::default()
             })
             .collect())
     }
@@ -679,9 +679,13 @@ mod tests {
         let test_dir = "/tmp/kuasar-test_runtime_error_with_logfile";
         let _ = mkdir(test_dir, 0o711).await;
         let test_log_file = Path::new(test_dir).join("log.json");
-        write_str_to_file(test_log_file.as_path(), log_json)
-            .await
-            .expect("write log json should not be error");
+
+        assert!(
+            write_str_to_file(test_log_file.as_path(), log_json)
+                .await
+                .is_ok(),
+            "write log json should not be error"
+        );
 
         let expected_msg = "panic";
         let actual_err = runtime_error(
@@ -690,7 +694,7 @@ mod tests {
             "test_runtime_error_with_logfile failed",
         )
         .await;
-        remove_dir_all(test_dir).await.expect("remove test dir");
+        assert!(remove_dir_all(test_dir).await.is_ok(), "remove test dir");
         assert!(
             actual_err.to_string().contains(expected_msg),
             "actual error \"{}\" should contains \"{}\"",

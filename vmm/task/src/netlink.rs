@@ -534,7 +534,7 @@ impl TryFrom<Address> for IPAddress {
             family: EnumOrUnknown::from(family),
             address,
             mask,
-            ..Default::default()
+            ..IPAddress::default()
         })
     }
 }

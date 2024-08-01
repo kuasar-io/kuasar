@@ -41,7 +41,7 @@ impl Route {
         }
         let mut route = Route {
             scope: msg.header.scope as u32,
-            ..Default::default()
+            ..Route::default()
         };
         use netlink_packet_route::nlas::route::Nla;
         for nla in msg.nlas.into_iter() {

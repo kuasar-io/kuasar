@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use protobuf::EnumOrUnknown;
+use protobuf::{EnumOrUnknown, SpecialFields};
 use vmm_common::api::sandbox::{IPAddress, IPFamily, Interface, Route};
 
 use crate::network::{IpNet, NetworkInterface};
@@ -34,7 +34,7 @@ impl From<&NetworkInterface> for Interface {
             hwAddr: interface.mac_address.to_string(),
             raw_flags: interface.flags,
             type_: "".to_string(),
-            special_fields: Default::default(),
+            special_fields: SpecialFields::default(),
         }
     }
 }
@@ -49,7 +49,7 @@ impl From<&IpNet> for IPAddress {
             }),
             address: ip.addr_string(),
             mask: ip.prefix_len.to_string(),
-            special_fields: Default::default(),
+            special_fields: SpecialFields::default(),
         }
     }
 }

@@ -220,7 +220,7 @@ impl NetworkInterface {
         let mut intf = NetworkInterface {
             flags: msg.header.flags,
             index: msg.header.index,
-            ..Default::default()
+            ..NetworkInterface::default()
         };
         for nla in msg.nlas.into_iter() {
             use netlink_packet_route::nlas::link::Nla;
