@@ -140,7 +140,7 @@ lazy_static! {
     ]);
 }
 
-async fn start_task_server() -> anyhow::Result<()> {
+async fn initialize() -> anyhow::Result<()> {
     early_init_call().await?;
 
     let config = TaskConfig::new().await?;
@@ -172,16 +172,26 @@ async fn start_task_server() -> anyhow::Result<()> {
 
     late_init_call().await?;
 
-    start_ttrpc_server().await?.start().await?;
-
     Ok(())
 }
 
 #[tokio::main]
 async fn main() {
-    // start task server
-    if let Err(e) = start_task_server().await {
-        error!("failed to start task server: {:?}", e);
+    if let Err(e) = initialize().await {
+        error!("failed to do init call: {:?}", e);
+        exit(-1);
+    }
+
+    // Keep server alive in main function
+    let mut server = match create_ttrpc_server().await {
+        Ok(s) => s,
+        Err(e) => {
+            error!("failed to create ttrpc server: {:?}", e);
+            exit(-1);
+        }
+    };
+    if let Err(e) = server.start().await {
+        error!("failed to start ttrpc server: {:?}", e);
         exit(-1);
     }
 
@@ -352,9 +362,9 @@ async fn mount_static_mounts(mounts: Vec<StaticMount>) -> Result<()> {
     Ok(())
 }
 
-// start_ttrpc_server will create all the ttrpc service and register them to a server that
+// create_ttrpc_server will create all the ttrpc service and register them to a server that
 // bind to vsock 1024 port.
-async fn start_ttrpc_server() -> anyhow::Result<Server> {
+async fn create_ttrpc_server() -> anyhow::Result<Server> {
     let task = create_task_service().await?;
     let task_service = create_task(Arc::new(Box::new(task)));
 
