@@ -8,9 +8,9 @@ edition = "2021"
 panic = 'abort'
 
 [dependencies]
-vmm-common = {path = "../common"}
+vmm-common = { path = "../common" }
 log = "0.4"
-nix = "0.25"
+nix = { version = "0.28.0", features = ["sched", "term", "time", "hostname", "signal", "mount", "uio", "socket"] }
 libc = "0.2.95"
 time = { version = "=0.3.7", features = ["serde", "std"] }
 serde = { version = "1.0.133", features = ["derive"] }
@@ -19,7 +19,7 @@ oci-spec = "0.5.4"
 crossbeam = "0.8.1"
 env_logger = "0.9.0"
 lazy_static = "1.4.0"
-netlink-sys = { version = "0.7.0", features = ["tokio_socket"]}
+netlink-sys = { version = "0.7.0", features = ["tokio_socket"] }
 rtnetlink = "0.12"
 netlink-packet-route = "0.15"
 netlink-packet-core = "0.5.0"
@@ -27,13 +27,13 @@ ipnetwork = "0.20"
 anyhow = { version = "1.0.66", default-features = false, features = ["std", "backtrace"] }
 
 # Async dependencies
-async-trait = { version = "0.1.51"}
-tokio = { version = "1.17.0", features = ["full"]}
-futures = { version = "0.3.21"}
-signal-hook-tokio = {version = "0.3.1", features = ["futures-v0_3"]}
+async-trait = { version = "0.1.51" }
+tokio = { version = "1.17.0", features = ["full"] }
+futures = { version = "0.3.21" }
+signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }
 tokio-vsock = "0.3.1"
 pin-project-lite = "0.2.7"
 ttrpc = { version = "0.7", features = ["async"] }
 
-containerd-shim = { git="https://github.com/kuasar-io/rust-extensions.git", features=["async"] }
-runc = { git="https://github.com/kuasar-io/rust-extensions.git", features=["async"] }
+containerd-shim = { git = "https://github.com/kuasar-io/rust-extensions.git", features = ["async"] }
+runc = { git = "https://github.com/kuasar-io/rust-extensions.git", features = ["async"] }

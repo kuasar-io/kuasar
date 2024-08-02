@@ -17,7 +17,10 @@
 use std::{
     io::{ErrorKind, IoSliceMut},
     ops::Deref,
-    os::unix::prelude::{AsRawFd, FromRawFd, RawFd},
+    os::{
+        fd::{IntoRawFd, OwnedFd},
+        unix::prelude::{AsRawFd, FromRawFd, RawFd},
+    },
     path::PathBuf,
     pin::Pin,
     sync::Arc,
@@ -145,8 +148,8 @@ async fn copy_console<P>(
 ) -> Result<Console> {
     debug!("copy_console: waiting for runtime to send console fd");
     let stream = console_socket.accept().await?;
-    let fd = asyncify(move || -> Result<RawFd> { receive_socket(stream.as_raw_fd()) }).await?;
-    let f = unsafe { File::from_raw_fd(fd) };
+    let fd = asyncify(move || -> Result<OwnedFd> { receive_socket(stream.as_raw_fd()) }).await?;
+    let f = unsafe { File::from_raw_fd(fd.into_raw_fd()) };
     if !stdio.stdin.is_empty() {
         debug!("copy_console: pipe stdin to console");
 
@@ -356,7 +359,7 @@ where
     }
 }
 
-pub fn receive_socket(stream_fd: RawFd) -> containerd_shim::Result<RawFd> {
+pub fn receive_socket(stream_fd: RawFd) -> Result<OwnedFd> {
     let mut buf = [0u8; 4096];
     let mut iovec = [IoSliceMut::new(&mut buf)];
     let mut space = cmsg_space!([RawFd; 2]);
@@ -386,8 +389,9 @@ pub fn receive_socket(stream_fd: RawFd) -> containerd_shim::Result<RawFd> {
         "copy_console: console socket get path: {}, fd: {}",
         path, &fds[0]
     );
-    tcgetattr(fds[0])?;
-    Ok(fds[0])
+    let fd = unsafe { OwnedFd::from_raw_fd(fds[0]) };
+    tcgetattr(&fd)?;
+    Ok(fd)
 }
 
 // TODO we still have to create pipes, otherwise the device maybe opened multiple times in container,

@@ -14,7 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::{os::unix::prelude::FromRawFd, process::Stdio};
+use std::{
+    os::{fd::IntoRawFd, unix::prelude::FromRawFd},
+    process::Stdio,
+};
 
 use containerd_shim::{
     io_error,
@@ -47,9 +50,10 @@ pub async fn debug_console(stream: VsockStream) -> Result<()> {
     let pty = openpty(None, None)?;
     let pty_master = pty.master;
     let mut cmd = Command::new("/bin/bash");
-    cmd.stdin(unsafe { Stdio::from_raw_fd(pty.slave) });
-    cmd.stdout(unsafe { Stdio::from_raw_fd(pty.slave) });
-    cmd.stderr(unsafe { Stdio::from_raw_fd(pty.slave) });
+    let pty_fd = pty.slave.into_raw_fd();
+    cmd.stdin(unsafe { Stdio::from_raw_fd(pty_fd) });
+    cmd.stdout(unsafe { Stdio::from_raw_fd(pty_fd) });
+    cmd.stderr(unsafe { Stdio::from_raw_fd(pty_fd) });
     unsafe {
         cmd.pre_exec(move || {
             setsid()?;

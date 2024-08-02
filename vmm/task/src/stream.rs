@@ -17,7 +17,10 @@ limitations under the License.
 use std::{
     io::{Read, Result, Write},
     mem::{forget, MaybeUninit},
-    os::unix::io::{AsRawFd, IntoRawFd, RawFd},
+    os::{
+        fd::OwnedFd,
+        unix::io::{AsRawFd, IntoRawFd, RawFd},
+    },
     pin::Pin,
     task::{Context, Poll},
 };
@@ -29,17 +32,17 @@ use nix::{
 };
 use tokio::io::{unix::AsyncFd, AsyncRead, AsyncWrite, ReadBuf};
 
-struct DirectFd(RawFd);
+struct DirectFd(OwnedFd);
 
 impl Read for &DirectFd {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        read(self.0, buf).map_err(Errno::into)
+        read(self.0.as_raw_fd(), buf).map_err(Errno::into)
     }
 }
 
 impl Write for &DirectFd {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        write(self.0, buf).map_err(Errno::into)
+        write(&self.0, buf).map_err(Errno::into)
     }
 
     fn flush(&mut self) -> Result<()> {
@@ -49,7 +52,7 @@ impl Write for &DirectFd {
 
 impl DirectFd {
     fn close(&mut self) -> Result<()> {
-        close(self.0).map_err(Errno::into)
+        close(self.0.as_raw_fd()).map_err(Errno::into)
     }
 }
 
@@ -61,16 +64,16 @@ impl Drop for DirectFd {
 
 impl AsRawFd for DirectFd {
     fn as_raw_fd(&self) -> RawFd {
-        self.0
+        self.0.as_raw_fd()
     }
 }
 
 pub struct RawStream(AsyncFd<DirectFd>);
 
 impl RawStream {
-    pub fn new(fd: RawFd) -> Result<Self> {
+    pub fn new(fd: OwnedFd) -> Result<Self> {
         unsafe {
-            libc::fcntl(fd, libc::F_SETFL, libc::O_NONBLOCK);
+            libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, libc::O_NONBLOCK);
         }
         Ok(Self(AsyncFd::new(DirectFd(fd))?))
     }
