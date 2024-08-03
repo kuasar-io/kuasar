@@ -87,6 +87,12 @@ impl Sandboxer for WasmSandboxer {
         Ok(())
     }
 
+    async fn update(&self, id: &str, data: SandboxData) -> Result<()> {
+        let sandbox = self.sandbox(id).await?;
+        sandbox.lock().await.data = data;
+        Ok(())
+    }
+
     async fn sandbox(&self, id: &str) -> Result<Arc<Mutex<Self::Sandbox>>> {
         Ok(self
             .sandboxes
@@ -134,7 +140,9 @@ impl WasmSandbox {
     async fn start(&mut self) -> Result<()> {
         let task = self.start_task_service().await?;
         let task_address = format!("unix://{}/task.sock", self.base_dir);
-        self.data.task_address.clone_from(&task_address);
+        self.data
+            .task_address
+            .clone_from(&format!("ttrpc+{}", task_address));
         let task_service = create_task(Arc::new(Box::new(task)));
         let mut server = Server::new().register_service(task_service);
         server = server
