@@ -29,7 +29,6 @@ use containerd_shim::{
     protos::{api::Envelope, shim::events, shim_async::Events},
     publisher::RemotePublisher,
 };
-use log::{debug, error};
 use nix::{
     sys::{
         socket::{connect, socket, AddressFamily, SockFlag, SockType, UnixAddr, VsockAddr},
@@ -47,6 +46,7 @@ use ttrpc::{
     context::with_timeout,
     r#async::{Client, TtrpcContext},
 };
+use tracing::{debug, error};
 use vmm_common::api::{
     sandbox::{CheckRequest, SetupSandboxRequest, SyncClockPacket},
     sandbox_ttrpc::SandboxServiceClient,

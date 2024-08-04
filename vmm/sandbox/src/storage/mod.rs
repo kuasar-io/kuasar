@@ -22,8 +22,8 @@ use containerd_sandbox::{
     spec::Mount,
 };
 use containerd_shim::mount::mount_rootfs;
-use log::debug;
 use nix::libc::MNT_DETACH;
+use tracing::debug;
 pub use utils::*;
 use vmm_common::{
     mount::{bind_mount, unmount, MNT_NOFOLLOW},

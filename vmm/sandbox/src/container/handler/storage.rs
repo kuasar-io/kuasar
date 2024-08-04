@@ -20,7 +20,7 @@ use containerd_sandbox::{
     error::{Error, Result},
     Sandbox,
 };
-use log::debug;
+use tracing::debug;
 use vmm_common::{
     storage::{Storage, ANNOTATION_KEY_STORAGE},
     DEV_SHM, STORAGE_FILE_PREFIX,

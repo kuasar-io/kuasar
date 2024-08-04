@@ -16,7 +16,7 @@ limitations under the License.
 
 use async_trait::async_trait;
 use containerd_sandbox::{error::Result, ContainerOption, Sandbox};
-use log::warn;
+use tracing::warn;
 
 use crate::{
     container::handler::{

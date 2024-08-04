@@ -25,10 +25,10 @@ use containerd_shim::{
     other_error, Error, Result,
 };
 use futures::StreamExt;
-use log::{debug, error};
 use nix::{pty::openpty, unistd::setsid};
 use tokio::process::Command;
 use tokio_vsock::VsockStream;
+use tracing::{debug, error};
 
 use crate::{stream::RawStream, util::wait_pid, vsock::bind_vsock};
 

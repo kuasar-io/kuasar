@@ -27,7 +27,6 @@ use containerd_sandbox::{
     ContainerOption, Sandbox, SandboxOption, SandboxStatus, Sandboxer,
 };
 use containerd_shim::{protos::api::Envelope, util::write_str_to_file};
-use log::{debug, error, info, warn};
 use protobuf::{well_known_types::any::Any, MessageField};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::{
@@ -36,6 +35,7 @@ use tokio::{
     sync::{Mutex, RwLock},
 };
 use ttrpc::context::with_timeout;
+use tracing::{debug, error, info, warn};
 use vmm_common::{
     api::{empty::Empty, sandbox::SetupSandboxRequest, sandbox_ttrpc::SandboxServiceClient},
     storage::Storage,

@@ -18,12 +18,12 @@ use std::{collections::HashMap, fs::read_link, os::unix::prelude::FromRawFd, syn
 
 use containerd_shim::{other, Error, Result};
 use lazy_static::lazy_static;
-use log::debug;
 use netlink_sys::{protocols, SocketAddr, TokioSocket};
 use tokio::sync::{
     mpsc::{channel, Receiver, Sender},
     Mutex,
 };
+use tracing::debug;
 
 pub const U_EVENT_ACTION: &str = "ACTION";
 pub const U_EVENT_ACTION_ADD: &str = "add";

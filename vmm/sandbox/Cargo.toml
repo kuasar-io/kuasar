@@ -50,6 +50,8 @@ cgroups-rs = "0.3.2"
 proc-macro2 = "1.0.66"
 hostname = "0.3"
 path-clean = "1.0.1"
+tracing = "0.1.40"
+tracing-subscriber = {version = "0.3.18", features = ["registry", "fmt", "std", "env-filter"] }
 
 [[bin]]
 name = "qemu"

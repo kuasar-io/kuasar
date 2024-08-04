@@ -17,13 +17,13 @@ limitations under the License.
 use anyhow::anyhow;
 use async_trait::async_trait;
 use containerd_sandbox::error::Result;
-use log::{debug, error};
 use qapi::{
     qmp::{chardev_add, chardev_remove, device_add, ChardevBackend, ChardevCommon, ChardevHostdev},
     Dictionary,
 };
 use sandbox_derive::CmdLineParams;
 use serde_json::Value;
+use tracing::{debug, error};
 
 use crate::{
     device::{BusType, CharBackendType},
