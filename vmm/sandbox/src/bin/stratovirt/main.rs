@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 use clap::Parser;
+use vmm_common::{signal, trace};
 use vmm_sandboxer::{
     args,
     config::Config,
@@ -22,7 +23,6 @@ use vmm_sandboxer::{
     stratovirt::{
         config::StratoVirtVMConfig, factory::StratoVirtVMFactory, hooks::StratoVirtHooks,
     },
-    utils::init_logger,
     version,
 };
 
@@ -37,13 +37,20 @@ async fn main() {
     let config: Config<StratoVirtVMConfig> = Config::load_config(&args.config).await.unwrap();
 
     // Update args log level if it not presents args but in config.
-    init_logger(&args.log_level.unwrap_or(config.sandbox.log_level()));
+    let log_level = config.sandbox.log_level();
+    let service_name = "kuasar-vmm-sandboxer-stratovirt-service";
+    trace::set_enabled(config.sandbox.enable_tracing);
+    trace::setup_tracing(&log_level, service_name).unwrap();
 
     let mut sandboxer: KuasarSandboxer<StratoVirtVMFactory, StratoVirtHooks> = KuasarSandboxer::new(
         config.sandbox,
         config.hypervisor.clone(),
         StratoVirtHooks::new(config.hypervisor),
     );
+
+    tokio::spawn(async move {
+        signal::handle_signals(&log_level, service_name).await;
+    });
 
     // Do recovery job
     sandboxer.recover(&args.dir).await;

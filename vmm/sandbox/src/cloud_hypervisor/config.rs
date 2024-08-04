@@ -52,6 +52,7 @@ impl Default for CloudHypervisorVMConfig {
 #[derive(Deserialize, Default)]
 pub struct TaskConfig {
     pub debug: bool,
+    pub enable_tracing: bool,
 }
 
 #[derive(CmdLineParamSet, Deserialize, Clone, Serialize)]
@@ -166,6 +167,11 @@ impl CloudHypervisorConfig {
             cmdline.push_str(" task.log_level=debug");
         }
 
+        cmdline.push_str(&format!(
+            " task.enable_tracing={}",
+            vm_config.task.enable_tracing
+        ));
+
         Self {
             path: vm_config.path.to_string(),
             api_socket: "".to_string(),
@@ -237,6 +243,7 @@ mod tests {
     fn test_toml() {
         let toml_str = "
 [sandbox]
+enable_tracing = false
 [hypervisor]
 path = \"/usr/local/bin/cloud-hypervisor\"
 vcpus = 1
@@ -249,6 +256,7 @@ hugepages = true
 entropy_source = \"/dev/urandom\"
 [hypervisor.task]
 debug = true
+enable_tracing = false
 [hypervisor.virtiofsd]
 path = \"/usr/local/bin/virtiofsd\"
 log_level = \"info\"
@@ -256,12 +264,14 @@ cache = \"never\"
 thread_pool_size = 4
 ";
         let config: Config<CloudHypervisorVMConfig> = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.sandbox.enable_tracing, false);
         assert_eq!(config.hypervisor.path, "/usr/local/bin/cloud-hypervisor");
         assert_eq!(
             config.hypervisor.common.kernel_path,
             "/var/lib/kuasar/vmlinux.bin"
         );
         assert_eq!(config.hypervisor.task.debug, true);
+        assert_eq!(config.hypervisor.task.enable_tracing, false);
 
         assert_eq!(config.hypervisor.common.vcpus, 1);
         assert!(config.hypervisor.hugepages);
@@ -273,6 +283,7 @@ thread_pool_size = 4
     fn test_task_cmdline() {
         let toml_str = "
 [sandbox]
+enable_tracing = false
 [hypervisor]
 path = \"/usr/local/bin/cloud-hypervisor\"
 vcpus = 1
@@ -285,6 +296,7 @@ hugepages = true
 entropy_source = \"/dev/urandom\"
 [hypervisor.task]
 debug = true
+enable_tracing = false
 [hypervisor.virtiofsd]
 path = \"/usr/local/bin/virtiofsd\"
 log_level = \"info\"
@@ -295,6 +307,6 @@ thread_pool_size = 4
         let config: Config<CloudHypervisorVMConfig> = toml::from_str(toml_str).unwrap();
         let chc = CloudHypervisorConfig::from(&config.hypervisor);
 
-        assert_eq!(chc.cmdline, "console=hvc0 root=/dev/pmem0p1 rootflags=data=ordered,errors=remount-ro ro rootfstype=ext4 task.sharefs_type=virtiofs  task.log_level=debug");
+        assert_eq!(chc.cmdline, "console=hvc0 root=/dev/pmem0p1 rootflags=data=ordered,errors=remount-ro ro rootfstype=ext4 task.sharefs_type=virtiofs  task.log_level=debug task.enable_tracing=false");
     }
 }

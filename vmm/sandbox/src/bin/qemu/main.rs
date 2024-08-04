@@ -15,13 +15,13 @@ limitations under the License.
 */
 
 use clap::Parser;
+use vmm_common::{signal, trace};
 use vmm_sandboxer::{
     args,
     config::Config,
     kata_config::KataConfig,
     qemu::{factory::QemuVMFactory, hooks::QemuHooks},
     sandbox::KuasarSandboxer,
-    utils::init_logger,
     version,
 };
 
@@ -51,14 +51,20 @@ async fn main() {
         Config::load_config(&args.config).await.unwrap()
     };
 
-    // Initialize log
-    init_logger(&config.sandbox.log_level());
+    let log_level = config.sandbox.log_level();
+    let service_name = "kuasar-vmm-sandboxer-qemu-service";
+    trace::set_enabled(config.sandbox.enable_tracing);
+    trace::setup_tracing(&log_level, service_name).unwrap();
 
     let sandboxer: KuasarSandboxer<QemuVMFactory, QemuHooks> = KuasarSandboxer::new(
         config.sandbox,
         config.hypervisor.clone(),
         QemuHooks::new(config.hypervisor),
     );
+
+    tokio::spawn(async move {
+        signal::handle_signals(&log_level, service_name).await;
+    });
 
     // Run the sandboxer
     containerd_sandbox::run(
