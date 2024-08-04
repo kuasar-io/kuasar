@@ -31,7 +31,6 @@ use containerd_shim::{
 };
 use futures::StreamExt;
 use lazy_static::lazy_static;
-use log::{debug, error, info, warn, LevelFilter};
 use nix::{
     errno::Errno,
     sched::{unshare, CloneFlags},
@@ -43,6 +42,8 @@ use nix::{
 };
 use signal_hook_tokio::Signals;
 use tokio::fs::File;
+use tracing::{debug, error, info, level_filters::LevelFilter, warn};
+use tracing_subscriber::{self, fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use vmm_common::{
     api::sandbox_ttrpc::create_sandbox_service, mount::mount, ETC_RESOLV, HOSTNAME_FILENAME,
     IPC_NAMESPACE, KUASAR_STATE_DIR, RESOLV_FILENAME, SANDBOX_NS_PATH, UTS_NAMESPACE,
@@ -145,10 +146,12 @@ async fn start_task_server() -> anyhow::Result<()> {
 
     let config = TaskConfig::new().await?;
     let log_level = LevelFilter::from_str(&config.log_level)?;
-    env_logger::Builder::from_default_env()
-        .format_timestamp_micros()
-        .filter_module("containerd_shim", log_level)
-        .filter_module("vmm_task", log_level)
+    let filter = EnvFilter::from_default_env()
+        .add_directive(format!("containerd_shim={:?}", log_level).parse()?)
+        .add_directive(format!("vmm_task={:?}", log_level).parse()?);
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(filter)
         .init();
     info!("Task server start with config: {:?}", config);
 

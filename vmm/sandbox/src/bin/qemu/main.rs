@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 use clap::Parser;
+use tracing::error;
 use vmm_sandboxer::{
     args,
     config::Config,
@@ -52,7 +53,10 @@ async fn main() {
     };
 
     // Initialize log
-    init_logger(&config.sandbox.log_level());
+    if let Err(e) = init_logger(&config.sandbox.log_level()) {
+        error!("failed to init logger: {:?}", e);
+        return;
+    }
 
     let sandboxer: KuasarSandboxer<QemuVMFactory, QemuHooks> = KuasarSandboxer::new(
         config.sandbox,

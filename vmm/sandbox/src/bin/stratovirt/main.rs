@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 use clap::Parser;
+use tracing::error;
 use vmm_sandboxer::{
     args,
     config::Config,
@@ -37,7 +38,10 @@ async fn main() {
     let config: Config<StratoVirtVMConfig> = Config::load_config(&args.config).await.unwrap();
 
     // Update args log level if it not presents args but in config.
-    init_logger(&args.log_level.unwrap_or(config.sandbox.log_level()));
+    if let Err(e) = init_logger(&args.log_level.unwrap_or(config.sandbox.log_level())) {
+        error!("failed to init logger: {:?}", e);
+        return;
+    }
 
     let mut sandboxer: KuasarSandboxer<StratoVirtVMFactory, StratoVirtHooks> = KuasarSandboxer::new(
         config.sandbox,

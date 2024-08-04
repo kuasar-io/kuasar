@@ -25,7 +25,6 @@ use containerd_sandbox::{
     error::{Error, Result},
     signal::ExitSignal,
 };
-use log::{debug, error};
 use nix::{
     sys::{
         socket::{connect, socket, AddressFamily, SockFlag, SockType, UnixAddr, VsockAddr},
@@ -39,6 +38,7 @@ use tokio::{
     net::UnixStream,
     time::timeout,
 };
+use tracing::{debug, error};
 use ttrpc::{context::with_timeout, r#async::Client};
 use vmm_common::api::{
     sandbox::{CheckRequest, SyncClockPacket, UpdateInterfacesRequest, UpdateRoutesRequest},

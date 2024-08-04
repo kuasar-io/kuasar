@@ -42,7 +42,6 @@ use containerd_shim::{
     util::read_spec,
     ExitSignal,
 };
-use log::{debug, error};
 use nix::{sys::signalfd::signal::kill, unistd::Pid};
 use oci_spec::runtime::{LinuxResources, Process, Spec};
 use runc::{options::GlobalOpts, Runc, Spawner};
@@ -53,6 +52,7 @@ use tokio::{
     process::Command,
     sync::Mutex,
 };
+use tracing::{debug, error};
 use vmm_common::{mount::get_mount_type, storage::Storage, KUASAR_STATE_DIR};
 
 use crate::{
