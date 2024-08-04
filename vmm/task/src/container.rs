@@ -53,6 +53,7 @@ use tokio::{
     process::Command,
     sync::Mutex,
 };
+use tracing::instrument;
 use vmm_common::{mount::get_mount_type, storage::Storage, KUASAR_STATE_DIR};
 
 use crate::{
@@ -108,6 +109,7 @@ pub struct Log {
 
 #[async_trait]
 impl ContainerFactory<KuasarContainer> for KuasarFactory {
+    #[instrument(skip_all)]
     async fn create(
         &self,
         ns: &str,
@@ -180,6 +182,7 @@ impl ContainerFactory<KuasarContainer> for KuasarFactory {
         Ok(container)
     }
 
+    #[instrument(skip_all)]
     async fn cleanup(&self, _ns: &str, c: &KuasarContainer) -> containerd_shim::Result<()> {
         self.sandbox.lock().await.defer_storages(&c.id).await?;
         Ok(())
@@ -191,6 +194,7 @@ impl KuasarFactory {
         Self { sandbox }
     }
 
+    #[instrument(skip_all)]
     async fn do_create(&self, init: &mut InitProcess) -> Result<()> {
         let id = init.id.to_string();
         let stdio = &init.stdio;
@@ -308,6 +312,7 @@ async fn get_last_runtime_error(bundle: &str) -> Result<String> {
 
 #[async_trait]
 impl ProcessFactory<ExecProcess> for KuasarExecFactory {
+    #[instrument(skip_all)]
     async fn create(&self, req: &ExecProcessRequest) -> Result<ExecProcess> {
         let p = get_spec_from_request(req)?;
         let stdio = match read_io(&self.bundle, req.id(), Some(req.exec_id())).await {
@@ -341,6 +346,7 @@ impl ProcessFactory<ExecProcess> for KuasarExecFactory {
 
 #[async_trait]
 impl ProcessLifecycle<InitProcess> for KuasarInitLifecycle {
+    #[instrument(skip_all)]
     async fn start(&self, p: &mut InitProcess) -> containerd_shim::Result<()> {
         if let Err(e) = self.runtime.start(p.id.as_str()).await {
             return Err(runtime_error(&p.lifecycle.bundle, e, "OCI runtime start failed").await);
@@ -349,6 +355,7 @@ impl ProcessLifecycle<InitProcess> for KuasarInitLifecycle {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn kill(
         &self,
         p: &mut InitProcess,
@@ -371,6 +378,7 @@ impl ProcessLifecycle<InitProcess> for KuasarInitLifecycle {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn delete(&self, p: &mut InitProcess) -> containerd_shim::Result<()> {
         if let Err(e) = self
             .runtime
@@ -391,6 +399,7 @@ impl ProcessLifecycle<InitProcess> for KuasarInitLifecycle {
     }
 
     #[cfg(target_os = "linux")]
+    #[instrument(skip_all)]
     async fn update(&self, p: &mut InitProcess, resources: &LinuxResources) -> Result<()> {
         if p.pid <= 0 {
             return Err(other!(
@@ -402,11 +411,13 @@ impl ProcessLifecycle<InitProcess> for KuasarInitLifecycle {
     }
 
     #[cfg(not(target_os = "linux"))]
+    #[instrument(skip_all)]
     async fn update(&self, _p: &mut InitProcess, _resources: &LinuxResources) -> Result<()> {
         Err(Error::Unimplemented("update resource".to_string()))
     }
 
     #[cfg(target_os = "linux")]
+    #[instrument(skip_all)]
     async fn stats(&self, p: &InitProcess) -> Result<Metrics> {
         if p.pid <= 0 {
             return Err(other!(
@@ -418,10 +429,12 @@ impl ProcessLifecycle<InitProcess> for KuasarInitLifecycle {
     }
 
     #[cfg(not(target_os = "linux"))]
+    #[instrument(skip_all)]
     async fn stats(&self, _p: &InitProcess) -> Result<Metrics> {
         Err(Error::Unimplemented("process stats".to_string()))
     }
 
+    #[instrument(skip_all)]
     async fn ps(&self, p: &InitProcess) -> Result<Vec<ProcessInfo>> {
         let pids = self
             .runtime
@@ -439,6 +452,7 @@ impl ProcessLifecycle<InitProcess> for KuasarInitLifecycle {
 }
 
 impl KuasarInitLifecycle {
+    #[instrument(skip_all)]
     pub fn new(runtime: Runc, opts: Options, bundle: &str) -> Self {
         let work_dir = Path::new(bundle).join("work");
         let mut opts = opts;
@@ -456,6 +470,7 @@ impl KuasarInitLifecycle {
 
 #[async_trait]
 impl ProcessLifecycle<ExecProcess> for KuasarExecLifecycle {
+    #[instrument(skip_all)]
     async fn start(&self, p: &mut ExecProcess) -> containerd_shim::Result<()> {
         rescan_pci_bus().await?;
         let bundle = self.bundle.to_string();
@@ -493,6 +508,7 @@ impl ProcessLifecycle<ExecProcess> for KuasarExecLifecycle {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn kill(
         &self,
         p: &mut ExecProcess,
@@ -515,6 +531,7 @@ impl ProcessLifecycle<ExecProcess> for KuasarExecLifecycle {
         }
     }
 
+    #[instrument(skip_all)]
     async fn delete(&self, p: &mut ExecProcess) -> Result<()> {
         self.exit_signal.signal();
         let exec_pid_path = Path::new(self.bundle.as_str()).join(format!("{}.pid", p.id));
@@ -522,14 +539,17 @@ impl ProcessLifecycle<ExecProcess> for KuasarExecLifecycle {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn update(&self, _p: &mut ExecProcess, _resources: &LinuxResources) -> Result<()> {
         Err(Error::Unimplemented("exec update".to_string()))
     }
 
+    #[instrument(skip_all)]
     async fn stats(&self, _p: &ExecProcess) -> Result<Metrics> {
         Err(Error::Unimplemented("exec stats".to_string()))
     }
 
+    #[instrument(skip_all)]
     async fn ps(&self, _p: &ExecProcess) -> Result<Vec<ProcessInfo>> {
         Err(Error::Unimplemented("exec ps".to_string()))
     }
@@ -550,6 +570,7 @@ fn get_spec_from_request(
 const DEFAULT_RUNC_ROOT: &str = "/run/containerd/runc";
 const DEFAULT_COMMAND: &str = "runc";
 
+#[instrument(skip_all)]
 pub fn create_runc(
     runtime: &str,
     namespace: &str,
@@ -590,6 +611,7 @@ pub struct ShimExecutor {}
 
 #[async_trait]
 impl Spawner for ShimExecutor {
+    #[instrument(skip_all)]
     async fn execute(
         &self,
         cmd: Command,
