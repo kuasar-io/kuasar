@@ -44,7 +44,7 @@ jobs:
         run: cargo clippy ${{ matrix.features }} -- -D warnings
       - name: Deny
         working-directory: ${{ matrix.directories }}
-        run: cargo install cargo-deny && cargo deny -L warn ${{ matrix.features }} check
+        run: cargo install cargo-deny@0.15.1 && cargo deny -L warn ${{ matrix.features }} check
 
   tests:
     strategy:
