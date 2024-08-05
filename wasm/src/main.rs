@@ -14,9 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+use std::str::FromStr;
+
+use clap::Parser;
 use containerd_shim::asynchronous::monitor::monitor_notify_by_pid;
 use futures::StreamExt;
-use log::{debug, error, warn};
+use log::{debug, error, warn, LevelFilter};
 use nix::{
     errno::Errno,
     libc,
@@ -30,26 +33,48 @@ use signal_hook_tokio::Signals;
 
 use crate::sandbox::WasmSandboxer;
 
+mod args;
 mod sandbox;
 mod utils;
+mod version;
 #[cfg(feature = "wasmedge")]
 mod wasmedge;
 #[cfg(feature = "wasmtime")]
 mod wasmtime;
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    env_logger::builder().format_timestamp_micros().init();
+async fn main() {
+    let args = args::Args::parse();
+    if args.version {
+        version::print_version_info();
+        return;
+    }
+
+    // Update args log level if it not presents args but in config.
+    let log_level =
+        LevelFilter::from_str(&args.log_level.unwrap_or_default()).unwrap_or(LevelFilter::Info);
+    env_logger::Builder::from_default_env()
+        .format_timestamp_micros()
+        .filter_module("containerd_sandbox", log_level)
+        .filter_module("wasm_sandboxer", log_level)
+        .init();
+
+    // TODO: Support recovery
+
     tokio::spawn(async move {
         let signals = Signals::new([libc::SIGPIPE, libc::SIGCHLD]).expect("new signal failed");
         handle_signals(signals).await;
     });
 
     let sandboxer = WasmSandboxer::default();
-    containerd_sandbox::run("kuasar-wasm-sandboxer", sandboxer)
-        .await
-        .unwrap();
-    Ok(())
+    containerd_sandbox::run(
+        "kuasar-wasm-sandboxer-wasmedge",
+        &args.listen,
+        &args.dir,
+        sandboxer,
+    )
+    .await
+    .unwrap();
 }
 
 async fn handle_signals(signals: Signals) {
