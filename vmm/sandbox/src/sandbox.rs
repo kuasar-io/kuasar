@@ -19,6 +19,7 @@ use std::{collections::HashMap, io::ErrorKind, path::Path, sync::Arc};
 use anyhow::anyhow;
 use async_trait::async_trait;
 use containerd_sandbox::{
+    cri::api::v1::NamespaceMode,
     data::SandboxData,
     error::{Error, Result},
     signal::ExitSignal,
@@ -665,6 +666,21 @@ fn parse_dnsoptions(servers: &[String], searches: &[String], options: &[String])
     }
 
     resolv_content
+}
+
+pub fn has_shared_pid_namespace(data: &SandboxData) -> bool {
+    if let Some(conf) = &data.config {
+        if let Some(pid_ns_mode) = conf
+            .linux
+            .as_ref()
+            .and_then(|l| l.security_context.as_ref())
+            .and_then(|s| s.namespace_options.as_ref())
+            .map(|n| n.pid())
+        {
+            return pid_ns_mode == NamespaceMode::Pod;
+        }
+    }
+    false
 }
 
 #[derive(Default, Debug, Deserialize)]

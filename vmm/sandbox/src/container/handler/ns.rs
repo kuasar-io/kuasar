@@ -16,9 +16,15 @@ limitations under the License.
 
 use async_trait::async_trait;
 use containerd_sandbox::error::Result;
-use vmm_common::{CGROUP_NAMESPACE, IPC_NAMESPACE, NET_NAMESPACE, SANDBOX_NS_PATH, UTS_NAMESPACE};
+use vmm_common::{
+    CGROUP_NAMESPACE, IPC_NAMESPACE, NET_NAMESPACE, PID_NAMESPACE, SANDBOX_NS_PATH, UTS_NAMESPACE,
+};
 
-use crate::{container::handler::Handler, sandbox::KuasarSandbox, vm::VM};
+use crate::{
+    container::handler::Handler,
+    sandbox::{has_shared_pid_namespace, KuasarSandbox},
+    vm::VM,
+};
 
 pub struct NamespaceHandler {
     container_id: String,
@@ -38,6 +44,7 @@ where
     T: VM + Sync + Send,
 {
     async fn handle(&self, sandbox: &mut KuasarSandbox<T>) -> Result<()> {
+        let share_pidns = has_shared_pid_namespace(&sandbox.data);
         let container = sandbox.container_mut(&self.container_id)?;
         let spec = if let Some(s) = &mut container.data.spec {
             s
@@ -47,8 +54,14 @@ where
         if let Some(l) = spec.linux.as_mut() {
             l.namespaces
                 .retain(|n| n.r#type != NET_NAMESPACE && n.r#type != CGROUP_NAMESPACE);
+
             l.namespaces.iter_mut().for_each(|n| {
-                n.path = if n.r#type == IPC_NAMESPACE || n.r#type == UTS_NAMESPACE {
+                // IPC and UTS namespace is shared in default
+                // PID namespaces is shared if it is set in pod config
+                n.path = if n.r#type == IPC_NAMESPACE
+                    || n.r#type == UTS_NAMESPACE
+                    || (n.r#type == PID_NAMESPACE && share_pidns)
+                {
                     format!("{}/{}", SANDBOX_NS_PATH, n.r#type)
                 } else {
                     "".to_string()
