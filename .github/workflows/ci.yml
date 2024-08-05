@@ -19,6 +19,9 @@ jobs:
             features: --features=wasmedge
             wasmEdge: 0.13.5
           - directories: wasm
+            features: --features="wasmedge, wasmedge_wasi_nn"
+            wasmEdge: 0.13.5
+          - directories: wasm
             features: --features=wasmtime
     runs-on: ubuntu-latest
     timeout-minutes: 30
