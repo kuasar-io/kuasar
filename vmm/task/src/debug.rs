@@ -37,6 +37,7 @@ pub async fn listen_debug_console(addr: &str) -> Result<()> {
     tokio::spawn(async move {
         let mut incoming = l.incoming();
         while let Some(Ok(s)) = incoming.next().await {
+            debug!("get a debug console request");
             if let Err(e) = debug_console(s).await {
                 error!("failed to open debug console {:?}", e);
             }
