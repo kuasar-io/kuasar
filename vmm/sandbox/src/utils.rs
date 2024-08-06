@@ -436,7 +436,7 @@ pub fn safe_open_file<P: ?Sized + nix::NixPath>(
     mode: Mode,
 ) -> std::result::Result<OwnedFd, nix::Error> {
     let fd = open(path, oflag, mode)?;
-    // SAFETY: contruct a OwnedFd from RawFd, close fd when OwnedFd drop
+    // SAFETY: construct a OwnedFd from RawFd, close fd when OwnedFd drop
     Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 

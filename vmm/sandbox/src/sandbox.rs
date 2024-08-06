@@ -768,11 +768,17 @@ fn convert_envelope(envelope: vmm_common::api::events::Envelope) -> Envelope {
 pub struct SandboxConfig {
     #[serde(default)]
     pub log_level: String,
+    #[serde(default)]
+    pub enable_tracing: bool,
 }
 
 impl SandboxConfig {
     pub fn log_level(&self) -> String {
         self.log_level.to_string()
+    }
+
+    pub fn enable_tracing(&self) -> bool {
+        self.enable_tracing
     }
 }
 
