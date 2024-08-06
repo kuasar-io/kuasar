@@ -70,6 +70,7 @@ pub mod tests {
     fn test_config_new() {
         let mut sandbox_config = SandboxConfig::default();
         sandbox_config.log_level = "debug".to_string();
+        sandbox_config.enable_tracing = false;
         let mock_path = "/usr/local/bin/mock-hypervisor";
         let mock_config = MockHypervisor {
             path: mock_path.to_string(),
@@ -77,6 +78,7 @@ pub mod tests {
         let config = Config::new(sandbox_config, mock_config);
 
         assert_eq!(config.sandbox.log_level, "debug");
+        assert_eq!(config.sandbox.enable_tracing, false);
         assert_eq!(config.hypervisor.path, mock_path);
     }
 
@@ -94,6 +96,7 @@ pub mod tests {
         let toml_str = "
 [sandbox]
 log_level = \"debug\"
+enable_tracing = false
 [hypervisor]
 path = \"/usr/local/bin/mock-hypervisor\"
 ";
@@ -106,6 +109,7 @@ path = \"/usr/local/bin/mock-hypervisor\"
             .unwrap();
 
         assert_eq!(config.sandbox.log_level, "debug");
+        assert_eq!(config.sandbox.enable_tracing, false);
         assert_eq!(config.hypervisor.path, "/usr/local/bin/mock-hypervisor");
     }
 

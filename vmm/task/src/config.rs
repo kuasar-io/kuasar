@@ -20,6 +20,7 @@ use tokio::fs::read_to_string;
 const SHAREFS_TYPE: &str = "task.sharefs_type";
 const LOG_LEVEL: &str = "task.log_level";
 const TASK_DEBUG: &str = "task.debug";
+const ENABLE_TRACING: &str = "task.enable_tracing";
 
 macro_rules! parse_cmdline {
     ($param:ident, $key:ident, $field:expr) => {
@@ -42,6 +43,7 @@ pub struct TaskConfig {
     pub(crate) sharefs_type: String,
     pub(crate) log_level: String,
     pub(crate) debug: bool,
+    pub(crate) enable_tracing: bool,
 }
 
 impl Default for TaskConfig {
@@ -50,6 +52,7 @@ impl Default for TaskConfig {
             sharefs_type: "9p".to_string(),
             log_level: "info".to_string(),
             debug: false,
+            enable_tracing: false,
         }
     }
 }
@@ -66,6 +69,7 @@ impl TaskConfig {
             parse_cmdline!(param, SHAREFS_TYPE, config.sharefs_type, String::from);
             parse_cmdline!(param, LOG_LEVEL, config.log_level, String::from);
             parse_cmdline!(param, TASK_DEBUG, config.debug);
+            parse_cmdline!(param, ENABLE_TRACING, config.enable_tracing);
         }
         Ok(config)
     }
