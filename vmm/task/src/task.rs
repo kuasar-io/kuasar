@@ -26,9 +26,9 @@ use containerd_shim::{
     },
     monitor::{Subject, Topic},
 };
-use log::{debug, error};
 use oci_spec::runtime::{LinuxNamespaceType, Spec};
 use tokio::sync::{mpsc::channel, Mutex};
+use tracing::{debug, error};
 
 use crate::{
     container::{KuasarContainer, KuasarFactory},

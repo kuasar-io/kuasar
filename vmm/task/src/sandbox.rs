@@ -17,7 +17,7 @@ limitations under the License.
 use std::{path::Path, time::Duration};
 
 use containerd_shim::{error::Error, other, other_error, util::IntoOption, Result};
-use log::{debug, warn};
+use tracing::{debug, warn};
 use vmm_common::{
     mount::{mount, unmount},
     storage::{Storage, DRIVERBLKTYPE, DRIVEREPHEMERALTYPE, DRIVERSCSITYPE},

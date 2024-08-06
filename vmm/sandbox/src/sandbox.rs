@@ -27,13 +27,13 @@ use containerd_sandbox::{
     ContainerOption, Sandbox, SandboxOption, SandboxStatus, Sandboxer,
 };
 use containerd_shim::util::write_str_to_file;
-use log::{debug, error, info, warn};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::{
     fs::{copy, create_dir_all, remove_dir_all, OpenOptions},
     io::{AsyncReadExt, AsyncWriteExt},
     sync::{Mutex, RwLock},
 };
+use tracing::{debug, error, info, warn};
 use vmm_common::{
     api::sandbox_ttrpc::SandboxServiceClient, storage::Storage, ETC_HOSTS, ETC_RESOLV,
     HOSTNAME_FILENAME, HOSTS_FILENAME, RESOLV_FILENAME, SHARED_DIR_SUFFIX,

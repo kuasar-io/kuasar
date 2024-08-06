@@ -25,6 +25,8 @@ netlink-packet-route = "0.15"
 netlink-packet-core = "0.5.0"
 ipnetwork = "0.20"
 anyhow = { version = "1.0.66", default-features = false, features = ["std", "backtrace"] }
+tracing = "0.1.40"
+tracing-subscriber = {version = "0.3.18", features = ["registry", "fmt", "std", "env-filter"] }
 
 # Async dependencies
 async-trait = { version = "0.1.51" }

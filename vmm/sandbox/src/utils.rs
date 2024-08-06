@@ -34,7 +34,6 @@ use containerd_sandbox::{
     data::SandboxData,
     error::{Error, Result},
 };
-use log::{error, info};
 use nix::{
     fcntl::{fcntl, open, FdFlag, OFlag, F_GETFD, F_SETFD},
     libc::{kill, setns, FD_CLOEXEC},
@@ -50,6 +49,9 @@ use tokio::{
     sync::watch::Receiver,
     time::sleep,
 };
+use tracing::level_filters::LevelFilter;
+use tracing::{error, info};
+use tracing_subscriber::{self, fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use vmm_common::NET_NAMESPACE;
 
 pub async fn read_file<P: AsRef<Path>>(filename: P) -> Result<String> {
@@ -503,11 +505,14 @@ pub fn get_sandbox_cgroup_parent_path(data: &SandboxData) -> Option<String> {
         .map(|l| l.cgroup_parent.clone())
 }
 
-pub fn init_logger(level: &str) {
-    let log_level = log::LevelFilter::from_str(level).unwrap_or(log::LevelFilter::Info);
-    env_logger::Builder::from_default_env()
-        .format_timestamp_micros()
-        .filter_module("containerd_sandbox", log_level)
-        .filter_module("vmm_sandboxer", log_level)
+pub fn init_logger(level: &str) -> anyhow::Result<()> {
+    let log_level = LevelFilter::from_str(&level)?;
+    let filter = EnvFilter::from_default_env()
+        .add_directive(format!("containerd_sandbox={:?}", log_level).parse()?)
+        .add_directive(format!("vmm_sandboxer={:?}", log_level).parse()?);
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(filter)
         .init();
+    Ok(())
 }
