@@ -15,7 +15,7 @@
 
 set -e
 
-git clone https://github.com/kuasar-io/containerd.git 
+git clone -b v0.2.0-kuasar https://github.com/kuasar-io/containerd.git
 mkdir bin && make -C containerd bin/containerd && mv containerd/bin/containerd bin
 
 tee bin/config.toml > /dev/null <<EOF

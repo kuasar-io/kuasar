@@ -9,7 +9,7 @@ Kuasar has make some changes on official containerd v1.7.0 based on commit:`1f23
 - `git` clone the codes of containerd fork version from kuasar repository.
 
 ```bash
-git clone https://github.com/kuasar-io/containerd.git
+git clone -b v0.2.0-kuasar https://github.com/kuasar-io/containerd.git
 cd containerd
 make
 make install

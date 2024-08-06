@@ -115,7 +115,7 @@ Sine some code have not been merged into the upstream containerd community, so y
 
 git clone the codes of containerd fork version from kuasar repository.
 ```bash
-$ git clone https://github.com/kuasar-io/containerd.git
+$ git clone -b v0.2.0-kuasar https://github.com/kuasar-io/containerd.git
 $ cd containerd
 $ make bin/containerd
 $ install bin/containerd /usr/bin/containerd
