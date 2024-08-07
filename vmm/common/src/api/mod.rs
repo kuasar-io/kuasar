@@ -14,6 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+pub mod any;
+pub mod descriptor;
 pub mod empty;
+pub mod events;
+pub mod fieldpath;
 pub mod sandbox;
 pub mod sandbox_ttrpc;
+pub mod timestamp;

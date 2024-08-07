@@ -19,7 +19,12 @@ use ttrpc_codegen::{Codegen, Customize, ProtobufCustomize};
 fn main() {
     let protos = [
         "src/protos/sandbox.proto",
+        "src/protos/github.com/containerd/containerd/api/services/ttrpc/events/v1/events.proto",
+        "src/protos/github.com/containerd/containerd/protobuf/plugin/fieldpath.proto",
+        "src/protos/google/protobuf/any.proto",
+        "src/protos/google/protobuf/descriptor.proto",
         "src/protos/google/protobuf/empty.proto",
+        "src/protos/google/protobuf/timestamp.proto",
     ];
 
     Codegen::new()
@@ -31,7 +36,11 @@ fn main() {
             async_all: true,
             ..Customize::default()
         })
-        .rust_protobuf_customize(ProtobufCustomize::default().gen_mod_rs(false))
+        .rust_protobuf_customize(
+            ProtobufCustomize::default()
+                .gen_mod_rs(false)
+                .generate_accessors(true),
+        )
         .run()
         .expect("Gen protos code failed");
 }

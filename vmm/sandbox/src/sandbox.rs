@@ -26,7 +26,7 @@ use containerd_sandbox::{
     utils::cleanup_mounts,
     ContainerOption, Sandbox, SandboxOption, SandboxStatus, Sandboxer,
 };
-use containerd_shim::util::write_str_to_file;
+use containerd_shim::{protos::api::Envelope, util::write_str_to_file};
 use log::{debug, error, info, warn};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::{
@@ -34,9 +34,11 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     sync::{Mutex, RwLock},
 };
+use ttrpc::context::with_timeout;
 use vmm_common::{
-    api::sandbox_ttrpc::SandboxServiceClient, storage::Storage, ETC_HOSTS, ETC_RESOLV,
-    HOSTNAME_FILENAME, HOSTS_FILENAME, RESOLV_FILENAME, SHARED_DIR_SUFFIX,
+    api::{empty::Empty, sandbox_ttrpc::SandboxServiceClient},
+    storage::Storage,
+    ETC_HOSTS, ETC_RESOLV, HOSTNAME_FILENAME, HOSTS_FILENAME, RESOLV_FILENAME, SHARED_DIR_SUFFIX,
 };
 
 use crate::{
@@ -424,6 +426,7 @@ where
                 return Err(e);
             }
             sb.sync_clock().await;
+            sb.forward_events().await;
         }
         // recover the sandbox_cgroups in the sandbox object
         sb.sandbox_cgroups =
@@ -455,6 +458,8 @@ where
             }
             return Err(e);
         }
+
+        self.forward_events().await;
 
         self.status = SandboxStatus::Running(pid);
         Ok(())
@@ -523,8 +528,7 @@ where
 
     pub(crate) async fn setup_network(&mut self) -> Result<()> {
         if let Some(network) = self.network.as_ref() {
-            let client_guard = self.client.lock().await;
-            if let Some(client) = &*client_guard {
+            if let Some(client) = &*self.client.lock().await {
                 client_update_interfaces(client, network.interfaces()).await?;
                 client_update_routes(client, network.routes()).await?;
             }
@@ -533,8 +537,7 @@ where
     }
 
     pub(crate) async fn sync_clock(&self) {
-        let client_guard = self.client.lock().await;
-        if let Some(client) = &*client_guard {
+        if let Some(client) = &*self.client.lock().await {
             client_sync_clock(client, self.id.as_str(), self.exit_signal.clone());
         }
     }
@@ -646,6 +649,44 @@ where
         }
         Ok(())
     }
+
+    pub(crate) async fn forward_events(&mut self) {
+        if let Some(client) = &*self.client.lock().await {
+            let client = client.clone();
+            let exit_signal = self.exit_signal.clone();
+            tokio::spawn(async move {
+                let fut = async {
+                    loop {
+                        match client.get_events(with_timeout(0), &Empty::new()).await {
+                            Ok(resp) => {
+                                if let Err(e) =
+                                    crate::client::publish_event(convert_envelope(resp)).await
+                                {
+                                    error!("{}", e);
+                                }
+                            }
+                            Err(err) => {
+                                // if sandbox was closed, will get error Socket("early eof"),
+                                // so we should handle errors except this unexpected EOF error.
+                                if let ttrpc::error::Error::Socket(s) = &err {
+                                    if s.contains("early eof") {
+                                        break;
+                                    }
+                                }
+                                error!("failed to get oom event error {:?}", err);
+                                break;
+                            }
+                        }
+                    }
+                };
+
+                tokio::select! {
+                    _ = fut => {},
+                    _ = exit_signal.wait() => {},
+                }
+            });
+        }
+    }
 }
 
 // parse_dnsoptions parse DNS options into resolv.conf format content,
@@ -681,6 +722,16 @@ pub fn has_shared_pid_namespace(data: &SandboxData) -> bool {
         }
     }
     false
+}
+
+fn convert_envelope(envelope: vmm_common::api::events::Envelope) -> Envelope {
+    Envelope {
+        timestamp: envelope.timestamp,
+        namespace: envelope.namespace,
+        topic: envelope.topic,
+        event: envelope.event,
+        special_fields: protobuf::SpecialFields::default(),
+    }
 }
 
 #[derive(Default, Debug, Deserialize)]
