@@ -75,5 +75,5 @@ cat > container.json <<EOF
 EOF
 
 # Run a wasm container
-crictl -r unix:///run/containerd/containerd.sock run --runtime="wasm" --no-pull container.json pod.json
+crictl -r unix:///run/containerd/containerd.sock run --runtime="kuasar-wasm" --no-pull container.json pod.json
 rm -f container.json pod.json

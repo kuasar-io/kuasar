@@ -115,7 +115,7 @@ Sine some code have not been merged into the upstream containerd community, so y
 
 git clone the codes of containerd fork version from kuasar repository.
 ```bash
-$ git clone https://github.com/kuasar-io/containerd.git
+$ git clone -b v0.2.0-kuasar https://github.com/kuasar-io/containerd.git
 $ cd containerd
 $ make bin/containerd
 $ install bin/containerd /usr/bin/containerd
@@ -131,8 +131,8 @@ Add the following sandboxer config in the containerd config file `/etc/container
     type = "sandbox"
     address = "/run/vmm-sandboxer.sock"
 
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.vmm]
-  runtime_type = "io.containerd.kuasar.v1"
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kuasar-vmm]
+  runtime_type = "io.containerd.kuasar-vmm.v1"
   sandboxer = "vmm"
   io_type = "hvsock"
 ```
@@ -240,11 +240,11 @@ linux:
   namespaces:
     options: {}
 
-$ crictl runp --runtime=vmm podsandbox.yaml
+$ crictl runp --runtime=kuasar-vmm podsandbox.yaml
 5cbcf744949d8500e7159d6bd1e3894211f475549c0be15d9c60d3c502c7ede3
 ```
 
-> Tips: `--runtime=vmm` indicates that containerd needs to use vmm-sandboxer runtime to run a pod sandbox
+> Tips: `--runtime=kuasar-vmm` indicates that containerd needs to use vmm-sandboxer runtime to run a pod sandbox
 
 - List pod sandboxes and check the sandbox is in Ready state:
 ```bash

@@ -9,7 +9,7 @@ Kuasar has make some changes on official containerd v1.7.0 based on commit:`1f23
 - `git` clone the codes of containerd fork version from kuasar repository.
 
 ```bash
-git clone https://github.com/kuasar-io/containerd.git
+git clone -b v0.2.0-kuasar https://github.com/kuasar-io/containerd.git
 cd containerd
 make
 make install
@@ -27,8 +27,8 @@ Refer to the following configuration to modify the configuration file, default p
 [proxy_plugins.vmm]
   type = "sandbox"
   address = "/run/vmm-sandboxer.sock"
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.vmm]
-  runtime_type = "io.containerd.kuasar.v1"
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kuasar-vmm]
+  runtime_type = "io.containerd.kuasar-vmm.v1"
   sandboxer = "vmm"
   io_type = "hvsock"
 ```
@@ -39,8 +39,8 @@ Refer to the following configuration to modify the configuration file, default p
 [proxy_plugins.quark]
   type = "sandbox"
   address = "/run/quark-sandboxer.sock"
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.quark]
-  runtime_type = "io.containerd.quark.v1"
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kuasar-quark]
+  runtime_type = "io.containerd.kuasar-quark.v1"
   sandboxer = "quark"
 ```
 
@@ -50,8 +50,8 @@ Refer to the following configuration to modify the configuration file, default p
 [proxy_plugins.wasm]
   type = "sandbox"
   address = "/run/wasm-sandboxer.sock"
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.wasm]
-  runtime_type = "io.containerd.wasm.v1"
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kuasar-wasm]
+  runtime_type = "io.containerd.kuasar-wasm.v1"
   sandboxer = "wasm"
 ```
 

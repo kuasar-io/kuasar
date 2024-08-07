@@ -15,7 +15,7 @@
 
 set -e
 
-git clone https://github.com/kuasar-io/containerd.git 
+git clone -b v0.2.0-kuasar https://github.com/kuasar-io/containerd.git
 mkdir bin && make -C containerd bin/containerd && mv containerd/bin/containerd bin
 
 tee bin/config.toml > /dev/null <<EOF
@@ -28,17 +28,17 @@ disable_apparmor = true
 runtime_type = "io.containerd.runc.v2"
 sandboxer = "runc"
 
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.vmm]
-runtime_type = "io.containerd.kuasar.v1"
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kuasar-vmm]
+runtime_type = "io.containerd.kuasar-vmm.v1"
 sandboxer = "vmm"
 io_type = "hvsock"
 
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.quark]
-runtime_type = "io.containerd.quark.v1"
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kuasar-quark]
+runtime_type = "io.containerd.kuasar-quark.v1"
 sandboxer = "quark"
 
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.wasm]
-runtime_type = "io.containerd.wasm.v1"
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kuasar-wasm]
+runtime_type = "io.containerd.kuasar-wasm.v1"
 sandboxer = "wasm"
 
 [proxy_plugins.vmm]
