@@ -131,10 +131,10 @@ Add the following sandboxer config in the containerd config file `/etc/container
     type = "sandbox"
     address = "/run/vmm-sandboxer.sock"
 
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kuasar-vmm]
+[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.kuasar-vmm]
   runtime_type = "io.containerd.kuasar-vmm.v1"
   sandboxer = "vmm"
-  io_type = "hvsock"
+  io_type = "streaming"
 ```
 
 ## Configure crictl

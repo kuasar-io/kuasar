@@ -19,25 +19,25 @@ git clone -b v0.2.0-kuasar https://github.com/kuasar-io/containerd.git
 mkdir bin && make -C containerd bin/containerd && mv containerd/bin/containerd bin
 
 tee bin/config.toml > /dev/null <<EOF
-version = 2
+version = 3
 
-[plugins."io.containerd.grpc.v1.cri"]
+[plugins.'io.containerd.cri.v1.runtime']
 disable_apparmor = true
 
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
-runtime_type = "io.containerd.runc.v2"
+[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.kuasar-runc]
+runtime_type = "io.containerd.kuasar-runc.v1"
 sandboxer = "runc"
 
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kuasar-vmm]
+[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.kuasar-vmm]
 runtime_type = "io.containerd.kuasar-vmm.v1"
 sandboxer = "vmm"
-io_type = "hvsock"
+io_type = "streaming"
 
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kuasar-quark]
+[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.kuasar-quark]
 runtime_type = "io.containerd.kuasar-quark.v1"
 sandboxer = "quark"
 
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kuasar-wasm]
+[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.kuasar-wasm]
 runtime_type = "io.containerd.kuasar-wasm.v1"
 sandboxer = "wasm"
 
