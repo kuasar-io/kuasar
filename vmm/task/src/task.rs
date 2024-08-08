@@ -25,34 +25,32 @@ use containerd_shim::{
         util::read_spec,
     },
     monitor::{Subject, Topic},
+    protos::protobuf::MessageDyn,
 };
 use log::{debug, error};
 use oci_spec::runtime::{LinuxNamespaceType, Spec};
-use tokio::sync::{mpsc::channel, Mutex};
+use tokio::sync::{mpsc::Sender, Mutex};
 
 use crate::{
     container::{KuasarContainer, KuasarFactory},
     sandbox::SandboxResources,
+    NAMESPACE,
 };
 
 pub(crate) async fn create_task_service(
+    tx: Sender<(String, Box<dyn MessageDyn>)>,
 ) -> anyhow::Result<TaskService<KuasarFactory, KuasarContainer>> {
-    let (tx, mut rx) = channel(128);
     let sandbox = Arc::new(Mutex::new(SandboxResources::new().await));
     let task = TaskService {
         factory: KuasarFactory::new(sandbox),
         containers: Arc::new(Default::default()),
-        namespace: "k8s.io".to_string(),
+        namespace: NAMESPACE.to_string(),
         exit: Arc::new(Default::default()),
-        tx: tx.clone(),
+        tx,
     };
     let s = monitor_subscribe(Topic::Pid).await?;
     process_exits(s, &task).await;
-    tokio::spawn(async move {
-        while let Some((_topic, e)) = rx.recv().await {
-            debug!("received event {:?}", e);
-        }
-    });
+
     Ok(task)
 }
 

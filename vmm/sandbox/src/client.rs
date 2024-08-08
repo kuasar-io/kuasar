@@ -25,6 +25,10 @@ use containerd_sandbox::{
     error::{Error, Result},
     signal::ExitSignal,
 };
+use containerd_shim::{
+    protos::{api::Envelope, shim::events, shim_async::Events},
+    publisher::RemotePublisher,
+};
 use log::{debug, error};
 use nix::{
     sys::{
@@ -39,7 +43,10 @@ use tokio::{
     net::UnixStream,
     time::timeout,
 };
-use ttrpc::{context::with_timeout, r#async::Client};
+use ttrpc::{
+    context::with_timeout,
+    r#async::{Client, TtrpcContext},
+};
 use vmm_common::api::{
     sandbox::{CheckRequest, SyncClockPacket, UpdateInterfacesRequest, UpdateRoutesRequest},
     sandbox_ttrpc::SandboxServiceClient,
@@ -345,6 +352,27 @@ fn checked_compute_delta(c_send: i64, c_arrive: i64, s_send: i64, s_arrive: i64)
         .ok_or_else(|| anyhow!("integer overflow {} / 2", delta_sum))?;
 
     Ok(delta)
+}
+
+pub(crate) async fn publish_event(envelope: Envelope) -> Result<()> {
+    let publisher = RemotePublisher::new("/run/containerd/containerd.sock.ttrpc")
+        .await
+        .map_err(|e| anyhow!("publisher connects to containerd: {}", e))?;
+
+    let mut req = events::ForwardRequest::new();
+    req.set_envelope(envelope);
+
+    let ctx = TtrpcContext {
+        fd: 0,
+        mh: Default::default(),
+        metadata: Default::default(),
+        timeout_nano: 0,
+    };
+    publisher
+        .forward(&ctx, req)
+        .await
+        .map_err(|e| anyhow!("forward event to containerd: {}", e))?;
+    Ok(())
 }
 
 #[cfg(test)]

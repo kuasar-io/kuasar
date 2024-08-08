@@ -14,19 +14,30 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::{ops::Add, sync::Arc, time::Duration};
+use std::{
+    ops::Add,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 use async_trait::async_trait;
-use containerd_shim::{error::Result, Error, TtrpcContext, TtrpcResult};
+use containerd_shim::{
+    error::Result,
+    protos::{protobuf::MessageDyn, topics::TASK_OOM_EVENT_TOPIC},
+    util::convert_to_any,
+    Error, TtrpcContext, TtrpcResult,
+};
+use log::debug;
 use nix::{
     sys::time::{TimeSpec, TimeValLike},
     time::{clock_gettime, clock_settime, ClockId},
 };
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc::Receiver, Mutex};
 use vmm_common::{
     api,
     api::{
         empty::Empty,
+        events::Envelope,
         sandbox::{
             CheckRequest, ExecVMProcessRequest, ExecVMProcessResponse, SyncClockPacket,
             UpdateInterfacesRequest, UpdateRoutesRequest,
@@ -34,17 +45,22 @@ use vmm_common::{
     },
 };
 
-use crate::netlink::Handle;
+use crate::{netlink::Handle, NAMESPACE};
 
 pub struct SandboxService {
+    pub namespace: String,
     pub handle: Arc<Mutex<Handle>>,
+    #[allow(clippy::type_complexity)]
+    pub rx: Arc<Mutex<Receiver<(String, Box<dyn MessageDyn>)>>>,
 }
 
 impl SandboxService {
-    pub fn new() -> Result<Self> {
+    pub fn new(rx: Receiver<(String, Box<dyn MessageDyn>)>) -> Result<Self> {
         let handle = Handle::new()?;
         Ok(Self {
+            namespace: NAMESPACE.to_string(),
             handle: Arc::new(Mutex::new(handle)),
+            rx: Arc::new(Mutex::new(rx)),
         })
     }
 
@@ -117,5 +133,25 @@ impl api::sandbox_ttrpc::SandboxService for SandboxService {
             }
         }
         Ok(resp)
+    }
+
+    async fn get_events(&self, _ctx: &TtrpcContext, _: Empty) -> TtrpcResult<Envelope> {
+        while let Some((topic, event)) = self.rx.lock().await.recv().await {
+            debug!("received event {:?}", event);
+            // Only OOM Event is supported.
+            // TODO: Support all topic
+            if topic != TASK_OOM_EVENT_TOPIC {
+                continue;
+            }
+
+            let mut resp = Envelope::new();
+            resp.set_timestamp(SystemTime::now().into());
+            resp.set_namespace(self.namespace.to_string());
+            resp.set_topic(topic);
+            resp.set_event(convert_to_any(event).unwrap());
+            return Ok(resp);
+        }
+
+        Err(ttrpc::Error::Others("internal".to_string()))
     }
 }

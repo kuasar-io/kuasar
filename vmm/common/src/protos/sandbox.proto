@@ -19,29 +19,31 @@ syntax = "proto3";
 package grpc;
 
 import "google/protobuf/empty.proto";
+import "github.com/containerd/containerd/api/services/ttrpc/events/v1/events.proto";
 
 service SandboxService {
-	// networking
-	rpc UpdateInterfaces(UpdateInterfacesRequest) returns (google.protobuf.Empty);
-	rpc UpdateRoutes (UpdateRoutesRequest) returns (google.protobuf.Empty);
+    // networking
+    rpc UpdateInterfaces (UpdateInterfacesRequest) returns (google.protobuf.Empty);
+    rpc UpdateRoutes (UpdateRoutesRequest) returns (google.protobuf.Empty);
 
-	// vm
-	rpc Check(CheckRequest) returns (google.protobuf.Empty);
-	rpc ExecVMProcess (ExecVMProcessRequest) returns (ExecVMProcessResponse);
-	rpc SyncClock (SyncClockPacket) returns (SyncClockPacket);
+    // vm
+    rpc Check (CheckRequest) returns (google.protobuf.Empty);
+    rpc ExecVMProcess (ExecVMProcessRequest) returns (ExecVMProcessResponse);
+    rpc SyncClock (SyncClockPacket) returns (SyncClockPacket);
+    rpc GetEvents (google.protobuf.Empty) returns (containerd.services.events.ttrpc.v1.Envelope);
 }
 
 message CheckRequest {
-	string service = 1;
+    string service = 1;
 }
 
 message ExecVMProcessRequest {
-	string command = 1;
-	bytes stdin = 2;
+    string command = 1;
+    bytes stdin = 2;
 }
 
 message ExecVMProcessResponse {
-	string out = 1;
+    string out = 1;
 }
 
 // SyncClockPacket is the data struct for time syncing ttrpc call
@@ -51,11 +53,11 @@ message ExecVMProcessResponse {
 // process inside the vm will set the guest time to add the Delta to the current time
 // the ClientSendTime/ClientArriveTime/ServerSendTime/ServerArriveTime are all in nanosecond.
 message SyncClockPacket {
-	int64 ClientSendTime = 1;
-	int64 ClientArriveTime = 2;
-	int64 ServerSendTime = 3;
-	int64 ServerArriveTime = 4;
-	int64 Delta = 5;
+    int64 ClientSendTime = 1;
+    int64 ClientArriveTime = 2;
+    int64 ServerSendTime = 3;
+    int64 ServerArriveTime = 4;
+    int64 Delta = 5;
 }
 
 //
@@ -66,44 +68,44 @@ message SyncClockPacket {
 //
 
 enum IPFamily {
-	v4 = 0;
-	v6 = 1;
+    v4 = 0;
+    v6 = 1;
 }
 
 message IPAddress {
-	IPFamily family = 1;
-	string address = 2;
-	string mask = 3;
+    IPFamily family = 1;
+    string address = 2;
+    string mask = 3;
 }
 
 message Interface {
-	string device = 1;
-	string name = 2;
-	repeated IPAddress IPAddresses = 3;
-	uint64 mtu = 4;
-	string hwAddr = 5;
+    string device = 1;
+    string name = 2;
+    repeated IPAddress IPAddresses = 3;
+    uint64 mtu = 4;
+    string hwAddr = 5;
 
-	// Type defines the type of interface described by this structure.
-	// The expected values are the one that are defined by the netlink
-	// library, regarding each type of link. Here is a non exhaustive
-	// list: "veth", "macvtap", "vlan", "macvlan", "tap", ...
-	string type = 6;
-	uint32 raw_flags = 7;
+    // Type defines the type of interface described by this structure.
+    // The expected values are the one that are defined by the netlink
+    // library, regarding each type of link. Here is a non exhaustive
+    // list: "veth", "macvtap", "vlan", "macvlan", "tap", ...
+    string type = 6;
+    uint32 raw_flags = 7;
 }
 
 message Route {
-	string dest = 1;
-	string gateway = 2;
-	string device = 3;
-	string source = 4;
-	uint32 scope = 5;
-	IPFamily family = 6;
+    string dest = 1;
+    string gateway = 2;
+    string device = 3;
+    string source = 4;
+    uint32 scope = 5;
+    IPFamily family = 6;
 }
 
 message UpdateInterfacesRequest {
-	repeated Interface interfaces = 1;
+    repeated Interface interfaces = 1;
 }
 
 message UpdateRoutesRequest {
-	repeated Route routes = 1;
+    repeated Route routes = 1;
 }
