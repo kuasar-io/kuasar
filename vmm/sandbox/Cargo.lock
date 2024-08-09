@@ -223,6 +223,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
 
 [[package]]
+name = "base64"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -317,6 +323,12 @@ name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
+
+[[package]]
+name = "cfg_aliases"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd16c4719339c4530435d38e511904438d07cce7950afa3718a84ac36c10e89e"
 
 [[package]]
 name = "cgroups-rs"
@@ -426,11 +438,12 @@ dependencies = [
 [[package]]
 name = "containerd-sandbox"
 version = "0.1.0"
-source = "git+https://github.com/kuasar-io/rust-extensions.git#a0fac88f1594ae9694d4cec65b21c57108915c70"
+source = "git+https://github.com/kuasar-io/rust-extensions.git#53b4ca86b3461efb22b881b891e41fb45e264c7f"
 dependencies = [
  "anyhow",
  "async-stream",
  "async-trait",
+ "base64 0.22.1",
  "futures",
  "go-flag",
  "libc",
@@ -454,7 +467,7 @@ dependencies = [
 [[package]]
 name = "containerd-shim"
 version = "0.3.0"
-source = "git+https://github.com/kuasar-io/rust-extensions.git#a0fac88f1594ae9694d4cec65b21c57108915c70"
+source = "git+https://github.com/kuasar-io/rust-extensions.git#53b4ca86b3461efb22b881b891e41fb45e264c7f"
 dependencies = [
  "async-trait",
  "cgroups-rs 0.2.11",
@@ -465,7 +478,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "log",
- "nix 0.25.1",
+ "nix 0.28.0",
  "oci-spec",
  "page_size",
  "pin-project-lite",
@@ -485,12 +498,12 @@ dependencies = [
 [[package]]
 name = "containerd-shim-protos"
 version = "0.2.0"
-source = "git+https://github.com/kuasar-io/rust-extensions.git#a0fac88f1594ae9694d4cec65b21c57108915c70"
+source = "git+https://github.com/kuasar-io/rust-extensions.git#53b4ca86b3461efb22b881b891e41fb45e264c7f"
 dependencies = [
  "async-trait",
  "protobuf 3.2.0",
  "ttrpc",
- "ttrpc-codegen",
+ "ttrpc-codegen 0.4.2",
 ]
 
 [[package]]
@@ -1208,6 +1221,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "memoffset"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
+dependencies = [
+ "autocfg",
+]
+
+[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1380,6 +1402,19 @@ dependencies = [
  "memoffset 0.7.1",
  "pin-utils",
  "static_assertions",
+]
+
+[[package]]
+name = "nix"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab2156c4fce2f8df6c499cc1c763e4394b7482525bf2a9701c9d79d215f519e4"
+dependencies = [
+ "bitflags 2.3.3",
+ "cfg-if 1.0.0",
+ "cfg_aliases",
+ "libc",
+ "memoffset 0.9.1",
 ]
 
 [[package]]
@@ -1561,7 +1596,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "059a34f111a9dee2ce1ac2826a68b24601c4298cfeb1a587c3cb493d5ab46f52"
 dependencies = [
  "libc",
- "nix 0.26.2",
+ "nix 0.25.1",
 ]
 
 [[package]]
@@ -1848,7 +1883,7 @@ version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b360919a24ea5fc02fa762cb01bd8f43b643fee51c585f763257773b4dc5a9e8"
 dependencies = [
- "base64",
+ "base64 0.13.1",
  "serde",
  "serde_json",
 ]
@@ -2394,7 +2429,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "axum",
- "base64",
+ "base64 0.13.1",
  "bytes 1.4.0",
  "futures-core",
  "futures-util",
@@ -2551,6 +2586,17 @@ dependencies = [
 
 [[package]]
 name = "ttrpc-codegen"
+version = "0.4.1"
+source = "git+https://github.com/kuasar-io/ttrpc-rust.git?branch=v0.7.1-kuasar#db83ba89c4e315a680860341080deec0aa400609"
+dependencies = [
+ "protobuf 2.28.0",
+ "protobuf-codegen 3.2.0",
+ "protobuf-support",
+ "ttrpc-compiler 0.6.1 (git+https://github.com/kuasar-io/ttrpc-rust.git?branch=v0.7.1-kuasar)",
+]
+
+[[package]]
+name = "ttrpc-codegen"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94d7f7631d7a9ebed715a47cd4cb6072cbc7ae1d4ec01598971bbec0024340c2"
@@ -2558,7 +2604,7 @@ dependencies = [
  "protobuf 2.28.0",
  "protobuf-codegen 3.2.0",
  "protobuf-support",
- "ttrpc-compiler",
+ "ttrpc-compiler 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2566,6 +2612,20 @@ name = "ttrpc-compiler"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec3cb5dbf1f0865a34fe3f722290fe776cacb16f50428610b779467b76ddf647"
+dependencies = [
+ "derive-new",
+ "prost 0.8.0",
+ "prost-build 0.8.0",
+ "prost-types 0.8.0",
+ "protobuf 2.28.0",
+ "protobuf-codegen 2.28.0",
+ "tempfile",
+]
+
+[[package]]
+name = "ttrpc-compiler"
+version = "0.6.1"
+source = "git+https://github.com/kuasar-io/ttrpc-rust.git?branch=v0.7.1-kuasar#db83ba89c4e315a680860341080deec0aa400609"
 dependencies = [
  "derive-new",
  "prost 0.8.0",
@@ -2665,7 +2725,7 @@ dependencies = [
  "regex",
  "serde",
  "ttrpc",
- "ttrpc-codegen",
+ "ttrpc-codegen 0.4.1",
 ]
 
 [[package]]

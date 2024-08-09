@@ -254,6 +254,14 @@ where
         Ok(())
     }
 
+    async fn update(&self, id: &str, data: SandboxData) -> Result<()> {
+        let sandbox_mutex = self.sandbox(id).await?;
+        let mut sandbox = sandbox_mutex.lock().await;
+        sandbox.data = data;
+        sandbox.dump().await?;
+        Ok(())
+    }
+
     async fn sandbox(&self, id: &str) -> Result<Arc<Mutex<Self::Sandbox>>> {
         Ok(self
             .sandboxes

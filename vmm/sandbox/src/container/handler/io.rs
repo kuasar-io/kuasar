@@ -90,7 +90,7 @@ pub async fn attach_pipe<T: VM + Sync + Send>(
     sandbox: &mut KuasarSandbox<T>,
     io_devices: &mut Vec<String>,
 ) -> Result<String> {
-    let name = if !path.is_empty() && !path.contains("vsock") {
+    let name = if !path.is_empty() && !path.contains("://") {
         let (id, chardev_id) = sandbox.hot_attach_pipe(path).await?;
         io_devices.push(id);
         chardev_id

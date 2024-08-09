@@ -25,6 +25,8 @@ fn main() {
         "src/protos/google/protobuf/descriptor.proto",
         "src/protos/google/protobuf/empty.proto",
         "src/protos/google/protobuf/timestamp.proto",
+        "src/protos/streaming.proto",
+        "src/protos/containerd/types/transfer/data.proto",
     ];
 
     Codegen::new()
