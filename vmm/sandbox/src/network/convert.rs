@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+use netlink_packet_route::{AF_INET, AF_INET6};
 use protobuf::{EnumOrUnknown, SpecialFields};
 use vmm_common::api::sandbox::{IPAddress, IPFamily, Interface, Route};
 
@@ -24,12 +25,7 @@ impl From<&NetworkInterface> for Interface {
         Self {
             device: interface.name.to_string(),
             name: interface.name.to_string(),
-            IPAddresses: interface
-                .ip_addresses
-                .iter()
-                .filter(|x| x.ip.is_ipv4())
-                .map(|i| i.into())
-                .collect(),
+            IPAddresses: interface.ip_addresses.iter().map(|i| i.into()).collect(),
             mtu: interface.mtu as u64,
             hwAddr: interface.mac_address.to_string(),
             raw_flags: interface.flags,
@@ -62,7 +58,11 @@ impl From<&crate::network::Route> for Route {
             device: r.device.to_string(),
             source: r.source.to_string(),
             scope: r.scope,
-            family: Default::default(),
+            family: EnumOrUnknown::from(match r.family {
+                AF_INET => IPFamily::v4,
+                AF_INET6 => IPFamily::v6,
+                _ => IPFamily::default(),
+            }),
             special_fields: Default::default(),
         }
     }

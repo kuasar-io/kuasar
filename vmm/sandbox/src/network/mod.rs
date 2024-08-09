@@ -49,6 +49,29 @@ pub struct Network {
     routes: Vec<Route>,
 }
 
+async fn get_route(
+    ip_version: IpVersion,
+    handle: &Handle,
+    intfs: &[NetworkInterface],
+    routes: &mut Vec<Route>,
+) -> Result<()> {
+    let mut route_msgs = handle.route().get(ip_version).execute();
+    while let Some(route_msg) = route_msgs.try_next().await.map_err(|e| anyhow!("{}", e))? {
+        let route_res = Route::parse_from_message(route_msg, intfs);
+        match route_res {
+            Ok(r) => {
+                routes.push(r);
+            }
+            Err(e) => {
+                // ignore those routes that can not be parsed
+                debug!("can not parse the route message to route {}", e);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 impl Network {
     pub async fn new(config: NetworkConfig) -> Result<Self> {
         debug!("create network with config: {:?}", config);
@@ -91,21 +114,9 @@ impl Network {
         let intfs = Self::filter_intfs(intfs);
 
         // get all routes from netns
-        // TODO ipv6 routes not supported yet
-        let mut route_msgs = handle.route().get(IpVersion::V4).execute();
         let mut routes = vec![];
-        while let Some(route_msg) = route_msgs.try_next().await.map_err(|e| anyhow!("{}", e))? {
-            let route_res = Route::parse_from_message(route_msg, &intfs);
-            match route_res {
-                Ok(r) => {
-                    routes.push(r);
-                }
-                Err(e) => {
-                    // ignore those routes that can not be parsed
-                    debug!("can not parse the route message to route {}", e);
-                }
-            }
-        }
+        get_route(IpVersion::V4, &handle, &intfs, &mut routes).await?;
+        get_route(IpVersion::V6, &handle, &intfs, &mut routes).await?;
 
         Ok(Network {
             config,
