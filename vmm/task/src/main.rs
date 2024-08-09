@@ -301,17 +301,39 @@ async fn handle_signals(signals: Signals) {
     }
 }
 
+lazy_static! {
+    static ref DEFAULT_SYSCTL: HashMap<&'static str, &'static str> = {
+        let mut map = HashMap::new();
+
+        // Enable memory hierarchical account.
+        // For more information see https://www.kernel.org/doc/Documentation/cgroup-v1/memory.txt
+        map.insert("/sys/fs/cgroup/memory/memory.use_hierarchy", "1");
+
+        // Set overcommit_memory to 1, allowing the kernel to overcommit memory,
+        // allocate more memory than is physically available
+        map.insert("/proc/sys/vm/overcommit_memory", "1");
+
+        // Enable automatic expiration of nodest connections
+        map.insert("/proc/sys/net/ipv4/vs/expire_nodest_conn", "1");
+        map
+    };
+}
+
 async fn init_vm_rootfs() -> Result<()> {
     let mounts = VM_ROOTFS_MOUNTS.clone();
     mount_static_mounts(mounts).await?;
     // has to mount /proc before find cgroup mounts
     let cgroup_mounts = get_cgroup_mounts(PROC_CGROUPS, false).await?;
     mount_static_mounts(cgroup_mounts).await?;
-    // Enable memory hierarchical account.
-    // For more information see https://www.kernel.org/doc/Documentation/cgroup-v1/memory.txt
-    tokio::fs::write("/sys/fs/cgroup/memory/memory.use_hierarchy", "1")
-        .await
-        .map_err(io_error!(e, "failed to set cgroup hierarchy to 1"))
+
+    // Set default sysctl
+    for sysctl in DEFAULT_SYSCTL.iter() {
+        tokio::fs::write(&sysctl.0, &sysctl.1)
+            .await
+            .map_err(io_error!(e, "failed to set cgroup hierarchy to 1"))?;
+    }
+
+    Ok(())
 }
 
 // Continue to do initialization that depend on shared path.
