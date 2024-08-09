@@ -39,11 +39,13 @@ use nix::{
     unistd::{fork, getpid, pause, pipe, ForkResult, Pid},
 };
 use signal_hook_tokio::Signals;
+use streaming::STREAMING_SERVICE;
 use tokio::{fs::File, sync::mpsc::channel};
 use vmm_common::{
-    api::sandbox_ttrpc::create_sandbox_service, mount::mount, ETC_RESOLV, HOSTNAME_FILENAME,
-    IPC_NAMESPACE, KUASAR_STATE_DIR, PID_NAMESPACE, RESOLV_FILENAME, SANDBOX_NS_PATH,
-    UTS_NAMESPACE,
+    api::{sandbox_ttrpc::create_sandbox_service, streaming_ttrpc::create_streaming},
+    mount::mount,
+    ETC_RESOLV, HOSTNAME_FILENAME, IPC_NAMESPACE, KUASAR_STATE_DIR, PID_NAMESPACE, RESOLV_FILENAME,
+    SANDBOX_NS_PATH, UTS_NAMESPACE,
 };
 
 use crate::{
@@ -64,6 +66,7 @@ mod netlink;
 mod sandbox;
 mod sandbox_service;
 mod stream;
+mod streaming;
 mod task;
 mod util;
 mod vsock;
@@ -374,10 +377,13 @@ async fn create_ttrpc_server() -> anyhow::Result<Server> {
     sandbox.handle_localhost().await?;
     let sandbox_service = create_sandbox_service(Arc::new(Box::new(sandbox)));
 
+    let streaming_service = create_streaming(Arc::new(Box::new(STREAMING_SERVICE.clone())));
+
     Ok(Server::new()
         .bind("vsock://-1:1024")?
         .register_service(task_service)
-        .register_service(sandbox_service))
+        .register_service(sandbox_service)
+        .register_service(streaming_service))
 }
 
 async fn setup_sandbox_ns(share_pidns: bool) -> Result<()> {

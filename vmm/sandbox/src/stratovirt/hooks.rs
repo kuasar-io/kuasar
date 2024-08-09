@@ -42,7 +42,7 @@ impl Hooks<StratoVirtVM> for StratoVirtHooks {
     }
 
     async fn post_start(&self, sandbox: &mut KuasarSandbox<StratoVirtVM>) -> Result<()> {
-        sandbox.data.task_address = sandbox.vm.agent_socket.to_string();
+        sandbox.data.task_address = format!("ttrpc+{}", sandbox.vm.agent_socket);
         // sync clock
         sandbox.sync_clock().await;
         Ok(())
