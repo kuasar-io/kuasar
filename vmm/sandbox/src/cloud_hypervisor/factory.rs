@@ -22,7 +22,6 @@ use crate::{
         devices::{console::Console, fs::Fs, pmem::Pmem, rng::Rng, vsock::Vsock},
         CloudHypervisorVM,
     },
-    sandbox::has_shared_pid_namespace,
     utils::get_netns,
     vm::VMFactory,
 };
@@ -47,9 +46,6 @@ impl VMFactory for CloudHypervisorVMFactory {
     ) -> containerd_sandbox::error::Result<Self::VM> {
         let netns = get_netns(&s.sandbox);
         let mut vm = CloudHypervisorVM::new(id, &netns, &s.base_dir, &self.vm_config);
-        if has_shared_pid_namespace(&s.sandbox) {
-            vm.config.cmdline.push_str(" task.share_pidns")
-        }
         // add image as a disk
         if !self.vm_config.common.image_path.is_empty() {
             let rootfs_device = Pmem::new("rootfs", &self.vm_config.common.image_path, true);
