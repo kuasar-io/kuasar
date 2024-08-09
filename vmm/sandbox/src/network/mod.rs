@@ -52,7 +52,7 @@ pub struct Network {
 async fn get_route(
     ip_version: IpVersion,
     handle: &Handle,
-    intfs: &Vec<NetworkInterface>,
+    intfs: &[NetworkInterface],
     routes: &mut Vec<Route>,
 ) -> Result<()> {
     let mut route_msgs = handle.route().get(ip_version).execute();
