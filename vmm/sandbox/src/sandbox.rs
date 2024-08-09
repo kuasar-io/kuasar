@@ -28,6 +28,7 @@ use containerd_sandbox::{
 };
 use containerd_shim::{protos::api::Envelope, util::write_str_to_file};
 use log::{debug, error, info, warn};
+use protobuf::{well_known_types::any::Any, MessageField};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::{
     fs::{copy, create_dir_all, remove_dir_all, OpenOptions},
@@ -36,17 +37,14 @@ use tokio::{
 };
 use ttrpc::context::with_timeout;
 use vmm_common::{
-    api::{empty::Empty, sandbox_ttrpc::SandboxServiceClient},
+    api::{empty::Empty, sandbox::SetupSandboxRequest, sandbox_ttrpc::SandboxServiceClient},
     storage::Storage,
     ETC_HOSTS, ETC_RESOLV, HOSTNAME_FILENAME, HOSTS_FILENAME, RESOLV_FILENAME, SHARED_DIR_SUFFIX,
 };
 
 use crate::{
     cgroup::{SandboxCgroup, DEFAULT_CGROUP_PARENT_PATH},
-    client::{
-        client_check, client_sync_clock, client_update_interfaces, client_update_routes,
-        new_sandbox_client,
-    },
+    client::{client_check, client_setup_sandbox, client_sync_clock, new_sandbox_client},
     container::KuasarContainer,
     network::{Network, NetworkConfig},
     utils::{get_dns_config, get_hostname, get_resources, get_sandbox_cgroup_parent_path},
@@ -459,9 +457,9 @@ where
             return Err(e);
         }
 
-        if let Err(e) = self.setup_network().await {
+        if let Err(e) = self.setup_sandbox().await {
             if let Err(re) = self.vm.stop(true).await {
-                warn!("roll back in init task client: {}", re);
+                error!("roll back in setup sandbox client: {}", re);
                 return Err(e);
             }
             return Err(e);
@@ -534,13 +532,37 @@ where
         Ok(())
     }
 
-    pub(crate) async fn setup_network(&mut self) -> Result<()> {
-        if let Some(network) = self.network.as_ref() {
-            if let Some(client) = &*self.client.lock().await {
-                client_update_interfaces(client, network.interfaces()).await?;
-                client_update_routes(client, network.routes()).await?;
+    pub(crate) async fn setup_sandbox(&mut self) -> Result<()> {
+        let mut req = SetupSandboxRequest::new();
+
+        if let Some(client) = &*self.client.lock().await {
+            // Set PodSandboxConfig
+            if let Some(config) = &self.data.config {
+                let config_str = serde_json::to_vec(config).map_err(|e| {
+                    Error::Other(anyhow!(
+                        "failed to marshal PodSandboxConfig to string, {:?}",
+                        e
+                    ))
+                })?;
+
+                let mut any = Any::new();
+                any.type_url = "PodSandboxConfig".to_string();
+                any.value = config_str;
+
+                req.config = MessageField::some(any);
             }
+
+            if let Some(network) = self.network.as_ref() {
+                // Set interfaces
+                req.interfaces = network.interfaces().iter().map(|x| x.into()).collect();
+
+                // Set routes
+                req.routes = network.routes().iter().map(|x| x.into()).collect();
+            }
+
+            client_setup_sandbox(client, &req).await?;
         }
+
         Ok(())
     }
 

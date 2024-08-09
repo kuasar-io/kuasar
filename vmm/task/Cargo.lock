@@ -2196,6 +2196,7 @@ dependencies = [
  "protobuf 3.2.0",
  "regex",
  "serde",
+ "tonic-build",
  "ttrpc",
  "ttrpc-codegen 0.4.1",
 ]
@@ -2206,6 +2207,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "containerd-sandbox",
  "containerd-shim",
  "crossbeam",
  "env_logger",

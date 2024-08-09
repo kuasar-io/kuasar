@@ -21,3 +21,4 @@ regex = "1.5.6"
 
 [build-dependencies]
 ttrpc-codegen = { git = "https://github.com/kuasar-io/ttrpc-rust.git", branch = "v0.7.1-kuasar" }
+tonic-build = "0.7.2"
