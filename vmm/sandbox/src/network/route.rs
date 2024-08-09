@@ -32,6 +32,8 @@ pub struct Route {
     pub gateway: String,
     #[serde(default)]
     pub scope: u32,
+    #[serde(default)]
+    pub family: u16,
 }
 
 impl Route {
@@ -41,6 +43,7 @@ impl Route {
         }
         let mut route = Route {
             scope: msg.header.scope as u32,
+            family: msg.header.address_family as u16,
             ..Route::default()
         };
         use netlink_packet_route::nlas::route::Nla;
