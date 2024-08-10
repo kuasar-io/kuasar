@@ -311,7 +311,8 @@ impl ProcessFactory<ExecProcess> for KuasarExecFactory {
     async fn create(&self, req: &ExecProcessRequest) -> Result<ExecProcess> {
         let p = get_spec_from_request(req)?;
         let stdio = match read_io(&self.bundle, req.id(), Some(req.exec_id())).await {
-            Ok(io) => Stdio::new(&io.stdin, &io.stdout, &io.stderr, io.terminal),
+            // terminal is still determined from request
+            Ok(io) => Stdio::new(&io.stdin, &io.stdout, &io.stderr, req.terminal()),
             Err(_) => Stdio::new(req.stdin(), req.stdout(), req.stderr(), req.terminal()),
         };
         let stdio = convert_stdio(&stdio).await?;

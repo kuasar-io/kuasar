@@ -49,7 +49,11 @@ use tokio::{
 };
 use tokio_vsock::{VsockListener, VsockStream};
 
-use crate::{device::SYSTEM_DEV_PATH, vsock};
+use crate::{
+    device::SYSTEM_DEV_PATH,
+    streaming::{get_output, get_stdin, remove_channel},
+    vsock,
+};
 
 pub struct ProcessIO {
     pub io: Option<Arc<dyn Io>>,
@@ -57,6 +61,7 @@ pub struct ProcessIO {
 }
 
 const VSOCK: &str = "vsock";
+const STREAMING: &str = "streaming";
 
 pub fn create_io(
     id: &str,
@@ -102,7 +107,7 @@ pub fn create_io(
         };
         pio.io = Some(Arc::new(io));
         pio.copy = false;
-    } else if scheme.contains(VSOCK) {
+    } else {
         let opt = IOOption {
             open_stdin: !stdio.stdin.is_empty(),
             open_stdout: !stdio.stdout.is_empty(),
@@ -238,7 +243,15 @@ where
 {
     let src = from;
     tokio::spawn(async move {
-        let dst: Box<dyn AsyncWrite + Unpin + Send> = if to.contains(VSOCK) {
+        let dst: Box<dyn AsyncWrite + Unpin + Send> = if to.contains(STREAMING) {
+            match get_output(&to).await {
+                Ok(output) => Box::new(output),
+                Err(e) => {
+                    error!("failed to get streaming by {}, {}", to, e);
+                    return;
+                }
+            }
+        } else if to.contains(VSOCK) {
             tokio::select! {
                 _ = exit_signal.wait() => {
                     debug!("container already exited, maybe nobody should connect vsock");
@@ -264,6 +277,9 @@ where
             }
         };
         copy(src, dst, exit_signal, on_close).await;
+        if to.contains(STREAMING) {
+            remove_channel(&to).await.unwrap_or_default();
+        }
         debug!("finished copy io from container to {}", to);
     });
     Ok(())
@@ -281,7 +297,15 @@ where
 {
     let dst = to;
     tokio::spawn(async move {
-        let src: Box<dyn AsyncRead + Unpin + Send> = if from.contains(VSOCK) {
+        let src: Box<dyn AsyncRead + Unpin + Send> = if from.contains(STREAMING) {
+            match get_stdin(&from).await {
+                Ok(stdin) => Box::new(stdin),
+                Err(e) => {
+                    error!("failed to get streaming by {}, {}", from, e);
+                    return;
+                }
+            }
+        } else if from.contains(VSOCK) {
             tokio::select! {
                 _ = exit_signal.wait() => {
                     debug!("container already exited, maybe nobody should connect");
@@ -307,6 +331,9 @@ where
             }
         };
         copy(src, dst, exit_signal, on_close).await;
+        if from.contains(STREAMING) {
+            remove_channel(&from).await.unwrap_or_default();
+        }
         debug!("finished copy io from {} to container", from);
     });
     Ok(())

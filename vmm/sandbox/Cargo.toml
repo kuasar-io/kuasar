@@ -8,14 +8,14 @@ edition = "2021"
 panic = 'abort'
 
 [build-dependencies]
-built = { version = "0.7.0", features=["cargo-lock", "dependency-tree", "git2", "chrono", "semver"] }
+built = { version = "0.7.0", features = ["cargo-lock", "dependency-tree", "git2", "chrono", "semver"] }
 
 [dependencies]
-built = { version = "0.7.0", features=["cargo-lock", "dependency-tree", "git2", "chrono", "semver"] }
-clap = { version="4.4.2", features=["derive"] }
+built = { version = "0.7.0", features = ["cargo-lock", "dependency-tree", "git2", "chrono", "semver"] }
+clap = { version = "4.4.2", features = ["derive"] }
 tokio = { version = "1.19.2", features = ["full"] }
-containerd-sandbox = {git="https://github.com/kuasar-io/rust-extensions.git"}
-containerd-shim = { git="https://github.com/kuasar-io/rust-extensions.git", features=["async"] }
+containerd-sandbox = { git = "https://github.com/kuasar-io/rust-extensions.git" }
+containerd-shim = { git = "https://github.com/kuasar-io/rust-extensions.git", features = ["async"] }
 vmm-common = { path = "../common" }
 bytefmt = "0.1.7"
 async-trait = "0.1.56"
@@ -38,7 +38,7 @@ uuid = { version = "1.1.2", features = ["v4"] }
 unshare = { version = "0.7.0" }
 os_pipe = { version = "0.9.2" }
 qapi = { version = "0.8.0", features = ["qmp", "async-tokio-all"] }
-qapi-spec = {version = "0.3.1"}
+qapi-spec = { version = "0.3.1" }
 sandbox-derive = { path = "derive" }
 api_client = { git = "https://github.com/cloud-hypervisor/cloud-hypervisor.git" }
 rtnetlink = "0.13.1"
@@ -52,17 +52,16 @@ hostname = "0.3"
 path-clean = "1.0.1"
 
 [[bin]]
-name = "qemu" 
+name = "qemu"
 path = "src/bin/qemu/main.rs"
 
 [[bin]]
-name = "cloud_hypervisor" 
+name = "cloud_hypervisor"
 path = "src/bin/cloud_hypervisor/main.rs"
 
 [[bin]]
-name = "stratovirt" 
+name = "stratovirt"
 path = "src/bin/stratovirt/main.rs"
 
 [dev-dependencies]
 temp-dir = "0.1.11"
-
