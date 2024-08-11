@@ -50,8 +50,13 @@ cgroups-rs = "0.3.2"
 proc-macro2 = "1.0.66"
 hostname = "0.3"
 path-clean = "1.0.1"
+
 tracing = "0.1.40"
-tracing-subscriber = {version = "0.3.18", features = ["registry", "fmt", "std", "env-filter"] }
+tracing-opentelemetry = "0.21.0"
+tracing-subscriber = { version = "0.3.18", features = ["json", "env-filter"] }
+
+opentelemetry = { version = "0.20.0", features = ["rt-tokio"] }
+opentelemetry-otlp = "0.13.0"
 
 [[bin]]
 name = "qemu"

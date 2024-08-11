@@ -15,7 +15,12 @@ limitations under the License.
 */
 
 use clap::Parser;
-use tracing::error;
+use opentelemetry::global;
+use tracing::{error, info_span};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::Layer;
+use vmm_common::tracer::{create_logger_filter, create_otlp_tracer};
 use vmm_sandboxer::{
     args,
     config::Config,
@@ -23,7 +28,6 @@ use vmm_sandboxer::{
     stratovirt::{
         config::StratoVirtVMConfig, factory::StratoVirtVMFactory, hooks::StratoVirtHooks,
     },
-    utils::init_logger,
     version,
 };
 
@@ -38,10 +42,34 @@ async fn main() {
     let config: Config<StratoVirtVMConfig> = Config::load_config(&args.config).await.unwrap();
 
     // Update args log level if it not presents args but in config.
-    if let Err(e) = init_logger(&args.log_level.unwrap_or(config.sandbox.log_level())) {
-        error!("failed to init logger: {:?}", e);
-        return;
+    let env_filter =
+        match create_logger_filter(&args.log_level.unwrap_or(config.sandbox.log_level())) {
+            Ok(filter) => filter,
+            Err(e) => {
+                error!("failed to init logger filter: {:?}", e);
+                return;
+            }
+        };
+
+    let mut layers = vec![tracing_subscriber::fmt::layer().boxed()];
+    if config.sandbox.enable_tracing {
+        let tracer = match create_otlp_tracer("kuasar-vmm-sandboxer-stratovirt-otlp-service", None)
+        {
+            Ok(tracer) => tracer,
+            Err(e) => {
+                error!("failed to init otlp tracer: {:?}", e);
+                return;
+            }
+        };
+        layers.push(tracing_opentelemetry::layer().with_tracer(tracer).boxed());
     }
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(layers)
+        .init();
+
+    let root_span = info_span!("kuasar-vmm-sandboxer-stratovirt-root").entered();
 
     let mut sandboxer: KuasarSandboxer<StratoVirtVMFactory, StratoVirtHooks> = KuasarSandboxer::new(
         config.sandbox,
@@ -61,4 +89,7 @@ async fn main() {
     )
     .await
     .unwrap();
+
+    root_span.exit();
+    global::shutdown_tracer_provider();
 }

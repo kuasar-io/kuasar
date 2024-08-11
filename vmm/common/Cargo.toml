@@ -20,7 +20,11 @@ async-trait = "0.1"
 regex = "1.5.6"
 
 tracing = "0.1.40"
-tracing-subscriber = {version = "0.3.18", features = ["registry", "fmt", "std", "env-filter"] }
+tracing-opentelemetry = "0.21.0"
+tracing-subscriber = { version = "0.3.18", features = ["json", "env-filter"] }
+
+opentelemetry = { version = "0.20.0", features = ["rt-tokio"] }
+opentelemetry-otlp = "0.13.0"
 
 [build-dependencies]
 ttrpc-codegen = { git = "https://github.com/kuasar-io/ttrpc-rust.git", branch = "v0.7.1-kuasar" }

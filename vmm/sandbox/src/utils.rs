@@ -24,7 +24,6 @@ use std::{
         },
     },
     path::Path,
-    str::FromStr,
     time::Duration,
 };
 
@@ -49,9 +48,7 @@ use tokio::{
     sync::watch::Receiver,
     time::sleep,
 };
-use tracing::level_filters::LevelFilter;
 use tracing::{error, info};
-use tracing_subscriber::{self, fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use vmm_common::NET_NAMESPACE;
 
 pub async fn read_file<P: AsRef<Path>>(filename: P) -> Result<String> {
@@ -503,16 +500,4 @@ pub fn get_sandbox_cgroup_parent_path(data: &SandboxData) -> Option<String> {
         .as_ref()
         .and_then(|c| c.linux.as_ref())
         .map(|l| l.cgroup_parent.clone())
-}
-
-pub fn init_logger(level: &str) -> anyhow::Result<()> {
-    let log_level = LevelFilter::from_str(&level)?;
-    let filter = EnvFilter::from_default_env()
-        .add_directive(format!("containerd_sandbox={:?}", log_level).parse()?)
-        .add_directive(format!("vmm_sandboxer={:?}", log_level).parse()?);
-    tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(filter)
-        .init();
-    Ok(())
 }

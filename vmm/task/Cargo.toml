@@ -26,8 +26,13 @@ netlink-packet-core = "0.7.0"
 ipnetwork = "0.20"
 anyhow = { version = "1.0.66", default-features = false, features = ["std", "backtrace"] }
 protobuf = "3.2"
+
 tracing = "0.1.40"
-tracing-subscriber = {version = "0.3.18", features = ["registry", "fmt", "std", "env-filter"] }
+tracing-opentelemetry = "0.21.0"
+tracing-subscriber = { version = "0.3.18", features = ["json", "env-filter"] }
+
+opentelemetry = { version = "0.20.0", features = ["rt-tokio"] }
+opentelemetry-otlp = "0.13.0"
 
 # Async dependencies
 async-trait = { version = "0.1.51" }
