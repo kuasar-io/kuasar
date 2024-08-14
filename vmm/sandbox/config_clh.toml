@@ -21,3 +21,4 @@ path = "/usr/local/bin/virtiofsd"
 log_level = "info"
 cache = "never"
 thread_pool_size = 4
+syslog = true
