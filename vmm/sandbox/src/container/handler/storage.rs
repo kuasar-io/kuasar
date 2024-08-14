@@ -21,7 +21,10 @@ use containerd_sandbox::{
     Sandbox,
 };
 use log::debug;
-use vmm_common::{storage::ANNOTATION_KEY_STORAGE, DEV_SHM, STORAGE_FILE_PREFIX};
+use vmm_common::{
+    storage::{Storage, ANNOTATION_KEY_STORAGE},
+    DEV_SHM, STORAGE_FILE_PREFIX,
+};
 
 use crate::{
     container::handler::Handler, sandbox::KuasarSandbox, storage::mount::is_bind_shm,
@@ -55,14 +58,18 @@ where
         let rootfs = &container.data.rootfs;
 
         let mut handled_mounts = vec![];
-        let mut storages = vec![];
+        let mut storages: Vec<&Storage> = vec![];
 
         for mut m in mounts {
             if let Some(storage) = sandbox.storages.iter().find(|x| x.is_for_mount(&m)) {
                 debug!("found storage {:?} for mount {:?}", storage, m);
                 m.source.clone_from(&storage.mount_point);
-                m.options = vec!["bind".to_string()];
-                if storage.need_guest_handle {
+                m.options.push("bind".to_string());
+                if storage.need_guest_handle
+                    && !storages
+                        .iter()
+                        .any(|s| s.host_source == storage.host_source && s.r#type == storage.r#type)
+                {
                     storages.push(storage);
                 }
             }
