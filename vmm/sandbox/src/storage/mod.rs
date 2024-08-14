@@ -128,7 +128,7 @@ where
         };
 
         let mut storage = Storage {
-            host_source: source.clone(),
+            host_source: m.source.clone(),
             r#type: m.r#type.clone(),
             id: id.to_string(),
             device_id: Some(device_id.to_string()),
@@ -161,6 +161,13 @@ where
         } else {
             m.source.clone()
         };
+
+        let options = if m.options.contains(&"ro".to_string()) {
+            vec!["ro".to_string()]
+        } else {
+            vec![]
+        };
+
         let host_dest = format!("{}/{}", self.get_sandbox_shared_path(), &storage_id);
         debug!("bind mount storage for mount {:?}, dest: {}", m, &host_dest);
         let source_path = Path::new(&*source);
@@ -188,7 +195,7 @@ where
             driver: "".to_string(),
             driver_options: vec![],
             fstype: "bind".to_string(),
-            options: vec![],
+            options,
             mount_point: format!("{}/{}", KUASAR_STATE_DIR, &storage_id),
         };
 
@@ -209,6 +216,13 @@ where
                 m
             )));
         }
+
+        let options = if m.options.contains(&"ro".to_string()) {
+            vec!["ro".to_string()]
+        } else {
+            vec![]
+        };
+
         let host_dest = format!("{}/{}", self.get_sandbox_shared_path(), &storage_id);
         debug!("overlay mount storage for {:?}, dest: {}", m, &host_dest);
         tokio::fs::create_dir_all(&host_dest).await?;
@@ -226,7 +240,7 @@ where
             driver: "".to_string(),
             driver_options: vec![],
             fstype: "bind".to_string(),
-            options: vec![],
+            options,
             mount_point: format!("{}/{}", KUASAR_STATE_DIR, &storage_id),
         };
 
@@ -242,6 +256,12 @@ where
         m: &Mount,
         mount_info: &MountInfo,
     ) -> Result<()> {
+        let options = if m.options.contains(&"ro".to_string()) {
+            vec!["ro".to_string()]
+        } else {
+            vec![]
+        };
+
         let mut storage = Storage {
             host_source: m.source.clone(),
             r#type: m.r#type.clone(),
@@ -253,7 +273,7 @@ where
             driver: DRIVEREPHEMERALTYPE.to_string(),
             driver_options: vec![],
             fstype: "tmpfs".to_string(),
-            options: vec![],
+            options,
             mount_point: format!("{}{}", KUASAR_GUEST_SHARE_DIR, storage_id),
         };
         // only handle size option because other options may not supported in guest

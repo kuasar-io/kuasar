@@ -41,7 +41,7 @@ pub async fn get_file_type<P: AsRef<Path>>(path: P) -> Result<FileType> {
     let real_path = match tokio::fs::canonicalize(path).await {
         Ok(rp) => rp,
         Err(e) => {
-            return Err(e.into());
+            return Err(anyhow!("get file type {}", e).into());
         }
     };
 
