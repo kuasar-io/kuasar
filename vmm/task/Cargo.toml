@@ -36,6 +36,7 @@ tokio-vsock = "0.3.1"
 pin-project-lite = "0.2.7"
 ttrpc = { version = "0.7", features = ["async"] }
 
+containerd-sandbox = { git = "https://github.com/kuasar-io/rust-extensions.git" }
 containerd-shim = { git = "https://github.com/kuasar-io/rust-extensions.git", features = ["async"] }
 runc = { git = "https://github.com/kuasar-io/rust-extensions.git", features = ["async"] }
 

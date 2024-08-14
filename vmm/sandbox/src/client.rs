@@ -48,11 +48,9 @@ use ttrpc::{
     r#async::{Client, TtrpcContext},
 };
 use vmm_common::api::{
-    sandbox::{CheckRequest, SyncClockPacket, UpdateInterfacesRequest, UpdateRoutesRequest},
+    sandbox::{CheckRequest, SetupSandboxRequest, SyncClockPacket},
     sandbox_ttrpc::SandboxServiceClient,
 };
-
-use crate::network::{NetworkInterface, Route};
 
 const HVSOCK_RETRY_TIMEOUT_IN_MS: u64 = 10;
 // TODO: reduce to 10s
@@ -241,34 +239,17 @@ async fn do_check_agent(client: &SandboxServiceClient, timeout: u64) {
     }
 }
 
-pub(crate) async fn client_update_interfaces(
+pub(crate) async fn client_setup_sandbox(
     client: &SandboxServiceClient,
-    intfs: &[NetworkInterface],
+    config: &SetupSandboxRequest,
 ) -> Result<()> {
-    let mut req = UpdateInterfacesRequest::new();
-    req.interfaces = intfs.iter().map(|x| x.into()).collect();
-
     client
-        .update_interfaces(
+        .setup_sandbox(
             with_timeout(Duration::from_secs(10).as_nanos() as i64),
-            &req,
+            config,
         )
         .await
-        .map_err(|e| anyhow!("failed to update interfaces: {}", e))?;
-    Ok(())
-}
-
-pub(crate) async fn client_update_routes(
-    client: &SandboxServiceClient,
-    rts: &[Route],
-) -> Result<()> {
-    let mut req = UpdateRoutesRequest::new();
-    req.routes = rts.iter().map(|x| x.into()).collect();
-
-    client
-        .update_routes(with_timeout(Duration::from_secs(3).as_nanos() as i64), &req)
-        .await
-        .map_err(|e| anyhow!("failed to update routes: {}", e))?;
+        .map_err(|e| anyhow!("failed to setup sandbox: {}", e))?;
     Ok(())
 }
 

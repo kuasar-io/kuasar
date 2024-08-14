@@ -21,6 +21,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use containerd_sandbox::PodSandboxConfig;
 use containerd_shim::{
     error::Result,
     protos::{protobuf::MessageDyn, topics::TASK_OOM_EVENT_TOPIC},
@@ -39,13 +40,13 @@ use vmm_common::{
         empty::Empty,
         events::Envelope,
         sandbox::{
-            CheckRequest, ExecVMProcessRequest, ExecVMProcessResponse, SyncClockPacket,
-            UpdateInterfacesRequest, UpdateRoutesRequest,
+            CheckRequest, ExecVMProcessRequest, ExecVMProcessResponse, SetupSandboxRequest,
+            SyncClockPacket, UpdateInterfacesRequest, UpdateRoutesRequest,
         },
     },
 };
 
-use crate::{netlink::Handle, NAMESPACE};
+use crate::{netlink::Handle, sandbox::setup_sandbox, NAMESPACE};
 
 pub struct SandboxService {
     pub namespace: String,
@@ -90,6 +91,44 @@ impl api::sandbox_ttrpc::SandboxService for SandboxService {
         req: UpdateRoutesRequest,
     ) -> TtrpcResult<Empty> {
         self.handle.lock().await.update_routes(req.routes).await?;
+        Ok(Empty::new())
+    }
+
+    async fn setup_sandbox(
+        &self,
+        _ctx: &TtrpcContext,
+        req: SetupSandboxRequest,
+    ) -> TtrpcResult<Empty> {
+        match req.config.type_url.as_str() {
+            "PodSandboxConfig" => {
+                let config =
+                    serde_json::from_slice::<PodSandboxConfig>(req.config.value.as_slice())
+                        .map_err(|e| {
+                            ttrpc::Error::Others(format!("convert PodSandboxConfig failed: {}", e))
+                        })?;
+                setup_sandbox(&config).await?;
+            }
+            _ => {
+                return Err(ttrpc::Error::RpcStatus(ttrpc::get_status(
+                    ::ttrpc::Code::NOT_FOUND,
+                    format!(
+                        "SetUpSandbox/config/{} is not supported",
+                        &req.config.type_url
+                    ),
+                )));
+            }
+        }
+
+        // Set interfaces
+        self.handle
+            .lock()
+            .await
+            .update_interfaces(req.interfaces)
+            .await?;
+
+        // Set Routes
+        self.handle.lock().await.update_routes(req.routes).await?;
+
         Ok(Empty::new())
     }
 
