@@ -134,6 +134,7 @@ impl CloudHypervisorVM {
         let pid = child
             .id()
             .ok_or(anyhow!("the virtiofsd has been polled to completion"))?;
+        info!("virtiofsd for {} is running with pid {}", self.id, pid);
         spawn_wait(child, format!("virtiofsd {}", self.id), None, None);
         Ok(pid)
     }
@@ -185,6 +186,11 @@ impl VM for CloudHypervisorVM {
                 .map_err(|e| anyhow!("failed to spawn cloud hypervisor command: {}", e))?
         };
         let pid = child.id();
+        info!(
+            "cloud hypervisor for {} is running with pid {}",
+            self.id,
+            pid.unwrap_or_default()
+        );
         self.pids.vmm_pid = pid;
         let pid_file = format!("{}/pid", self.base_dir);
         let (tx, rx) = channel((0u32, 0i128));

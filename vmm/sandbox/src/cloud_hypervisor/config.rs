@@ -65,6 +65,8 @@ pub struct VirtiofsdConfig {
     pub socket_path: String,
     #[serde(default)]
     pub shared_dir: String,
+    #[serde(default)]
+    pub syslog: bool,
 }
 
 impl Default for VirtiofsdConfig {
@@ -76,6 +78,7 @@ impl Default for VirtiofsdConfig {
             thread_pool_size: 4,
             socket_path: "".to_string(),
             shared_dir: "".to_string(),
+            syslog: true,
         }
     }
 }
