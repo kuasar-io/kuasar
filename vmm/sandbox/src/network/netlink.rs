@@ -16,7 +16,7 @@ limitations under the License.
 
 use futures_util::StreamExt;
 use netlink_packet_core::{NetlinkMessage, NLM_F_ACK, NLM_F_CREATE, NLM_F_EXCL, NLM_F_REQUEST};
-use netlink_packet_route::{RtnlMessage, TcMessage};
+use netlink_packet_route::{tc::TcMessage, RouteNetlinkMessage};
 use rtnetlink::{try_nl, Error, Handle};
 
 const HANDLE_INGRESS: u32 = 0xfffffff1;
@@ -42,7 +42,7 @@ impl QDiscAddRequest {
             message,
         } = self;
 
-        let mut req = NetlinkMessage::from(RtnlMessage::NewQueueDiscipline(message));
+        let mut req = NetlinkMessage::from(RouteNetlinkMessage::NewQueueDiscipline(message));
         req.header.flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_EXCL | NLM_F_ACK;
 
         let mut response = handle.request(req)?;
@@ -58,7 +58,7 @@ impl QDiscAddRequest {
     }
 
     pub fn ingress(mut self) -> Self {
-        self.message.header.parent = HANDLE_INGRESS;
+        self.message.header.parent = HANDLE_INGRESS.into();
         self
     }
 }
@@ -73,7 +73,7 @@ impl TrafficFilterSetRequest {
     pub(crate) fn new(handle: Handle, ifindex: i32) -> Self {
         let mut message = TcMessage::default();
         message.header.index = ifindex;
-        message.header.parent = HANDLE_TC_FILTER;
+        message.header.parent = HANDLE_TC_FILTER.into();
 
         Self { handle, message }
     }
@@ -84,7 +84,7 @@ impl TrafficFilterSetRequest {
             message,
         } = self;
 
-        let mut req = NetlinkMessage::from(RtnlMessage::NewTrafficFilter(message));
+        let mut req = NetlinkMessage::from(RouteNetlinkMessage::NewTrafficFilter(message));
         req.header.flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_EXCL | NLM_F_ACK;
 
         let mut response = handle.request(req)?;

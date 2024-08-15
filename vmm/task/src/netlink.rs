@@ -18,7 +18,15 @@ use containerd_shim::{
 };
 use futures::{future, TryStreamExt};
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
-use netlink_packet_route as packet;
+use netlink_packet_route::{
+    address::{AddressAttribute, AddressMessage},
+    link::{LinkAttribute, LinkFlag, LinkMessage},
+    route::{
+        RouteAddress, RouteAttribute, RouteHeader, RouteMessage, RouteProtocol, RouteScope,
+        RouteType,
+    },
+    AddressFamily,
+};
 use nix::errno::Errno;
 use rtnetlink::{new_connection, IpVersion};
 use vmm_common::api::sandbox::{IPAddress, IPFamily, Interface, Route};
@@ -156,16 +164,14 @@ impl Handle {
         let mut stream = filtered.execute();
 
         let next = if let LinkFilter::Address(addr) = filter {
-            use packet::link::nlas::Nla;
-
             let mac_addr = parse_mac_address(addr)?;
 
             // Hardware filter might not be supported by netlink,
             // we may have to dump link list and then find the target link.
             stream
                 .try_filter(|f| {
-                    let result = f.nlas.iter().any(|n| match n {
-                        Nla::Address(data) => data.eq(&mac_addr),
+                    let result = f.attributes.iter().any(|n| match n {
+                        LinkAttribute::Address(data) => data.eq(&mac_addr),
                         _ => false,
                     });
 
@@ -261,10 +267,7 @@ impl Handle {
         Ok(())
     }
 
-    async fn query_routes(
-        &self,
-        ip_version: Option<IpVersion>,
-    ) -> Result<Vec<packet::RouteMessage>> {
+    async fn query_routes(&self, ip_version: Option<IpVersion>) -> Result<Vec<RouteMessage>> {
         let list = if let Some(ip_version) = ip_version {
             self.handle
                 .route()
@@ -316,23 +319,15 @@ impl Handle {
         for route in list {
             let link = self.find_link(LinkFilter::Name(&route.device)).await?;
 
-            const MAIN_TABLE: u8 = packet::constants::RT_TABLE_MAIN;
-            const UNICAST: u8 = packet::constants::RTN_UNICAST;
-            const BOOT_PROT: u8 = packet::constants::RTPROT_BOOT;
-
-            let scope = route.scope as u8;
-
-            use packet::nlas::route::Nla;
-
             // Build a common indeterminate ip request
             let request = self
                 .handle
                 .route()
                 .add()
-                .table(MAIN_TABLE)
-                .kind(UNICAST)
-                .protocol(BOOT_PROT)
-                .scope(scope);
+                .table_id(RouteHeader::RT_TABLE_MAIN as u32)
+                .kind(RouteType::Unicast)
+                .protocol(RouteProtocol::Boot)
+                .scope(RouteScope::from(route.scope as u8));
 
             // `rtnetlink` offers a separate request builders for different IP versions (IP v4 and v6).
             // This if branch is a bit clumsy because it does almost the same.
@@ -359,8 +354,8 @@ impl Handle {
                     } else {
                         request
                             .message_mut()
-                            .nlas
-                            .push(Nla::PrefSource(network.ip().octets().to_vec()));
+                            .attributes
+                            .push(RouteAttribute::PrefSource(RouteAddress::from(network.ip())));
                     }
                 }
 
@@ -371,14 +366,16 @@ impl Handle {
                 }
 
                 if let Err(rtnetlink::Error::NetlinkError(message)) = request.execute().await {
-                    if Errno::from_raw(message.code.abs()) != Errno::EEXIST {
-                        return Err(other!(
-                            "Failed to add IP v6 route (src: {}, dst: {}, gtw: {},Err: {})",
-                            route.source,
-                            route.dest,
-                            route.gateway,
-                            message
-                        ));
+                    if let Some(code) = message.code {
+                        if Errno::from_raw(i32::from(code.abs())) != Errno::EEXIST {
+                            return Err(other!(
+                                "Failed to add IP v6 route (src: {}, dst: {}, gtw: {},Err: {})",
+                                route.source,
+                                route.dest,
+                                route.gateway,
+                                message
+                            ));
+                        }
                     }
                 }
             } else {
@@ -404,8 +401,8 @@ impl Handle {
                     } else {
                         request
                             .message_mut()
-                            .nlas
-                            .push(Nla::PrefSource(network.ip().octets().to_vec()));
+                            .attributes
+                            .push(RouteAttribute::PrefSource(RouteAddress::from(network.ip())));
                     }
                 }
 
@@ -418,14 +415,16 @@ impl Handle {
                 }
 
                 if let Err(rtnetlink::Error::NetlinkError(message)) = request.execute().await {
-                    if Errno::from_raw(message.code.abs()) != Errno::EEXIST {
-                        return Err(other!(
-                            "Failed to add IP v4 route (src: {}, dst: {}, gtw: {},Err: {})",
-                            route.source,
-                            route.dest,
-                            route.gateway,
-                            message
-                        ));
+                    if let Some(code) = message.code {
+                        if Errno::from_raw(i32::from(code.abs())) != Errno::EEXIST {
+                            return Err(other!(
+                                "Failed to add IP v4 route (src: {}, dst: {}, gtw: {},Err: {})",
+                                route.source,
+                                route.dest,
+                                route.gateway,
+                                message
+                            ));
+                        }
                     }
                 }
             }
@@ -436,18 +435,24 @@ impl Handle {
 
     async fn delete_routes<I>(&mut self, routes: I) -> Result<()>
     where
-        I: IntoIterator<Item = packet::RouteMessage>,
+        I: IntoIterator<Item = RouteMessage>,
     {
         for route in routes.into_iter() {
-            if route.header.protocol == packet::constants::RTPROT_KERNEL {
+            if route.header.protocol == RouteProtocol::Kernel {
                 continue;
             }
 
-            let index = if let Some(index) = route.output_interface() {
-                index
-            } else {
-                continue;
-            };
+            let index = route
+                .attributes
+                .iter()
+                .find_map(|attr| {
+                    if let RouteAttribute::Oif(v) = attr {
+                        Some(*v)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_default();
 
             let link = self.find_link(LinkFilter::Index(index)).await?;
 
@@ -469,16 +474,16 @@ impl Handle {
 }
 
 /// Wraps external type with the local one, so we can implement various extensions and type conversions.
-struct Link(packet::LinkMessage);
+struct Link(LinkMessage);
 
 impl Link {
     /// If name.
     fn name(&self) -> String {
-        use packet::nlas::link::Nla;
-        self.nlas
+        self.0
+            .attributes
             .iter()
             .find_map(|n| {
-                if let Nla::IfName(name) = n {
+                if let LinkAttribute::IfName(name) = n {
                     Some(name.clone())
                 } else {
                     None
@@ -489,7 +494,7 @@ impl Link {
 
     /// Returns whether the link is UP
     fn is_up(&self) -> bool {
-        self.header.flags & packet::rtnl::constants::IFF_UP > 0
+        self.header.flags.contains(&LinkFlag::Up)
     }
 
     fn index(&self) -> u32 {
@@ -497,21 +502,21 @@ impl Link {
     }
 }
 
-impl From<packet::LinkMessage> for Link {
-    fn from(msg: packet::LinkMessage) -> Self {
+impl From<LinkMessage> for Link {
+    fn from(msg: LinkMessage) -> Self {
         Link(msg)
     }
 }
 
 impl Deref for Link {
-    type Target = packet::LinkMessage;
+    type Target = LinkMessage;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-struct Address(packet::AddressMessage);
+struct Address(AddressMessage);
 
 impl TryFrom<Address> for IPAddress {
     type Error = containerd_shim::error::Error;
@@ -541,17 +546,16 @@ impl TryFrom<Address> for IPAddress {
 
 impl Address {
     fn is_ipv6(&self) -> bool {
-        self.0.header.family == packet::constants::AF_INET6 as u8
+        self.0.header.family == AddressFamily::Inet6
     }
 
     fn address(&self) -> String {
-        use packet::nlas::address::Nla;
         self.0
-            .nlas
+            .attributes
             .iter()
             .find_map(|n| {
-                if let Nla::Address(data) = n {
-                    format_address(data).ok()
+                if let AddressAttribute::Address(data) = n {
+                    Some(data.to_string())
                 } else {
                     None
                 }
@@ -560,41 +564,17 @@ impl Address {
     }
 
     fn local(&self) -> String {
-        use packet::nlas::address::Nla;
         self.0
-            .nlas
+            .attributes
             .iter()
             .find_map(|n| {
-                if let Nla::Local(data) = n {
-                    format_address(data).ok()
+                if let AddressAttribute::Local(data) = n {
+                    Some(data.to_string())
                 } else {
                     None
                 }
             })
             .unwrap_or_default()
-    }
-}
-
-fn format_address(data: &[u8]) -> Result<String> {
-    match data.len() {
-        4 => {
-            // IP v4
-            Ok(format!("{}.{}.{}.{}", data[0], data[1], data[2], data[3]))
-        }
-        6 => {
-            // Mac address
-            Ok(format!(
-                "{:0>2X}:{:0>2X}:{:0>2X}:{:0>2X}:{:0>2X}:{:0>2X}",
-                data[0], data[1], data[2], data[3], data[4], data[5]
-            ))
-        }
-        16 => {
-            // IP v6
-            let octets =
-                <[u8; 16]>::try_from(data).map_err(other_error!(e, "invalid ipv6 address"))?;
-            Ok(Ipv6Addr::from(octets).to_string())
-        }
-        _ => Err(other!("Unsupported address length: {}", data.len())),
     }
 }
 

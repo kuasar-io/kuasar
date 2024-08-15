@@ -16,7 +16,8 @@ limitations under the License.
 
 use anyhow::anyhow;
 use containerd_sandbox::error::Result;
-use netlink_packet_route::{RouteMessage, RT_TABLE_MAIN};
+use netlink_packet_route::route::RouteMessage;
+use nix::libc::RT_TABLE_MAIN;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::network::{address::convert_to_ip_address, link::NetworkInterface};
@@ -31,9 +32,9 @@ pub struct Route {
     #[serde(default)]
     pub gateway: String,
     #[serde(default)]
-    pub scope: u32,
+    pub scope: u8,
     #[serde(default)]
-    pub family: u16,
+    pub family: u8,
 }
 
 impl Route {
@@ -42,24 +43,24 @@ impl Route {
             return Err(anyhow!("ignore routes not in main table").into());
         }
         let mut route = Route {
-            scope: msg.header.scope as u32,
-            family: msg.header.address_family as u16,
+            scope: msg.header.scope.into(),
+            family: msg.header.address_family.into(),
             ..Route::default()
         };
-        use netlink_packet_route::nlas::route::Nla;
-        for nla in msg.nlas.into_iter() {
-            match nla {
-                Nla::Destination(v) if !v.is_empty() => {
+        use netlink_packet_route::route::RouteAttribute;
+        for attribute in msg.attributes.into_iter() {
+            match attribute {
+                RouteAttribute::Destination(v) => {
                     let ip = convert_to_ip_address(v)?.to_string();
                     route.dest = format!("{}/{}", ip, msg.header.destination_prefix_length);
                 }
-                Nla::Source(v) if !v.is_empty() => {
+                RouteAttribute::Source(v) => {
                     route.source = convert_to_ip_address(v)?.to_string();
                 }
-                Nla::Gateway(v) if !v.is_empty() => {
+                RouteAttribute::Gateway(v) => {
                     route.gateway = convert_to_ip_address(v)?.to_string();
                 }
-                Nla::Oif(u) => {
+                RouteAttribute::Oif(u) => {
                     intfs
                         .iter()
                         .find(|&x| x.index == u)
