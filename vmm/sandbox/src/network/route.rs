@@ -35,6 +35,23 @@ pub struct Route {
     pub scope: u8,
     #[serde(default)]
     pub family: u8,
+    #[serde(default)]
+    pub flags: u32,
+}
+
+use netlink_packet_route::route::RouteFlag;
+
+// netlink-packet-route-0.19.0/src/route/flags.rs:87
+pub(crate) struct VecRouteFlag(pub(crate) Vec<RouteFlag>);
+
+impl From<&VecRouteFlag> for u32 {
+    fn from(v: &VecRouteFlag) -> u32 {
+        let mut d: u32 = 0;
+        for flag in &v.0 {
+            d += u32::from(*flag);
+        }
+        d
+    }
 }
 
 impl Route {
@@ -45,6 +62,7 @@ impl Route {
         let mut route = Route {
             scope: msg.header.scope.into(),
             family: msg.header.address_family.into(),
+            flags: u32::from(&VecRouteFlag(msg.header.flags)),
             ..Route::default()
         };
         use netlink_packet_route::route::RouteAttribute;

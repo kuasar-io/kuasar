@@ -63,6 +63,7 @@ impl From<&crate::network::Route> for Route {
                 AddressFamily::Inet6 => IPFamily::v6,
                 _ => IPFamily::default(),
             }),
+            flags: r.flags,
             special_fields: Default::default(),
         }
     }

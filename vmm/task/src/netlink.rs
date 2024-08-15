@@ -320,7 +320,7 @@ impl Handle {
             let link = self.find_link(LinkFilter::Name(&route.device)).await?;
 
             // Build a common indeterminate ip request
-            let request = self
+            let mut request = self
                 .handle
                 .route()
                 .add()
@@ -328,6 +328,8 @@ impl Handle {
                 .kind(RouteType::Unicast)
                 .protocol(RouteProtocol::Boot)
                 .scope(RouteScope::from(route.scope as u8));
+            // Override the existing flags, as the flags sent by the client should take precedence.
+            request.message_mut().header.flags = VecRouteFlag::from(route.flags).0;
 
             // `rtnetlink` offers a separate request builders for different IP versions (IP v4 and v6).
             // This if branch is a bit clumsy because it does almost the same.
@@ -470,6 +472,48 @@ impl Handle {
         }
 
         Ok(())
+    }
+}
+
+use netlink_packet_route::route::RouteFlag;
+
+// netlink-packet-route-0.19.0/src/route/flags.rs:42
+const ALL_ROUTE_FLAGS: [RouteFlag; 16] = [
+    RouteFlag::Dead,
+    RouteFlag::Pervasive,
+    RouteFlag::Onlink,
+    RouteFlag::Offload,
+    RouteFlag::Linkdown,
+    RouteFlag::Unresolved,
+    RouteFlag::Trap,
+    RouteFlag::Notify,
+    RouteFlag::Cloned,
+    RouteFlag::Equalize,
+    RouteFlag::Prefix,
+    RouteFlag::LookupTable,
+    RouteFlag::FibMatch,
+    RouteFlag::RtOffload,
+    RouteFlag::RtTrap,
+    RouteFlag::OffloadFailed,
+];
+
+// netlink-packet-route-0.19.0/src/route/flags.rs:87
+pub(crate) struct VecRouteFlag(pub(crate) Vec<RouteFlag>);
+
+impl From<u32> for VecRouteFlag {
+    fn from(d: u32) -> Self {
+        let mut got: u32 = 0;
+        let mut ret = Vec::new();
+        for flag in ALL_ROUTE_FLAGS {
+            if (d & (u32::from(flag))) > 0 {
+                ret.push(flag);
+                got += u32::from(flag);
+            }
+        }
+        if got != d {
+            ret.push(RouteFlag::Other(d - got));
+        }
+        Self(ret)
     }
 }
 
