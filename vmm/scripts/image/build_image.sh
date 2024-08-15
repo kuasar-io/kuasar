@@ -62,7 +62,7 @@ AGENT_INIT=${AGENT_INIT:-yes}
 
 # Align image to (size in MB) according to different architecture.
 case "$(uname -m)" in
-	aarch64) readonly mem_boundary_mb=16 ;;
+	aarch64) readonly mem_boundary_mb=128 ;;
 	*) readonly mem_boundary_mb=128 ;;
 esac
 
@@ -339,7 +339,7 @@ create_disk() {
 	# The partition is the rootfs content
 	info "Creating partitions"
 	parted -s -a optimal "${image}" -- \
-		   mklabel gpt \
+		   mklabel msdos \
 		   mkpart primary "${fs_type}" "${part_start}"M "${rootfs_end}"M
 
 	OK "Partitions created"
