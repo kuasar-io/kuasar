@@ -16,6 +16,7 @@ limitations under the License.
 
 use std::{
     ops::Add,
+    process::Stdio,
     sync::Arc,
     time::{Duration, SystemTime},
 };
@@ -24,6 +25,7 @@ use async_trait::async_trait;
 use containerd_sandbox::PodSandboxConfig;
 use containerd_shim::{
     error::Result,
+    io_error, other, other_error,
     protos::{protobuf::MessageDyn, topics::TASK_OOM_EVENT_TOPIC},
     util::convert_to_any,
     Error, TtrpcContext, TtrpcResult,
@@ -33,7 +35,10 @@ use nix::{
     sys::time::{TimeSpec, TimeValLike},
     time::{clock_gettime, clock_settime, ClockId},
 };
-use tokio::sync::{mpsc::Receiver, Mutex};
+use tokio::{
+    io::AsyncWriteExt,
+    sync::{mpsc::Receiver, Mutex},
+};
 use vmm_common::{
     api,
     api::{
@@ -139,12 +144,13 @@ impl api::sandbox_ttrpc::SandboxService for SandboxService {
     async fn exec_vm_process(
         &self,
         _ctx: &TtrpcContext,
-        _req: ExecVMProcessRequest,
+        req: ExecVMProcessRequest,
     ) -> TtrpcResult<ExecVMProcessResponse> {
-        Err(::ttrpc::Error::RpcStatus(::ttrpc::get_status(
-            ::ttrpc::Code::NOT_FOUND,
-            "/grpc.SandboxService/ExecVMProcess is not supported".to_string(),
-        )))
+        let out = do_execute_cmd(&req.command, req.stdin.as_slice()).await?;
+
+        let mut resp = ExecVMProcessResponse::new();
+        resp.out = out;
+        Ok(resp)
     }
 
     async fn sync_clock(
@@ -192,5 +198,45 @@ impl api::sandbox_ttrpc::SandboxService for SandboxService {
         }
 
         Err(ttrpc::Error::Others("internal".to_string()))
+    }
+}
+
+async fn do_execute_cmd(cmd_args: &str, stdin: &[u8]) -> Result<String> {
+    let mut cmd = tokio::process::Command::new("/bin/bash");
+    cmd.arg("-c");
+    cmd.arg(cmd_args);
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    if !stdin.is_empty() {
+        cmd.stdin(Stdio::piped());
+    }
+
+    let mut child = cmd
+        .spawn()
+        .map_err(io_error!(e, "spawn exec vm process failed:"))?;
+    if !stdin.is_empty() {
+        let cmd_in = child.stdin.as_mut().ok_or(other!("no stdin for command"))?;
+        cmd_in
+            .write_all(stdin)
+            .await
+            .map_err(io_error!(e, "failed to write vm process stdin:"))?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .await
+        .map_err(io_error!(e, "failed to combined process output:"))?;
+    if output.status.success() {
+        let raw_output =
+            String::from_utf8(output.stdout).map_err(other_error!(e, "failed to convert"))?;
+        Ok(raw_output)
+    } else {
+        let err_msg =
+            String::from_utf8(output.stderr).map_err(other_error!(e, "failed to convert"))?;
+        Err(other!(
+            "cmd {} failed with status {:?} and error message {}",
+            cmd_args,
+            output.status,
+            err_msg
+        ))
     }
 }
