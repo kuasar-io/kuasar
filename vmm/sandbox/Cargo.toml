@@ -41,8 +41,8 @@ qapi = { version = "0.8.0", features = ["qmp", "async-tokio-all"] }
 qapi-spec = { version = "0.3.1" }
 sandbox-derive = { path = "derive" }
 api_client = { git = "https://github.com/cloud-hypervisor/cloud-hypervisor.git" }
-rtnetlink = "0.13.1"
-netlink-packet-route = "0.17.0"
+rtnetlink = "0.14.1"
+netlink-packet-route = "0.19.0"
 netlink-packet-core = "0.7.0"
 ttrpc = { version = "0.7", features = ["async"] }
 protobuf = "3.2"

@@ -28,10 +28,9 @@ use anyhow::anyhow;
 use containerd_sandbox::error::Result;
 use futures_util::TryStreamExt;
 use libc::{IFF_MULTI_QUEUE, IFF_NO_PI, IFF_TAP, IFF_VNET_HDR};
-use netlink_packet_route::{
-    link::nlas::{Info, InfoData, InfoIpVlan, InfoKind, InfoMacVlan, InfoMacVtap, InfoVlan},
-    nlas::link::InfoVxlan,
-    LinkMessage,
+use netlink_packet_route::link::{
+    InfoData, InfoIpVlan, InfoKind, InfoMacVlan, InfoMacVtap, InfoVlan, InfoVxlan, LinkFlag,
+    LinkInfo, LinkMessage,
 };
 use nix::{
     ioctl_read_bad, ioctl_write_ptr_bad, libc,
@@ -44,7 +43,7 @@ use serde_derive::{Deserialize, Serialize};
 use crate::{
     device::{DeviceInfo, PhysicalDeviceInfo, TapDeviceInfo, VhostUserDeviceInfo},
     network::{
-        address::{convert_to_ip_address, CniIPAddress, IpNet, MacAddress},
+        address::{CniIPAddress, IpNet, MacAddress},
         create_netlink_handle, execute_in_netns, run_in_new_netns,
     },
     sandbox::KuasarSandbox,
@@ -98,7 +97,6 @@ pub enum LinkType {
     Ipvlan(u16),
     Macvlan(u32),
     Macvtap(u32),
-    Iptun,
     Tun,
     VhostUser(String),
     Physical(String, String),
@@ -124,7 +122,6 @@ impl Display for LinkType {
             LinkType::Ipvlan(_) => "ipvlan".to_string(),
             LinkType::Macvlan(_) => "macvlan".to_string(),
             LinkType::Macvtap(_) => "macvtap".to_string(),
-            LinkType::Iptun => "iptun".to_string(),
             LinkType::Tun => "tun".to_string(),
             LinkType::VhostUser(_) => "vhostuser".to_string(),
             LinkType::Physical(_, _) => "physical".to_string(),
@@ -167,7 +164,6 @@ impl From<InfoData> for LinkType {
                     return Self::Macvtap(*i);
                 }
             }
-            InfoData::IpTun(_) => return Self::Iptun,
             _ => return Self::Unkonwn,
         }
         Self::Unkonwn
@@ -210,6 +206,19 @@ pub struct NetworkInterface {
     pub queue: u32,
 }
 
+// netlink-packet-route-0.19.0/src/link/link_flag.rs:26
+pub(crate) struct VecLinkFlag(pub Vec<LinkFlag>);
+
+impl From<&VecLinkFlag> for u32 {
+    fn from(v: &VecLinkFlag) -> u32 {
+        let mut d: u32 = 0;
+        for flag in &v.0 {
+            d += u32::from(*flag);
+        }
+        d
+    }
+}
+
 impl NetworkInterface {
     pub async fn parse_from_message(
         msg: LinkMessage,
@@ -218,31 +227,31 @@ impl NetworkInterface {
         handle: &Handle,
     ) -> Result<Self> {
         let mut intf = NetworkInterface {
-            flags: msg.header.flags,
+            flags: u32::from(&VecLinkFlag(msg.header.flags)),
             index: msg.header.index,
             ..NetworkInterface::default()
         };
-        for nla in msg.nlas.into_iter() {
-            use netlink_packet_route::nlas::link::Nla;
-            match nla {
-                Nla::Info(infos) => {
+        use netlink_packet_route::link::LinkAttribute;
+        for attribute in msg.attributes.into_iter() {
+            match attribute {
+                LinkAttribute::LinkInfo(infos) => {
                     for info in infos {
-                        if let Info::Data(d) = info {
+                        if let LinkInfo::Data(d) = info {
                             intf.r#type = d.into();
-                        } else if let Info::Kind(InfoKind::Veth) = info {
-                            // for veth, there is no Info::Data, but SlaveKind and SlaveData
+                        } else if let LinkInfo::Kind(InfoKind::Veth) = info {
+                            // for veth, there is no Info::Data, but SlaveKind and SlaveData,
                             // so we have to get the type from Info::Kind
                             intf.queue = queue;
                             intf.r#type = LinkType::Veth;
                         }
                     }
                 }
-                Nla::IfName(s) => {
+                LinkAttribute::IfName(s) => {
                     intf.name = s;
                 }
-                Nla::IfAlias(a) => intf.alias = a,
-                Nla::Mtu(m) => intf.mtu = m,
-                Nla::Address(u) => intf.mac_address = MacAddress(u),
+                LinkAttribute::IfAlias(a) => intf.alias = a,
+                LinkAttribute::Mtu(m) => intf.mtu = m,
+                LinkAttribute::Address(u) => intf.mac_address = MacAddress(u),
                 _ => {}
             }
         }
@@ -252,10 +261,9 @@ impl NetworkInterface {
             .set_link_index_filter(msg.header.index)
             .execute();
         while let Some(msg) = addresses.try_next().await.map_err(|e| anyhow!(e))? {
-            use netlink_packet_route::nlas::address::Nla;
-            for nla in msg.nlas.into_iter() {
-                if let Nla::Address(addr) = nla {
-                    let address = convert_to_ip_address(addr)?;
+            use netlink_packet_route::address::AddressAttribute;
+            for nla in msg.attributes.into_iter() {
+                if let AddressAttribute::Address(address) = nla {
                     let mask_len = msg.header.prefix_len;
                     if address.is_loopback() {
                         intf.r#type = LinkType::Loopback;
