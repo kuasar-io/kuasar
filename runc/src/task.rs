@@ -16,8 +16,9 @@ limitations under the License.
 
 use std::{
     collections::HashMap,
+    mem::forget,
     os::{
-        fd::{AsRawFd, RawFd},
+        fd::{AsRawFd, OwnedFd},
         unix::net::UnixListener,
     },
     process::exit,
@@ -41,7 +42,7 @@ use containerd_shim::{
 use log::{debug, error};
 use nix::{
     libc,
-    unistd::{close, fork, pipe, ForkResult},
+    unistd::{fork, pipe, ForkResult},
 };
 use signal_hook_tokio::Signals;
 use tokio::{
@@ -62,12 +63,13 @@ pub fn fork_task_server(task_socket: &str, sandbox_parent_dir: &str) -> Result<(
     let (pipe_r, pipe_w) = pipe().map_err(|e| anyhow!("failed to create pipe {}", e))?;
     match unsafe { fork().map_err(|e| anyhow!("failed to fork task service {}", e))? } {
         ForkResult::Parent { child: _ } => {
-            close(pipe_r).unwrap_or_default();
+            drop(pipe_r);
             drop(task_listener);
+            forget(pipe_w);
             Ok(())
         }
         ForkResult::Child => {
-            close(pipe_w).unwrap_or_default();
+            drop(pipe_w);
             prctl::set_child_subreaper(true).unwrap();
             // TODO set thread count
             let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -84,7 +86,7 @@ pub fn fork_task_server(task_socket: &str, sandbox_parent_dir: &str) -> Result<(
 
 async fn run_task_server(
     listener: UnixListener,
-    exit_pipe: RawFd,
+    exit_pipe: OwnedFd,
     sandbox_parent_dir: &str,
 ) -> error::Result<()> {
     let task = start_task_service(sandbox_parent_dir).await?;
@@ -102,7 +104,7 @@ async fn run_task_server(
         .await
         .map_err(|e| anyhow!("failed to start task server, {}", e))?;
     // wait parent exit
-    asyncify(move || Ok(read_count(exit_pipe, 1).unwrap_or_default()))
+    asyncify(move || Ok(read_count(exit_pipe.as_raw_fd(), 1).unwrap_or_default()))
         .await
         .unwrap_or_default();
 

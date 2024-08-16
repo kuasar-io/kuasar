@@ -16,9 +16,12 @@
 
 use std::{
     convert::TryFrom,
-    os::unix::{
-        io::{AsRawFd, FromRawFd, RawFd},
-        prelude::ExitStatusExt,
+    os::{
+        fd::{IntoRawFd, OwnedFd},
+        unix::{
+            io::{AsRawFd, FromRawFd},
+            prelude::ExitStatusExt,
+        },
     },
     path::{Path, PathBuf},
     process::ExitStatus,
@@ -59,6 +62,7 @@ use serde::{Deserialize, Serialize};
 use tokio::{
     fs::{File, OpenOptions},
     io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, BufReader},
+    sync::Mutex,
 };
 
 use crate::common::{
@@ -290,6 +294,7 @@ impl ProcessFactory<ExecProcess> for RuncExecFactory {
                 spec: p,
                 exit_signal: Default::default(),
             }),
+            stdin: Arc::new(Mutex::new(None)),
         })
     }
 }
@@ -505,8 +510,8 @@ async fn copy_console(
 ) -> Result<Console> {
     debug!("copy_console: waiting for runtime to send console fd");
     let stream = console_socket.accept().await?;
-    let fd = asyncify(move || -> Result<RawFd> { receive_socket(stream.as_raw_fd()) }).await?;
-    let f = unsafe { File::from_raw_fd(fd) };
+    let fd = asyncify(move || -> Result<OwnedFd> { receive_socket(stream.as_raw_fd()) }).await?;
+    let f = unsafe { File::from_raw_fd(fd.into_raw_fd()) };
     if !stdio.stdin.is_empty() {
         debug!("copy_console: pipe stdin to console");
         let console_stdin = f

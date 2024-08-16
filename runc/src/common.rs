@@ -14,7 +14,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::{io::IoSliceMut, ops::Deref, os::unix::io::RawFd, path::Path, sync::Arc};
+use std::{
+    io::IoSliceMut,
+    ops::Deref,
+    os::{
+        fd::{FromRawFd, OwnedFd},
+        unix::io::RawFd,
+    },
+    path::Path,
+    sync::Arc,
+};
 
 use anyhow::anyhow;
 use containerd_shim::{
@@ -164,7 +173,7 @@ pub fn create_runc(
 #[derive(Default)]
 pub(crate) struct CreateConfig {}
 
-pub fn receive_socket(stream_fd: RawFd) -> containerd_shim::Result<RawFd> {
+pub fn receive_socket(stream_fd: RawFd) -> containerd_shim::Result<OwnedFd> {
     let mut buf = [0u8; 4096];
     let mut iovec = [IoSliceMut::new(&mut buf)];
     let mut space = cmsg_space!([RawFd; 2]);
@@ -194,8 +203,9 @@ pub fn receive_socket(stream_fd: RawFd) -> containerd_shim::Result<RawFd> {
         "copy_console: console socket get path: {}, fd: {}",
         path, &fds[0]
     );
-    tcgetattr(fds[0])?;
-    Ok(fds[0])
+    let fd = unsafe { OwnedFd::from_raw_fd(fds[0]) };
+    tcgetattr(&fd)?;
+    Ok(fd)
 }
 
 pub fn has_shared_pid_namespace(spec: &Spec) -> bool {
