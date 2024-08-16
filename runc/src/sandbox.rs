@@ -14,37 +14,27 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::collections::HashMap;
-use std::io::Write;
-use std::os::fd::RawFd;
-use std::path::Path;
-use std::sync::Arc;
+use std::{collections::HashMap, io::Write, os::fd::RawFd, path::Path, sync::Arc};
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use containerd_sandbox::cri::api::v1::NamespaceMode;
-use containerd_sandbox::data::{ContainerData, SandboxData};
-use containerd_sandbox::error::{Error, Result};
-use containerd_sandbox::signal::ExitSignal;
 use containerd_sandbox::{
+    cri::api::v1::NamespaceMode,
+    data::{ContainerData, SandboxData},
+    error::{Error, Result},
+    signal::ExitSignal,
     Container, ContainerOption, Sandbox, SandboxOption, SandboxStatus, Sandboxer,
 };
 use log::warn;
 use nix::{
-    mount::MsFlags,
-    unistd::{close, Pid},
-};
-use nix::{
-    mount::{mount, umount},
+    mount::{mount, umount, MsFlags},
     sys::signal::{kill, Signal},
+    unistd::{close, Pid},
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
-    fs::{create_dir_all, remove_dir_all},
+    fs::{create_dir_all, remove_dir_all, File, OpenOptions},
     io::{AsyncReadExt, AsyncWriteExt},
-};
-use tokio::{
-    fs::{File, OpenOptions},
     sync::{Mutex, RwLock},
 };
 

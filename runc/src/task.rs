@@ -14,32 +14,46 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::os::fd::{AsRawFd, RawFd};
-use std::os::unix::net::UnixListener;
-use std::process::exit;
-use std::sync::Arc;
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::HashMap,
+    os::{
+        fd::{AsRawFd, RawFd},
+        unix::net::UnixListener,
+    },
+    process::exit,
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::anyhow;
 use containerd_sandbox::error;
-use containerd_shim::asynchronous::monitor::{monitor_subscribe, monitor_unsubscribe};
-use containerd_shim::asynchronous::task::TaskService;
-use containerd_shim::asynchronous::util::{asyncify, read_spec};
-use containerd_shim::container::Container;
-use containerd_shim::monitor::{Subject, Topic};
-use containerd_shim::processes::Process;
-use containerd_shim::protos::shim::shim_ttrpc_async::create_task;
-use containerd_shim::protos::ttrpc::asynchronous::Server;
+use containerd_shim::{
+    asynchronous::{
+        monitor::{monitor_subscribe, monitor_unsubscribe},
+        task::TaskService,
+        util::{asyncify, read_spec},
+    },
+    container::Container,
+    monitor::{Subject, Topic},
+    processes::Process,
+    protos::{shim::shim_ttrpc_async::create_task, ttrpc::asynchronous::Server},
+};
 use log::{debug, error};
-use nix::libc;
-use nix::unistd::{close, fork, pipe, ForkResult};
+use nix::{
+    libc,
+    unistd::{close, fork, pipe, ForkResult},
+};
 use signal_hook_tokio::Signals;
-use tokio::sync::Mutex;
-use tokio::{sync::mpsc::channel, time::sleep};
+use tokio::{
+    sync::{mpsc::channel, Mutex},
+    time::sleep,
+};
 
-use crate::common::{has_shared_pid_namespace, prepare_unix_socket};
-use crate::runc::{RuncContainer, RuncFactory};
-use crate::{handle_signals, read_count};
+use crate::{
+    common::{has_shared_pid_namespace, prepare_unix_socket},
+    handle_signals, read_count,
+    runc::{RuncContainer, RuncFactory},
+};
 
 pub fn fork_task_server(task_socket: &str, sandbox_parent_dir: &str) -> Result<(), anyhow::Error> {
     prepare_unix_socket(task_socket)?;

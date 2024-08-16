@@ -34,6 +34,7 @@ use containerd_shim::{
         container::{ContainerFactory, ContainerTemplate, ProcessFactory},
         monitor::{monitor_subscribe, monitor_unsubscribe, Subscription},
         processes::{ProcessLifecycle, ProcessTemplate},
+        util::write_str_to_file,
     },
     io::Stdio,
     io_error,
@@ -44,22 +45,20 @@ use containerd_shim::{
         cgroups::metrics::Metrics,
         protobuf::{CodedInputStream, Message},
     },
-    util::{asyncify, mkdir, mount_rootfs, read_file_to_str, write_options, write_runtime},
+    util::{
+        asyncify, mkdir, mount_rootfs, read_file_to_str, read_spec, write_options, write_runtime,
+        CONFIG_FILE_NAME,
+    },
     Console, Error, ExitSignal, Result,
-};
-use containerd_shim::{
-    asynchronous::util::write_str_to_file,
-    util::{read_spec, CONFIG_FILE_NAME},
 };
 use log::{debug, error};
 use nix::{sys::signal::kill, unistd::Pid};
 use oci_spec::runtime::{LinuxResources, Process};
 use runc::{Command, Runc, Spawner};
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::{
     fs::{File, OpenOptions},
-    io::{AsyncRead, AsyncReadExt, AsyncWrite},
+    io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, BufReader},
 };
 
 use crate::common::{

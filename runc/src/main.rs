@@ -14,34 +14,33 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::ffi::CString;
-use std::os::fd::RawFd;
-use std::process::exit;
+use std::{ffi::CString, os::fd::RawFd, process::exit};
 
 use anyhow::anyhow;
 use containerd_shim::asynchronous::monitor::monitor_notify_by_pid;
 use futures::StreamExt;
 use log::{debug, error, warn};
-use nix::fcntl::{fcntl, FcntlArg, FdFlag, OFlag};
-use nix::sched::{setns, unshare, CloneFlags};
-use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, SIGCHLD};
-use nix::sys::stat::Mode;
-use nix::unistd::{close, fork, pause, pipe, read, write, ForkResult};
 use nix::{
     errno::Errno,
+    fcntl::{fcntl, FcntlArg, FdFlag, OFlag},
     libc,
+    sched::{setns, unshare, CloneFlags},
     sys::{
+        signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, SIGCHLD},
+        stat::Mode,
         wait,
         wait::{WaitPidFlag, WaitStatus},
     },
-    unistd::Pid,
+    unistd::{close, fork, pause, pipe, read, write, ForkResult, Pid},
 };
 use prctl::PrctlMM;
 use signal_hook_tokio::Signals;
 use uuid::Uuid;
 
-use crate::sandbox::{RuncSandboxer, SandboxParent};
-use crate::task::fork_task_server;
+use crate::{
+    sandbox::{RuncSandboxer, SandboxParent},
+    task::fork_task_server,
+};
 
 mod common;
 mod runc;
