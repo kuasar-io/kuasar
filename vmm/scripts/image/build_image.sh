@@ -339,7 +339,7 @@ create_disk() {
 	# The partition is the rootfs content
 	info "Creating partitions"
 	parted -s -a optimal "${image}" -- \
-		   mklabel msdos \
+		   mklabel gpt \
 		   mkpart primary "${fs_type}" "${part_start}"M "${rootfs_end}"M
 
 	OK "Partitions created"

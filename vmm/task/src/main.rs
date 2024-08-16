@@ -314,7 +314,7 @@ lazy_static! {
         // allocate more memory than is physically available
         map.insert("/proc/sys/vm/overcommit_memory", "1");
 
-        // Enable automatic expiration of nodest connections
+        // Enable automatic expiration of nodest connections in IPVS
         map.insert("/proc/sys/net/ipv4/vs/expire_nodest_conn", "1");
         map
     };
@@ -329,9 +329,12 @@ async fn init_vm_rootfs() -> Result<()> {
 
     // Set default sysctl
     for sysctl in DEFAULT_SYSCTL.iter() {
+        if !Path::new(&sysctl.0).exists() {
+            continue;
+        }
         tokio::fs::write(&sysctl.0, &sysctl.1)
             .await
-            .map_err(io_error!(e, "failed to set cgroup hierarchy to 1"))?;
+            .map_err(io_error!(e, "failed to write kernel parameter "))?;
     }
 
     Ok(())
