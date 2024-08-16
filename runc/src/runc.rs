@@ -16,9 +16,12 @@
 
 use std::{
     convert::TryFrom,
-    os::unix::{
-        io::{AsRawFd, FromRawFd, RawFd},
-        prelude::ExitStatusExt,
+    os::{
+        fd::{IntoRawFd, OwnedFd},
+        unix::{
+            io::{AsRawFd, FromRawFd},
+            prelude::ExitStatusExt,
+        },
     },
     path::{Path, PathBuf},
     process::ExitStatus,
@@ -34,6 +37,7 @@ use containerd_shim::{
         container::{ContainerFactory, ContainerTemplate, ProcessFactory},
         monitor::{monitor_subscribe, monitor_unsubscribe, Subscription},
         processes::{ProcessLifecycle, ProcessTemplate},
+        util::write_str_to_file,
     },
     io::Stdio,
     io_error,
@@ -44,22 +48,21 @@ use containerd_shim::{
         cgroups::metrics::Metrics,
         protobuf::{CodedInputStream, Message},
     },
-    util::{asyncify, mkdir, mount_rootfs, read_file_to_str, write_options, write_runtime},
+    util::{
+        asyncify, mkdir, mount_rootfs, read_file_to_str, read_spec, write_options, write_runtime,
+        CONFIG_FILE_NAME,
+    },
     Console, Error, ExitSignal, Result,
-};
-use containerd_shim::{
-    asynchronous::util::write_str_to_file,
-    util::{read_spec, CONFIG_FILE_NAME},
 };
 use log::{debug, error};
 use nix::{sys::signal::kill, unistd::Pid};
 use oci_spec::runtime::{LinuxResources, Process};
 use runc::{Command, Runc, Spawner};
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::{
     fs::{File, OpenOptions},
-    io::{AsyncRead, AsyncReadExt, AsyncWrite},
+    io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, BufReader},
+    sync::Mutex,
 };
 
 use crate::common::{
@@ -291,6 +294,7 @@ impl ProcessFactory<ExecProcess> for RuncExecFactory {
                 spec: p,
                 exit_signal: Default::default(),
             }),
+            stdin: Arc::new(Mutex::new(None)),
         })
     }
 }
@@ -506,8 +510,8 @@ async fn copy_console(
 ) -> Result<Console> {
     debug!("copy_console: waiting for runtime to send console fd");
     let stream = console_socket.accept().await?;
-    let fd = asyncify(move || -> Result<RawFd> { receive_socket(stream.as_raw_fd()) }).await?;
-    let f = unsafe { File::from_raw_fd(fd) };
+    let fd = asyncify(move || -> Result<OwnedFd> { receive_socket(stream.as_raw_fd()) }).await?;
+    let f = unsafe { File::from_raw_fd(fd.into_raw_fd()) };
     if !stdio.stdin.is_empty() {
         debug!("copy_console: pipe stdin to console");
         let console_stdin = f

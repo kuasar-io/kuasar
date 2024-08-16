@@ -14,51 +14,71 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::ffi::CString;
-use std::os::fd::RawFd;
-use std::process::exit;
+use std::{
+    ffi::CString,
+    os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
+    path::Path,
+    process::exit,
+    str::FromStr,
+};
 
 use anyhow::anyhow;
+use clap::Parser;
 use containerd_shim::asynchronous::monitor::monitor_notify_by_pid;
 use futures::StreamExt;
-use log::{debug, error, warn};
-use nix::fcntl::{fcntl, FcntlArg, FdFlag, OFlag};
-use nix::sched::{setns, unshare, CloneFlags};
-use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, SIGCHLD};
-use nix::sys::stat::Mode;
-use nix::unistd::{close, fork, pause, pipe, read, write, ForkResult};
+use log::{debug, error, warn, LevelFilter};
 use nix::{
     errno::Errno,
+    fcntl::{fcntl, FcntlArg, FdFlag, OFlag},
     libc,
+    sched::{setns, unshare, CloneFlags},
     sys::{
+        signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, SIGCHLD},
+        stat::Mode,
         wait,
         wait::{WaitPidFlag, WaitStatus},
     },
-    unistd::Pid,
+    unistd::{fork, pause, pipe, read, write, ForkResult, Pid},
 };
 use prctl::PrctlMM;
 use signal_hook_tokio::Signals;
 use uuid::Uuid;
 
-use crate::sandbox::{RuncSandboxer, SandboxParent};
-use crate::task::fork_task_server;
+use crate::{
+    sandbox::{RuncSandboxer, SandboxParent},
+    task::fork_task_server,
+};
 
+mod args;
 mod common;
 mod runc;
 mod sandbox;
 mod task;
+mod version;
 
 fn main() {
-    env_logger::builder().format_timestamp_micros().init();
+    let args = args::Args::parse();
+    if args.version {
+        version::print_version_info();
+        return;
+    }
+
+    // Update args log level if it not presents args but in config.
+    let log_level =
+        LevelFilter::from_str(&args.log_level.unwrap_or_default()).unwrap_or(LevelFilter::Info);
+    env_logger::Builder::from_default_env()
+        .format_timestamp_micros()
+        .filter_module("containerd_sandbox", log_level)
+        .filter_module("runc_sandboxer", log_level)
+        .init();
+
     let sandbox_parent = fork_sandbox_parent().unwrap();
-    let os_args: Vec<_> = std::env::args_os().collect();
-    // TODO avoid parse args multiple times
-    let flags = containerd_sandbox::args::parse(&os_args[1..]).unwrap();
-    let task_socket = format!("{}/task-{}.sock", flags.dir, Uuid::new_v4());
-    fork_task_server(&task_socket, &flags.dir).unwrap();
+
+    let task_socket = format!("{}/task-{}.sock", &args.dir, Uuid::new_v4());
+    fork_task_server(&task_socket, &args.dir).unwrap();
     let runtime = tokio::runtime::Runtime::new().unwrap();
     runtime.block_on(async move {
-        start_sandboxer(sandbox_parent, task_socket, flags.dir)
+        start_sandboxer(sandbox_parent, task_socket, &args.listen, &args.dir)
             .await
             .unwrap();
     });
@@ -75,12 +95,12 @@ fn fork_sandbox_parent() -> Result<SandboxParent, anyhow::Error> {
     match unsafe { fork().map_err(|e| anyhow!("failed to fork sandbox parent {}", e))? } {
         ForkResult::Parent { child } => {
             debug!("forked process {} for the sandbox parent", child);
-            close(reqr).unwrap_or_default();
-            close(respw).unwrap_or_default();
+            drop(reqr);
+            drop(respw);
         }
         ForkResult::Child => {
-            close(reqw).unwrap_or_default();
-            close(respr).unwrap_or_default();
+            drop(reqw);
+            drop(respr);
             prctl::set_child_subreaper(true).unwrap();
             let comm = "[sandbox-parent]";
             let comm_cstr = CString::new(comm).unwrap();
@@ -95,7 +115,7 @@ fn fork_sandbox_parent() -> Result<SandboxParent, anyhow::Error> {
                 sigaction(SIGCHLD, &sig_action).unwrap();
             }
             loop {
-                let buffer = read_count(reqr, 512).unwrap();
+                let buffer = read_count(reqr.as_raw_fd(), 512).unwrap();
                 let id = String::from_utf8_lossy(&buffer[0..64]).to_string();
                 let mut zero_index = 64;
                 for (i, &b) in buffer.iter().enumerate().take(512).skip(64) {
@@ -106,12 +126,12 @@ fn fork_sandbox_parent() -> Result<SandboxParent, anyhow::Error> {
                 }
                 let netns = String::from_utf8_lossy(&buffer[64..zero_index]).to_string();
                 let sandbox_pid = fork_sandbox(&id, &netns).unwrap();
-                write_all(respw, sandbox_pid.to_le_bytes().as_slice()).unwrap();
+                write_all(&respw, sandbox_pid.to_le_bytes().as_slice()).unwrap();
             }
         }
     }
-    fcntl(reqw, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)).unwrap_or_default();
-    fcntl(respr, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)).unwrap_or_default();
+    fcntl(reqw.as_raw_fd(), FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)).unwrap_or_default();
+    fcntl(respr.as_raw_fd(), FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)).unwrap_or_default();
     Ok(SandboxParent::new(reqw, respr))
 }
 
@@ -136,7 +156,7 @@ pub fn read_count(fd: RawFd, count: usize) -> Result<Vec<u8>, anyhow::Error> {
     }
 }
 
-pub fn write_all(fd: RawFd, buf: &[u8]) -> Result<(), anyhow::Error> {
+pub fn write_all(fd: &OwnedFd, buf: &[u8]) -> Result<(), anyhow::Error> {
     let mut idx = 0;
     let count = buf.len();
     loop {
@@ -162,21 +182,21 @@ fn fork_sandbox(id: &str, netns: &str) -> Result<i32, anyhow::Error> {
     match unsafe { fork().map_err(|e| anyhow!("failed to fork sandbox {}", e))? } {
         ForkResult::Parent { child } => {
             debug!("forked process {} for the sandbox {}", child, id);
-            close(w).unwrap_or_default();
+            drop(w);
             let mut resp = [0u8; 4];
-            let r = read_count(r, 4)?;
+            let r = read_count(r.as_raw_fd(), 4)?;
             resp[..].copy_from_slice(r.as_slice());
             let pid = i32::from_le_bytes(resp);
             Ok(pid)
         }
         ForkResult::Child => {
-            close(r).unwrap_or_default();
+            drop(r);
             unshare(CloneFlags::CLONE_NEWIPC | CloneFlags::CLONE_NEWUTS | CloneFlags::CLONE_NEWPID)
                 .unwrap();
             match unsafe { fork().unwrap() } {
                 ForkResult::Parent { child } => {
                     debug!("forked process {} for the sandbox {}", child, id);
-                    write_all(w, child.as_raw().to_le_bytes().as_slice()).unwrap();
+                    write_all(&w, child.as_raw().to_le_bytes().as_slice()).unwrap();
                     exit(0);
                 }
                 ForkResult::Child => {
@@ -186,7 +206,8 @@ fn fork_sandbox(id: &str, netns: &str) -> Result<i32, anyhow::Error> {
                     set_process_comm(addr as u64, comm_cstr.as_bytes_with_nul().len() as u64);
                     if !netns.is_empty() {
                         let netns_fd =
-                            nix::fcntl::open(netns, OFlag::O_CLOEXEC, Mode::empty()).unwrap();
+                            safe_open_file(Path::new(&netns), OFlag::O_CLOEXEC, Mode::empty())
+                                .unwrap();
                         setns(netns_fd, CloneFlags::CLONE_NEWNET).unwrap();
                     }
                     loop {
@@ -196,6 +217,16 @@ fn fork_sandbox(id: &str, netns: &str) -> Result<i32, anyhow::Error> {
             }
         }
     }
+}
+
+pub fn safe_open_file<P: ?Sized + nix::NixPath>(
+    path: &P,
+    oflag: OFlag,
+    mode: Mode,
+) -> Result<OwnedFd, nix::Error> {
+    let fd = nix::fcntl::open(path, oflag, mode)?;
+    // SAFETY: contruct a OwnedFd from RawFd, close fd when OwnedFd drop
+    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 
 fn set_process_comm(addr: u64, len: u64) {
@@ -230,12 +261,13 @@ extern "C" fn sandbox_parent_handle_signals(_: libc::c_int) {
 async fn start_sandboxer(
     sandbox_parent: SandboxParent,
     task_socket: String,
-    dir: String,
+    listen: &str,
+    dir: &str,
 ) -> anyhow::Result<()> {
     let task_address = format!("unix://{}", task_socket);
     let sandboxer = RuncSandboxer::new(sandbox_parent, &task_address).await?;
-    sandboxer.recover(&dir).await?;
-    containerd_sandbox::run("runc-sandboxer", sandboxer).await?;
+    sandboxer.recover(dir).await?;
+    containerd_sandbox::run("kuasar-runc-sandboxer", listen, dir, sandboxer).await?;
     Ok(())
 }
 

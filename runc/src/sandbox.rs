@@ -14,37 +14,33 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::collections::HashMap;
-use std::io::Write;
-use std::os::fd::RawFd;
-use std::path::Path;
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    io::Write,
+    os::fd::{AsRawFd, OwnedFd},
+    path::Path,
+    sync::Arc,
+};
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use containerd_sandbox::cri::api::v1::NamespaceMode;
-use containerd_sandbox::data::{ContainerData, SandboxData};
-use containerd_sandbox::error::{Error, Result};
-use containerd_sandbox::signal::ExitSignal;
 use containerd_sandbox::{
+    cri::api::v1::NamespaceMode,
+    data::{ContainerData, SandboxData},
+    error::{Error, Result},
+    signal::ExitSignal,
     Container, ContainerOption, Sandbox, SandboxOption, SandboxStatus, Sandboxer,
 };
 use log::warn;
 use nix::{
-    mount::MsFlags,
-    unistd::{close, Pid},
-};
-use nix::{
-    mount::{mount, umount},
+    mount::{mount, umount, MsFlags},
     sys::signal::{kill, Signal},
+    unistd::Pid,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
-    fs::{create_dir_all, remove_dir_all},
+    fs::{create_dir_all, remove_dir_all, File, OpenOptions},
     io::{AsyncReadExt, AsyncWriteExt},
-};
-use tokio::{
-    fs::{File, OpenOptions},
     sync::{Mutex, RwLock},
 };
 
@@ -80,31 +76,24 @@ impl Container for RuncContainerData {
 }
 
 pub struct SandboxParent {
-    req: RawFd,
-    resp: RawFd,
+    req: OwnedFd,
+    resp: OwnedFd,
 }
 
 impl SandboxParent {
-    pub fn new(req: RawFd, resp: RawFd) -> Self {
+    pub fn new(req: OwnedFd, resp: OwnedFd) -> Self {
         Self { req, resp }
     }
     pub fn fork_sandbox_process(&mut self, id: &str, netns: &str) -> Result<i32> {
         let mut req = [0u8; 512];
         (&mut req[0..64]).write_all(id.as_bytes())?;
         (&mut req[64..]).write_all(netns.as_bytes())?;
-        write_all(self.req, &req)?;
+        write_all(&self.req, &req)?;
         let mut resp = [0u8; 4];
-        let r = read_count(self.resp, 4)?;
+        let r = read_count(self.resp.as_raw_fd(), 4)?;
         resp[..].copy_from_slice(r.as_slice());
         let pid = i32::from_le_bytes(resp);
         Ok(pid)
-    }
-}
-
-impl Drop for SandboxParent {
-    fn drop(&mut self) {
-        close(self.req).unwrap_or_default();
-        close(self.resp).unwrap_or_default();
     }
 }
 
@@ -181,11 +170,20 @@ impl Sandboxer for RuncSandboxer {
             e
         })?;
 
-        sandbox.data.task_address.clone_from(&self.task_address);
+        sandbox
+            .data
+            .task_address
+            .clone_from(&format!("ttrpc+{}", self.task_address));
         sandbox.dump().await.map_err(|e| {
             kill(Pid::from_raw(sandbox_pid), Signal::SIGKILL).unwrap_or_default();
             e
         })?;
+        Ok(())
+    }
+
+    async fn update(&self, id: &str, data: SandboxData) -> Result<()> {
+        let sandbox = self.sandbox(id).await?;
+        sandbox.lock().await.data = data;
         Ok(())
     }
 
