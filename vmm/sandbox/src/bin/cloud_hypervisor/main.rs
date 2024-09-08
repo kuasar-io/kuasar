@@ -16,11 +16,10 @@ limitations under the License.
 
 use clap::Parser;
 use opentelemetry::global;
-use tracing::{error, info_span};
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
+use tracing::{info, info_span};
 use tracing_subscriber::Layer;
-use vmm_common::tracer::{create_logger_filter, create_otlp_tracer};
+use tracing_subscriber::{layer::SubscriberExt, Registry};
+use vmm_common::tracer::{init_logger_filter, init_otlp_tracer};
 use vmm_sandboxer::{
     args,
     cloud_hypervisor::{factory::CloudHypervisorVMFactory, hooks::CloudHypervisorHooks},
@@ -40,31 +39,19 @@ async fn main() {
     let config = Config::load_config(&args.config).await.unwrap();
 
     // Update args log level if it not presents args but in config.
-    let env_filter =
-        match create_logger_filter(&args.log_level.unwrap_or(config.sandbox.log_level())) {
-            Ok(filter) => filter,
-            Err(e) => {
-                error!("failed to init logger filter: {:?}", e);
-                return;
-            }
-        };
+    let env_filter = init_logger_filter(&args.log_level.unwrap_or(config.sandbox.log_level()))
+        .expect("failed to init logger filter");
 
     let mut layers = vec![tracing_subscriber::fmt::layer().boxed()];
     if config.sandbox.enable_tracing {
-        let tracer = match create_otlp_tracer("kuasar-vmm-sandboxer-clh-tracing-service", None) {
-            Ok(tracer) => tracer,
-            Err(e) => {
-                error!("failed to init otlp tracer: {:?}", e);
-                return;
-            }
-        };
+        let tracer = init_otlp_tracer("kuasar-vmm-sandboxer-clh-tracing-service")
+            .expect("failed to init otlp tracer");
+
         layers.push(tracing_opentelemetry::layer().with_tracer(tracer).boxed());
     }
 
-    tracing_subscriber::registry()
-        .with(env_filter)
-        .with(layers)
-        .init();
+    let subscriber = Registry::default().with(env_filter).with(layers);
+    tracing::subscriber::set_global_default(subscriber).expect("unable to set global subscriber");
 
     let root_span = info_span!("kuasar-vmm-sandboxer-clh-root").entered();
 
@@ -78,6 +65,8 @@ async fn main() {
     // Do recovery job
     sandboxer.recover(&args.dir).await;
 
+    info!("Kuasar vmm sandboxer clh is started");
+
     // Run the sandboxer
     containerd_sandbox::run(
         "kuasar-vmm-sandboxer-clh",
@@ -87,6 +76,8 @@ async fn main() {
     )
     .await
     .unwrap();
+
+    info!("Kuasar vmm sandboxer clh is exited");
 
     root_span.exit();
     global::shutdown_tracer_provider();

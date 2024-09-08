@@ -14,27 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::str::FromStr;
-
 use opentelemetry::sdk::trace::Tracer;
 use opentelemetry::sdk::{trace, Resource};
-use opentelemetry_otlp::WithExportConfig;
-use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
-const DEFAULT_JAEGER_ENDPOINT: &str = "http://localhost:14268/api/traces";
-
-pub fn create_otlp_tracer(
-    otlp_service_name: &str,
-    otlp_endpoint: Option<String>,
-) -> anyhow::Result<Tracer> {
+pub fn init_otlp_tracer(otlp_service_name: &str) -> anyhow::Result<Tracer> {
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
-        .with_exporter(
-            opentelemetry_otlp::new_exporter()
-                .tonic()
-                .with_endpoint(otlp_endpoint.unwrap_or(DEFAULT_JAEGER_ENDPOINT.to_string())),
-        )
+        .with_exporter(opentelemetry_otlp::new_exporter().tonic())
         .with_trace_config(trace::config().with_resource(Resource::new(vec![
             opentelemetry::KeyValue::new("service.name", otlp_service_name.to_string()),
         ])))
@@ -43,10 +30,9 @@ pub fn create_otlp_tracer(
     Ok(tracer)
 }
 
-pub fn create_logger_filter(level: &str) -> anyhow::Result<EnvFilter> {
-    let log_level = LevelFilter::from_str(&level)?;
+pub fn init_logger_filter(log_level: &str) -> anyhow::Result<EnvFilter> {
     let filter = EnvFilter::from_default_env()
-        .add_directive(format!("containerd_sandbox={:?}", log_level).parse()?)
-        .add_directive(format!("vmm_sandboxer={:?}", log_level).parse()?);
+        .add_directive(format!("containerd_sandbox={}", log_level).parse()?)
+        .add_directive(format!("vmm_sandboxer={}", log_level).parse()?);
     Ok(filter)
 }

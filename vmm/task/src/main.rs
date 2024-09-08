@@ -39,11 +39,11 @@ use signal_hook_tokio::Signals;
 use streaming::STREAMING_SERVICE;
 use tokio::sync::mpsc::channel;
 use tracing::{debug, error, info, info_span, warn};
-use tracing_subscriber::{self, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+use tracing_subscriber::{self, layer::SubscriberExt, EnvFilter, Layer, Registry};
 use vmm_common::{
     api::{sandbox_ttrpc::create_sandbox_service, streaming_ttrpc::create_streaming},
     mount::mount,
-    tracer::create_otlp_tracer,
+    tracer::init_otlp_tracer,
     ETC_RESOLV, IPC_NAMESPACE, KUASAR_STATE_DIR, PID_NAMESPACE, RESOLV_FILENAME, UTS_NAMESPACE,
 };
 
@@ -149,6 +149,7 @@ async fn initialize() -> anyhow::Result<()> {
     let config = TaskConfig::new().await?;
 
     init_logger(&config.log_level, config.enable_tracing)?;
+
     info!("Task server start with config: {:?}", config);
 
     match &*config.sharefs_type {
@@ -174,21 +175,19 @@ async fn initialize() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn init_logger(level: &str, enable_tracing: bool) -> anyhow::Result<()> {
+fn init_logger(log_level: &str, enable_tracing: bool) -> anyhow::Result<()> {
     let env_filter = EnvFilter::from_default_env()
-        .add_directive(format!("containerd_shim={:?}", level).parse()?)
-        .add_directive(format!("vmm_task={:?}", level).parse()?);
+        .add_directive(format!("containerd_shim={:?}", log_level).parse()?)
+        .add_directive(format!("vmm_task={:?}", log_level).parse()?);
 
     let mut layers = vec![tracing_subscriber::fmt::layer().boxed()];
     if enable_tracing {
-        let tracer = create_otlp_tracer("kuasar-vmm-task-otlp-service", None)?;
+        let tracer = init_otlp_tracer("kuasar-vmm-task-otlp-service")?;
         layers.push(tracing_opentelemetry::layer().with_tracer(tracer).boxed());
     }
 
-    tracing_subscriber::registry()
-        .with(env_filter)
-        .with(layers)
-        .init();
+    let subscriber = Registry::default().with(env_filter).with(layers);
+    tracing::subscriber::set_global_default(subscriber).expect("unable to set global subscriber");
 
     Ok(())
 }
