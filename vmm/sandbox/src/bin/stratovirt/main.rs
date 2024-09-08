@@ -16,7 +16,7 @@ limitations under the License.
 
 use clap::Parser;
 use opentelemetry::global;
-use tracing::info_span;
+use tracing::{info, info_span};
 use tracing_subscriber::{layer::SubscriberExt, Registry};
 use tracing_subscriber::Layer;
 use vmm_common::tracer::{init_logger_filter, init_otlp_tracer};
@@ -65,6 +65,7 @@ async fn main() {
     // Do recovery job
     sandboxer.recover(&args.dir).await;
 
+    info!("Kuasar vmm sandboxer stratovirt is started");
     // Run the sandboxer
     containerd_sandbox::run(
         "kuasar-vmm-sandboxer-stratovirt",
@@ -74,6 +75,8 @@ async fn main() {
     )
     .await
     .unwrap();
+
+    info!("Kuasar vmm sandboxer stratovirt is exited");
 
     root_span.exit();
     global::shutdown_tracer_provider();

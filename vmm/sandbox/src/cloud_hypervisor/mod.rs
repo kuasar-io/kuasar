@@ -157,7 +157,7 @@ impl CloudHypervisorVM {
 
 #[async_trait]
 impl VM for CloudHypervisorVM {
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn start(&mut self) -> Result<u32> {
         create_dir_all(&self.base_dir).await?;
         let virtiofsd_pid = self.start_virtiofsd().await?;
@@ -216,7 +216,7 @@ impl VM for CloudHypervisorVM {
         Ok(pid.unwrap_or_default())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn stop(&mut self, force: bool) -> Result<()> {
         let signal = if force {
             signal::SIGKILL
@@ -248,7 +248,7 @@ impl VM for CloudHypervisorVM {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn attach(&mut self, device_info: DeviceInfo) -> Result<()> {
         match device_info {
             DeviceInfo::Block(blk_info) => {
@@ -283,37 +283,37 @@ impl VM for CloudHypervisorVM {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn hot_attach(&mut self, device_info: DeviceInfo) -> Result<(BusType, String)> {
         let client = self.get_client()?;
         let addr = client.hot_attach(device_info)?;
         Ok((BusType::PCI, addr))
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn hot_detach(&mut self, id: &str) -> Result<()> {
         let client = self.get_client()?;
         client.hot_detach(id)?;
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn ping(&self) -> Result<()> {
         // TODO
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     fn socket_address(&self) -> String {
         self.agent_socket.to_string()
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn wait_channel(&self) -> Option<Receiver<(u32, i128)>> {
         self.wait_chan.clone()
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn vcpus(&self) -> Result<VcpuThreads> {
         // Refer to https://github.com/firecracker-microvm/firecracker/issues/718
         Ok(VcpuThreads {
@@ -335,7 +335,7 @@ impl VM for CloudHypervisorVM {
         })
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     fn pids(&self) -> Pids {
         self.pids.clone()
     }
@@ -343,7 +343,7 @@ impl VM for CloudHypervisorVM {
 
 #[async_trait]
 impl crate::vm::Recoverable for CloudHypervisorVM {
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn recover(&mut self) -> Result<()> {
         self.client = Some(self.create_client().await?);
         let pid = self.pid()?;

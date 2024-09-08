@@ -108,7 +108,7 @@ pub struct Log {
 
 #[async_trait]
 impl ContainerFactory<KuasarContainer> for KuasarFactory {
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn create(
         &self,
         ns: &str,
@@ -181,7 +181,7 @@ impl ContainerFactory<KuasarContainer> for KuasarFactory {
         Ok(container)
     }
 
-    #[instrument(skip(self, c))]
+    #[instrument(skip_all)]
     async fn cleanup(&self, _ns: &str, c: &KuasarContainer) -> containerd_shim::Result<()> {
         self.sandbox.lock().await.defer_storages(&c.id).await?;
         Ok(())
