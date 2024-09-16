@@ -169,7 +169,7 @@ Since Kuasar is a low-level container runtime, all interactions should be done v
 
 + For vmm, quark or runc, run the following scripts:
 
-  `examples/run_example_container.sh vmm`, `examples/run_example_container.sh quark` or `examples/run_example_container.sh runc`
+  `examples/run_example_container.sh kuasar-vmm`, `examples/run_example_container.sh kuasar-quark` or `examples/run_example_container.sh kuasar-runc`
 
 + For wasm: Wasm container needs its own container image so our script has to build and import the container image at first.
 
