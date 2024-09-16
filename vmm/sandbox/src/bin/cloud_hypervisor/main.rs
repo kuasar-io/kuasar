@@ -17,8 +17,7 @@ limitations under the License.
 use clap::Parser;
 use opentelemetry::global;
 use tracing::{info, info_span};
-use tracing_subscriber::Layer;
-use tracing_subscriber::{layer::SubscriberExt, Registry};
+use tracing_subscriber::{layer::SubscriberExt, Layer, Registry};
 use vmm_common::tracer::{init_logger_filter, init_otlp_tracer};
 use vmm_sandboxer::{
     args,
@@ -46,7 +45,6 @@ async fn main() {
     if config.sandbox.enable_tracing {
         let tracer = init_otlp_tracer("kuasar-vmm-sandboxer-clh-tracing-service")
             .expect("failed to init otlp tracer");
-
         layers.push(tracing_opentelemetry::layer().with_tracer(tracer).boxed());
     }
 
@@ -65,8 +63,6 @@ async fn main() {
     // Do recovery job
     sandboxer.recover(&args.dir).await;
 
-    info!("Kuasar vmm sandboxer clh is started");
-
     // Run the sandboxer
     containerd_sandbox::run(
         "kuasar-vmm-sandboxer-clh",
@@ -76,8 +72,6 @@ async fn main() {
     )
     .await
     .unwrap();
-
-    info!("Kuasar vmm sandboxer clh is exited");
 
     root_span.exit();
     global::shutdown_tracer_provider();

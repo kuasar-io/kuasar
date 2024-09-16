@@ -18,6 +18,7 @@ limitations under the License.
 
 use std::{collections::HashMap, convert::TryFrom, path::Path, process::exit, sync::Arc};
 
+use anyhow::anyhow;
 use containerd_shim::{
     asynchronous::{monitor::monitor_notify_by_pid, util::asyncify},
     error::Error,
@@ -177,18 +178,22 @@ async fn initialize() -> anyhow::Result<()> {
 
 fn init_logger(log_level: &str, enable_tracing: bool) -> anyhow::Result<()> {
     let env_filter = EnvFilter::from_default_env()
-        .add_directive(format!("containerd_shim={:?}", log_level).parse()?)
-        .add_directive(format!("vmm_task={:?}", log_level).parse()?);
+        .add_directive(format!("containerd_shim={}", log_level).parse()?)
+        .add_directive(format!("vmm_task={}", log_level).parse()?);
 
     let mut layers = vec![tracing_subscriber::fmt::layer().boxed()];
     if enable_tracing {
-        let tracer = init_otlp_tracer("kuasar-vmm-task-otlp-service")?;
+        let tracer = init_otlp_tracer("kuasar-vmm-task-tracing-service")?;
         layers.push(tracing_opentelemetry::layer().with_tracer(tracer).boxed());
     }
 
     let subscriber = Registry::default().with(env_filter).with(layers);
-    tracing::subscriber::set_global_default(subscriber).expect("unable to set global subscriber");
-
+    match tracing::subscriber::set_global_default(subscriber) {
+        Ok(_) => {}
+        Err(e) => {
+            return Err(anyhow!("failed to set global default subscriber: {}", e));
+        }
+    }
     Ok(())
 }
 
@@ -198,6 +203,7 @@ async fn main() {
         error!("failed to do init call: {:?}", e);
         exit(-1);
     }
+    let root_span = info_span!("kuasar-vmm-task-root").entered();
 
     // Keep server alive in main function
     let mut server = match create_ttrpc_server().await {
@@ -211,8 +217,6 @@ async fn main() {
         error!("failed to start ttrpc server: {:?}", e);
         exit(-1);
     }
-
-    let root_span = info_span!("kuasar-vmm-task-root").entered();
 
     let signals = match Signals::new([libc::SIGTERM, libc::SIGINT, libc::SIGPIPE, libc::SIGCHLD]) {
         Ok(s) => s,

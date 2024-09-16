@@ -29,7 +29,6 @@ use nix::{
 };
 use tokio::fs::File;
 use tracing::{debug, warn};
-
 use vmm_common::{
     mount::{mount, unmount},
     storage::{Storage, DRIVERBLKTYPE, DRIVEREPHEMERALTYPE, DRIVERSCSITYPE},

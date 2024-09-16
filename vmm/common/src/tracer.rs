@@ -14,8 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use opentelemetry::sdk::trace::Tracer;
-use opentelemetry::sdk::{trace, Resource};
+use opentelemetry::sdk::{trace, trace::Tracer, Resource};
 use tracing_subscriber::EnvFilter;
 
 pub fn init_otlp_tracer(otlp_service_name: &str) -> anyhow::Result<Tracer> {
