@@ -25,7 +25,6 @@ pub fn init_otlp_tracer(otlp_service_name: &str) -> anyhow::Result<Tracer> {
             opentelemetry::KeyValue::new("service.name", otlp_service_name.to_string()),
         ])))
         .install_batch(opentelemetry::runtime::Tokio)?;
-
     Ok(tracer)
 }
 

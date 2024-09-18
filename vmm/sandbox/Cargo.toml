@@ -30,7 +30,6 @@ nix = "0.26"
 rand = "0.8.4"
 procfs = "0.13.0"
 futures-util = "0.3.21"
-env_logger = "0.9.0"
 prost-types = "0.10.1"
 time = "0.3.5"
 log = { version = "0.4.17", features = ["std"] }
@@ -56,7 +55,6 @@ tracing-opentelemetry = "0.21.0"
 tracing-subscriber = { version = "0.3.18", features = ["json", "env-filter"] }
 
 opentelemetry = { version = "0.20.0", features = ["rt-tokio"] }
-opentelemetry-otlp = "0.13.0"
 
 [[bin]]
 name = "qemu"

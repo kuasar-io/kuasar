@@ -16,7 +16,7 @@ limitations under the License.
 
 use clap::Parser;
 use opentelemetry::global;
-use tracing::{info, info_span};
+use tracing::info_span;
 use tracing_subscriber::{layer::SubscriberExt, Layer, Registry};
 use vmm_common::tracer::{init_logger_filter, init_otlp_tracer};
 use vmm_sandboxer::{

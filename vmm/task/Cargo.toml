@@ -17,7 +17,6 @@ serde = { version = "1.0.133", features = ["derive"] }
 serde_json = "1.0.74"
 oci-spec = "0.5.4"
 crossbeam = "0.8.1"
-env_logger = "0.9.0"
 lazy_static = "1.4.0"
 netlink-sys = { version = "0.7.0", features = ["tokio_socket"] }
 rtnetlink = "0.14.1"
@@ -32,7 +31,6 @@ tracing-opentelemetry = "0.21.0"
 tracing-subscriber = { version = "0.3.18", features = ["json", "env-filter"] }
 
 opentelemetry = { version = "0.20.0", features = ["rt-tokio"] }
-opentelemetry-otlp = "0.13.0"
 
 # Async dependencies
 async-trait = { version = "0.1.51" }
