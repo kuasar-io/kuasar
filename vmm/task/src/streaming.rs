@@ -436,10 +436,12 @@ impl AsyncRead for StreamingStdin {
     }
 }
 
+type Permit = Box<dyn Future<Output = Result<OwnedPermit<Vec<u8>>, SendError<()>>> + Send>;
+
 pin_project_lite::pin_project! {
     pub struct StreamingOutput {
         sender: Sender<Vec<u8>>,
-        permit: Option<Pin<Box<dyn Future<Output = Result<OwnedPermit<Vec<u8>>, SendError<()>>> + Send>>>,
+        permit: Option<Pin<Permit>>,
     }
 }
 
