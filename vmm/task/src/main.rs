@@ -35,16 +35,15 @@ use nix::{
     sys::wait::{self, WaitPidFlag, WaitStatus},
     unistd::Pid,
 };
-use opentelemetry::global;
 use signal_hook_tokio::Signals;
 use streaming::STREAMING_SERVICE;
 use tokio::sync::mpsc::channel;
-use tracing::{debug, error, info, info_span, warn};
+use tracing::{debug, error, info, warn};
 use tracing_subscriber::{self, layer::SubscriberExt, EnvFilter, Layer, Registry};
 use vmm_common::{
     api::{sandbox_ttrpc::create_sandbox_service, streaming_ttrpc::create_streaming},
     mount::mount,
-    tracer::init_otlp_tracer,
+    tracer::{self, init_otlp_tracer},
     ETC_RESOLV, IPC_NAMESPACE, KUASAR_STATE_DIR, PID_NAMESPACE, RESOLV_FILENAME, UTS_NAMESPACE,
 };
 
@@ -144,11 +143,7 @@ lazy_static! {
     ]);
 }
 
-async fn initialize() -> anyhow::Result<()> {
-    early_init_call().await?;
-
-    let config = TaskConfig::new().await?;
-
+async fn initialize(config: &TaskConfig) -> anyhow::Result<()> {
     init_logger(&config.log_level, config.enable_tracing)?;
 
     info!("Task server start with config: {:?}", config);
@@ -183,28 +178,36 @@ fn init_logger(log_level: &str, enable_tracing: bool) -> anyhow::Result<()> {
 
     let mut layers = vec![tracing_subscriber::fmt::layer().boxed()];
     if enable_tracing {
-        let tracer = init_otlp_tracer("kuasar-vmm-task-tracing-service")?;
+        let tracer = init_otlp_tracer("kuasar-vmm-task-otlp-service")?;
         layers.push(tracing_opentelemetry::layer().with_tracer(tracer).boxed());
     }
 
     let subscriber = Registry::default().with(env_filter).with(layers);
-    match tracing::subscriber::set_global_default(subscriber) {
-        Ok(_) => {}
-        Err(e) => {
-            return Err(anyhow!("failed to set global default subscriber: {}", e));
-        }
-    }
+    tracing::subscriber::set_global_default(subscriber)
+        .map_err(|e| anyhow!("failed to set global default subscriber: {}", e))?;
+
     Ok(())
 }
 
 #[tokio::main]
 async fn main() {
-    if let Err(e) = initialize().await {
+    if let Err(e) = early_init_call().await {
+        error!("failed to do early init call: {:?}", e);
+        exit(-1);
+    }
+
+    let config = match TaskConfig::new().await {
+        Ok(c) => c,
+        Err(e) => {
+            error!("failed to get task config: {:?}", e);
+            exit(-1);
+        }
+    };
+
+    if let Err(e) = initialize(&config).await {
         error!("failed to do init call: {:?}", e);
         exit(-1);
     }
-    let root_span = info_span!("kuasar-vmm-task-root").entered();
-
     // Keep server alive in main function
     let mut server = match create_ttrpc_server().await {
         Ok(s) => s,
@@ -229,8 +232,9 @@ async fn main() {
     info!("Task server successfully started, waiting for exit signal...");
     handle_signals(signals).await;
 
-    root_span.exit();
-    global::shutdown_tracer_provider();
+    if config.enable_tracing {
+        tracer::shutdown_tracing();
+    }
 }
 
 // Do some initialization before everything starts.

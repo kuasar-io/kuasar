@@ -15,10 +15,7 @@ limitations under the License.
 */
 
 use clap::Parser;
-use opentelemetry::global;
-use tracing::{info, info_span};
-use tracing_subscriber::{layer::SubscriberExt, Layer, Registry};
-use vmm_common::tracer::{init_logger_filter, init_otlp_tracer};
+use vmm_common::tracer;
 use vmm_sandboxer::{
     args,
     config::Config,
@@ -54,29 +51,20 @@ async fn main() {
         Config::load_config(&args.config).await.unwrap()
     };
 
-    // Initialize log filter
-    let env_filter =
-        init_logger_filter(&config.sandbox.log_level()).expect("failed to init logger filter");
-
-    let mut layers = vec![tracing_subscriber::fmt::layer().boxed()];
-    if config.sandbox.enable_tracing {
-        let tracer = init_otlp_tracer("kuasar-vmm-sandboxer-qemu-tracing-service")
-            .expect("failed to init otlp tracer");
-        layers.push(tracing_opentelemetry::layer().with_tracer(tracer).boxed());
-    }
-
-    let subscriber = Registry::default().with(env_filter).with(layers);
-    tracing::subscriber::set_global_default(subscriber).expect("unable to set global subscriber");
-
-    let root_span = info_span!("kuasar-vmm-sandboxer-qemu-root").entered();
+    let enable_tracing = config.sandbox.enable_tracing;
+    tracer::setup_tracing(
+        &config.sandbox.log_level(),
+        enable_tracing,
+        "kuasar-vmm-sandboxer-qemu-otlp-service",
+    )
+    .unwrap();
 
     let sandboxer: KuasarSandboxer<QemuVMFactory, QemuHooks> = KuasarSandboxer::new(
         config.sandbox,
         config.hypervisor.clone(),
-        QemuHooks::new(config.hypervisor),
+        QemuHooks::new(config.hypervisor, enable_tracing),
     );
 
-    info!("Kuasar vmm sandboxer clh is started");
     // Run the sandboxer
     containerd_sandbox::run(
         "kuasar-vmm-sandboxer-qemu",
@@ -86,9 +74,4 @@ async fn main() {
     )
     .await
     .unwrap();
-
-    info!("Kuasar vmm sandboxer clh is exited");
-
-    root_span.exit();
-    global::shutdown_tracer_provider();
 }

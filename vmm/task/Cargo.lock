@@ -2519,6 +2519,7 @@ dependencies = [
  "serde",
  "tonic-build",
  "tracing",
+ "tracing-opentelemetry",
  "tracing-subscriber",
  "ttrpc",
  "ttrpc-codegen 0.4.1",

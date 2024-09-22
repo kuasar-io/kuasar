@@ -51,10 +51,6 @@ hostname = "0.3"
 path-clean = "1.0.1"
 
 tracing = "0.1.40"
-tracing-opentelemetry = "0.21.0"
-tracing-subscriber = { version = "0.3.18", features = ["json", "env-filter"] }
-
-opentelemetry = { version = "0.20.0", features = ["rt-tokio"] }
 
 [[bin]]
 name = "qemu"

@@ -15,10 +15,7 @@ limitations under the License.
 */
 
 use clap::Parser;
-use opentelemetry::global;
-use tracing::{info, info_span};
-use tracing_subscriber::{layer::SubscriberExt, Layer, Registry};
-use vmm_common::tracer::{init_logger_filter, init_otlp_tracer};
+use vmm_common::tracer;
 use vmm_sandboxer::{
     args,
     config::Config,
@@ -40,31 +37,23 @@ async fn main() {
     let config: Config<StratoVirtVMConfig> = Config::load_config(&args.config).await.unwrap();
 
     // Update args log level if it not presents args but in config.
-    let env_filter = init_logger_filter(&args.log_level.unwrap_or(config.sandbox.log_level()))
-        .expect("failed to init logger filter");
-
-    let mut layers = vec![tracing_subscriber::fmt::layer().boxed()];
-    if config.sandbox.enable_tracing {
-        let tracer = init_otlp_tracer("kuasar-vmm-sandboxer-stratovirt-otlp-service")
-            .expect("failed to init otlp tracer");
-        layers.push(tracing_opentelemetry::layer().with_tracer(tracer).boxed());
-    }
-
-    let subscriber = Registry::default().with(env_filter).with(layers);
-    tracing::subscriber::set_global_default(subscriber).expect("unable to set global subscriber");
-
-    let root_span = info_span!("kuasar-vmm-sandboxer-stratovirt-root").entered();
+    let enable_tracing = config.sandbox.enable_tracing;
+    tracer::setup_tracing(
+        &config.sandbox.log_level(),
+        enable_tracing,
+        "kuasar-vmm-sandboxer-stratovirt-otlp-service",
+    )
+    .unwrap();
 
     let mut sandboxer: KuasarSandboxer<StratoVirtVMFactory, StratoVirtHooks> = KuasarSandboxer::new(
         config.sandbox,
         config.hypervisor.clone(),
-        StratoVirtHooks::new(config.hypervisor),
+        StratoVirtHooks::new(config.hypervisor, enable_tracing),
     );
 
     // Do recovery job
     sandboxer.recover(&args.dir).await;
 
-    info!("Kuasar vmm sandboxer stratovirt is started");
     // Run the sandboxer
     containerd_sandbox::run(
         "kuasar-vmm-sandboxer-stratovirt",
@@ -74,9 +63,4 @@ async fn main() {
     )
     .await
     .unwrap();
-
-    info!("Kuasar vmm sandboxer stratovirt is exited");
-
-    root_span.exit();
-    global::shutdown_tracer_provider();
 }

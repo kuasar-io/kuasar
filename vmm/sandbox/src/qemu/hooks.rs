@@ -16,6 +16,7 @@ limitations under the License.
 
 use async_trait::async_trait;
 use containerd_sandbox::error::Result;
+use vmm_common::tracer;
 
 use crate::{
     qemu::{config::QemuVMConfig, QemuVM},
@@ -27,11 +28,15 @@ use crate::{
 pub struct QemuHooks {
     #[allow(dead_code)]
     config: QemuVMConfig,
+    enable_tracing: bool,
 }
 
 impl QemuHooks {
-    pub fn new(config: QemuVMConfig) -> Self {
-        Self { config }
+    pub fn new(config: QemuVMConfig, enable_tracing: bool) -> Self {
+        Self {
+            config,
+            enable_tracing,
+        }
     }
 }
 
@@ -47,6 +52,13 @@ impl Hooks<QemuVM> for QemuHooks {
         sandbox.data.task_address = format!("ttrpc+{}", sandbox.vm.agent_socket);
         // sync clock
         sandbox.sync_clock().await;
+        Ok(())
+    }
+
+    async fn post_stop(&self, _sandbox: &mut KuasarSandbox<QemuVM>) -> Result<()> {
+        if self.enable_tracing {
+            tracer::shutdown_tracing();
+        }
         Ok(())
     }
 }
