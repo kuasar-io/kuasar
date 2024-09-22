@@ -311,6 +311,7 @@ async fn get_last_runtime_error(bundle: &str) -> Result<String> {
 
 #[async_trait]
 impl ProcessFactory<ExecProcess> for KuasarExecFactory {
+    #[instrument(skip_all)]
     async fn create(&self, req: &ExecProcessRequest) -> Result<ExecProcess> {
         let p = get_spec_from_request(req)?;
         let stdio = match read_io(&self.bundle, req.id(), Some(req.exec_id())).await {
@@ -344,6 +345,7 @@ impl ProcessFactory<ExecProcess> for KuasarExecFactory {
 
 #[async_trait]
 impl ProcessLifecycle<InitProcess> for KuasarInitLifecycle {
+    #[instrument(skip_all)]
     async fn start(&self, p: &mut InitProcess) -> containerd_shim::Result<()> {
         if let Err(e) = self.runtime.start(p.id.as_str()).await {
             return Err(runtime_error(&p.lifecycle.bundle, e, "OCI runtime start failed").await);
@@ -567,6 +569,7 @@ fn get_spec_from_request(
 const DEFAULT_RUNC_ROOT: &str = "/run/containerd/runc";
 const DEFAULT_COMMAND: &str = "runc";
 
+#[instrument(skip_all)]
 pub fn create_runc(
     runtime: &str,
     namespace: &str,
@@ -607,6 +610,7 @@ pub struct ShimExecutor {}
 
 #[async_trait]
 impl Spawner for ShimExecutor {
+    #[instrument(skip_all)]
     async fn execute(
         &self,
         cmd: Command,
