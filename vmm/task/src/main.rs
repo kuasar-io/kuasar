@@ -16,10 +16,9 @@ limitations under the License.
 
 #![warn(clippy::expect_fun_call, clippy::expect_used)]
 
-use std::{
-    collections::HashMap, convert::TryFrom, path::Path, process::exit, str::FromStr, sync::Arc,
-};
+use std::{collections::HashMap, convert::TryFrom, path::Path, process::exit, sync::Arc};
 
+use anyhow::anyhow;
 use containerd_shim::{
     asynchronous::{monitor::monitor_notify_by_pid, util::asyncify},
     error::Error,
@@ -30,7 +29,7 @@ use containerd_shim::{
 };
 use futures::StreamExt;
 use lazy_static::lazy_static;
-use log::{debug, error, info, warn, LevelFilter};
+use log::{debug, error, info, warn};
 use nix::{
     errno::Errno,
     sched::CloneFlags,
@@ -40,9 +39,11 @@ use nix::{
 use signal_hook_tokio::Signals;
 use streaming::STREAMING_SERVICE;
 use tokio::sync::mpsc::channel;
+use tracing_subscriber::{self, layer::SubscriberExt, EnvFilter, Layer, Registry};
 use vmm_common::{
     api::{sandbox_ttrpc::create_sandbox_service, streaming_ttrpc::create_streaming},
     mount::mount,
+    tracer::{self, init_otlp_tracer},
     ETC_RESOLV, IPC_NAMESPACE, KUASAR_STATE_DIR, PID_NAMESPACE, RESOLV_FILENAME, UTS_NAMESPACE,
 };
 
@@ -142,16 +143,9 @@ lazy_static! {
     ]);
 }
 
-async fn initialize() -> anyhow::Result<()> {
-    early_init_call().await?;
+async fn initialize(config: &TaskConfig) -> anyhow::Result<()> {
+    init_logger(&config.log_level, config.enable_tracing)?;
 
-    let config = TaskConfig::new().await?;
-    let log_level = LevelFilter::from_str(&config.log_level)?;
-    env_logger::Builder::from_default_env()
-        .format_timestamp_micros()
-        .filter_module("containerd_shim", log_level)
-        .filter_module("vmm_task", log_level)
-        .init();
     info!("Task server start with config: {:?}", config);
 
     match &*config.sharefs_type {
@@ -177,13 +171,45 @@ async fn initialize() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn init_logger(log_level: &str, enable_tracing: bool) -> anyhow::Result<()> {
+    let env_filter = EnvFilter::from_default_env()
+        .add_directive(format!("containerd_shim={}", log_level).parse()?)
+        .add_directive(format!("vmm_task={}", log_level).parse()?);
+
+    tracing_log::LogTracer::init()?;
+
+    let mut layers = vec![tracing_subscriber::fmt::layer().boxed()];
+    if enable_tracing {
+        let tracer = init_otlp_tracer("kuasar-vmm-task-otlp-service")?;
+        layers.push(tracing_opentelemetry::layer().with_tracer(tracer).boxed());
+    }
+
+    let subscriber = Registry::default().with(env_filter).with(layers);
+    tracing::subscriber::set_global_default(subscriber)
+        .map_err(|e| anyhow!("failed to set global default subscriber: {}", e))?;
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() {
-    if let Err(e) = initialize().await {
-        error!("failed to do init call: {:?}", e);
+    if let Err(e) = early_init_call().await {
+        error!("failed to do early init call: {:?}", e);
         exit(-1);
     }
 
+    let config = match TaskConfig::new().await {
+        Ok(c) => c,
+        Err(e) => {
+            error!("failed to get task config: {:?}", e);
+            exit(-1);
+        }
+    };
+
+    if let Err(e) = initialize(&config).await {
+        error!("failed to do init call: {:?}", e);
+        exit(-1);
+    }
     // Keep server alive in main function
     let mut server = match create_ttrpc_server().await {
         Ok(s) => s,
@@ -207,6 +233,10 @@ async fn main() {
 
     info!("Task server successfully started, waiting for exit signal...");
     handle_signals(signals).await;
+
+    if config.enable_tracing {
+        tracer::shutdown_tracing();
+    }
 }
 
 // Do some initialization before everything starts.

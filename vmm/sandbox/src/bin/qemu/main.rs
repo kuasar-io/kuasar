@@ -15,13 +15,13 @@ limitations under the License.
 */
 
 use clap::Parser;
+use vmm_common::tracer;
 use vmm_sandboxer::{
     args,
     config::Config,
     kata_config::KataConfig,
     qemu::{factory::QemuVMFactory, hooks::QemuHooks},
     sandbox::KuasarSandboxer,
-    utils::init_logger,
     version,
 };
 
@@ -51,13 +51,18 @@ async fn main() {
         Config::load_config(&args.config).await.unwrap()
     };
 
-    // Initialize log
-    init_logger(&config.sandbox.log_level());
+    let enable_tracing = config.sandbox.enable_tracing;
+    tracer::setup_tracing(
+        &config.sandbox.log_level(),
+        enable_tracing,
+        "kuasar-vmm-sandboxer-qemu-otlp-service",
+    )
+    .unwrap();
 
     let sandboxer: KuasarSandboxer<QemuVMFactory, QemuHooks> = KuasarSandboxer::new(
         config.sandbox,
         config.hypervisor.clone(),
-        QemuHooks::new(config.hypervisor),
+        QemuHooks::new(config.hypervisor, enable_tracing),
     );
 
     // Run the sandboxer

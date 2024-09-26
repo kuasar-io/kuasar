@@ -16,6 +16,7 @@ limitations under the License.
 
 use async_trait::async_trait;
 use containerd_sandbox::error::Result;
+use vmm_common::tracer;
 
 use crate::{
     sandbox::KuasarSandbox,
@@ -26,11 +27,15 @@ use crate::{
 pub struct StratoVirtHooks {
     #[allow(dead_code)]
     config: StratoVirtVMConfig,
+    enable_tracing: bool,
 }
 
 impl StratoVirtHooks {
-    pub fn new(config: StratoVirtVMConfig) -> Self {
-        Self { config }
+    pub fn new(config: StratoVirtVMConfig, enable_tracing: bool) -> Self {
+        Self {
+            config,
+            enable_tracing,
+        }
     }
 }
 
@@ -45,6 +50,13 @@ impl Hooks<StratoVirtVM> for StratoVirtHooks {
         sandbox.data.task_address = format!("ttrpc+{}", sandbox.vm.agent_socket);
         // sync clock
         sandbox.sync_clock().await;
+        Ok(())
+    }
+
+    async fn post_stop(&self, _sandbox: &mut KuasarSandbox<StratoVirtVM>) -> Result<()> {
+        if self.enable_tracing {
+            tracer::shutdown_tracing();
+        }
         Ok(())
     }
 }

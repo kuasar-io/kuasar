@@ -1,5 +1,6 @@
 [sandbox]
 log_level = "info"
+enable_tracing = false
 
 [hypervisor]
 path = "/usr/local/bin/cloud-hypervisor"
@@ -15,6 +16,7 @@ debug = false
 
 [hypervisor.task]
 debug = false
+enable_tracing = false
 
 [hypervisor.virtiofsd]
 path = "/usr/local/bin/virtiofsd"

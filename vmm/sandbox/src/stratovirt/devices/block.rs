@@ -16,7 +16,6 @@ limitations under the License.
 
 use async_trait::async_trait;
 use containerd_sandbox::error::Result;
-use log::{debug, error};
 use qapi::{
     qmp::{
         blockdev_add, blockdev_del, device_add, BlockdevCacheOptions, BlockdevOptions,
@@ -27,6 +26,7 @@ use qapi::{
 };
 use sandbox_derive::CmdLineParams;
 use serde_json::Value;
+use log::{debug, error};
 
 use crate::{
     device::Device,

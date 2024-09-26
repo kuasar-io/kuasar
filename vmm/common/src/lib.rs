@@ -19,6 +19,7 @@ pub use containerd_sandbox::data::Io;
 pub mod api;
 pub mod mount;
 pub mod storage;
+pub mod tracer;
 
 pub const KUASAR_STATE_DIR: &str = "/run/kuasar/state";
 

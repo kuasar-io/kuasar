@@ -15,12 +15,12 @@ limitations under the License.
 */
 
 use clap::Parser;
+use vmm_common::tracer;
 use vmm_sandboxer::{
     args,
     cloud_hypervisor::{factory::CloudHypervisorVMFactory, hooks::CloudHypervisorHooks},
     config::Config,
     sandbox::KuasarSandboxer,
-    utils::init_logger,
     version,
 };
 
@@ -35,13 +35,19 @@ async fn main() {
     let config = Config::load_config(&args.config).await.unwrap();
 
     // Update args log level if it not presents args but in config.
-    init_logger(&args.log_level.unwrap_or(config.sandbox.log_level()));
+    let enable_tracing = config.sandbox.enable_tracing;
+    tracer::setup_tracing(
+        &args.log_level.unwrap_or(config.sandbox.log_level()),
+        enable_tracing,
+        "kuasar-vmm-sandboxer-clh-otlp-service",
+    )
+    .unwrap();
 
     let mut sandboxer: KuasarSandboxer<CloudHypervisorVMFactory, CloudHypervisorHooks> =
         KuasarSandboxer::new(
             config.sandbox,
             config.hypervisor,
-            CloudHypervisorHooks::default(),
+            CloudHypervisorHooks::new(enable_tracing),
         );
 
     // Do recovery job
