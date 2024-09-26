@@ -29,6 +29,8 @@ pub fn setup_tracing(
     let env_filter = init_logger_filter(log_level)
         .map_err(|e| anyhow!("failed to init logger filter: {}", e))?;
 
+    tracing_log::LogTracer::init().map_err(|e| anyhow!("failed to init LogTracer: {}", e))?;
+
     let mut layers = vec![tracing_subscriber::fmt::layer().boxed()];
     if enable_tracing {
         let tracer = init_otlp_tracer(otlp_service_name)

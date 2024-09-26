@@ -31,7 +31,7 @@ use nix::{
 use rtnetlink::{new_connection, Handle, IpVersion};
 use serde_derive::{Deserialize, Serialize};
 use tokio::task::spawn_blocking;
-use tracing::{debug, error, info, warn};
+use log::{debug, error, info, warn};
 
 pub use crate::network::{address::IpNet, link::NetworkInterface, route::Route};
 use crate::{network::link::LinkType, sandbox::KuasarSandbox, utils::safe_open_file, vm::VM};

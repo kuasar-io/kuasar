@@ -34,6 +34,7 @@ use containerd_shim::{
     util::IntoOption,
     Console, Error, ExitSignal, Result,
 };
+use log::{debug, error, warn};
 use nix::{
     cmsg_space,
     sys::{
@@ -47,7 +48,6 @@ use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf},
 };
 use tokio_vsock::{VsockListener, VsockStream};
-use tracing::{debug, error, warn};
 
 use crate::{
     device::SYSTEM_DEV_PATH,

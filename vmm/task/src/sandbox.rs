@@ -23,12 +23,12 @@ use containerd_shim::{
     util::{mkdir, IntoOption},
     Result,
 };
+use log::{debug, warn};
 use nix::{
     sched::{unshare, CloneFlags},
     unistd::{fork, getpid, pause, pipe, ForkResult, Pid},
 };
 use tokio::fs::File;
-use tracing::{debug, warn};
 use vmm_common::{
     mount::{mount, unmount},
     storage::{Storage, DRIVERBLKTYPE, DRIVEREPHEMERALTYPE, DRIVERSCSITYPE},

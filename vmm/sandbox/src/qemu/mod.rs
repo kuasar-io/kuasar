@@ -37,7 +37,7 @@ use tokio::{
     task::spawn_blocking,
     time::sleep,
 };
-use tracing::{debug, error, trace, warn};
+use log::{debug, error, trace, warn};
 use unshare::Fd;
 
 use crate::{

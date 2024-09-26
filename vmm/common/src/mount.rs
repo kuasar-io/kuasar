@@ -24,9 +24,9 @@ use std::{
 use anyhow::{anyhow, Result};
 use fs::read_to_string;
 use lazy_static::lazy_static;
+use log::debug;
 use nix::{errno::Errno, libc, mount::MsFlags, NixPath};
 use regex::Regex;
-use tracing::debug;
 
 pub const MNT_NOFOLLOW: i32 = 0x8;
 pub const MNT_OPTION_MAX_LEN: usize = 4096;

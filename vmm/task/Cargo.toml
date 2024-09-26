@@ -26,6 +26,7 @@ ipnetwork = "0.20"
 anyhow = { version = "1.0.66", default-features = false, features = ["std", "backtrace"] }
 protobuf = "3.2"
 
+tracing-log = "0.2.0"
 tracing = "0.1.40"
 tracing-opentelemetry = "0.21.0"
 tracing-subscriber = { version = "0.3.18", features = ["json", "env-filter"] }

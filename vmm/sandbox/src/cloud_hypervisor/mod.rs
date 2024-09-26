@@ -19,6 +19,7 @@ use std::{os::fd::OwnedFd, process::Stdio, time::Duration};
 use anyhow::anyhow;
 use async_trait::async_trait;
 use containerd_sandbox::error::{Error, Result};
+use log::{debug, error, info, warn};
 use nix::{errno::Errno::ESRCH, sys::signal, unistd::Pid};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -28,7 +29,7 @@ use tokio::{
     sync::watch::{channel, Receiver, Sender},
     task::JoinHandle,
 };
-use tracing::{debug, error, info, instrument, warn};
+use tracing::instrument;
 use vmm_common::SHARED_DIR_SUFFIX;
 
 use crate::{

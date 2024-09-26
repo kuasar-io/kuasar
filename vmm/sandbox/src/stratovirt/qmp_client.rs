@@ -31,7 +31,7 @@ use tokio::{
         Mutex,
     },
 };
-use tracing::error;
+use log::error;
 
 pub struct QmpClient {
     qmp: QapiService<QmpStreamTokio<WriteHalf<UnixStream>>>,

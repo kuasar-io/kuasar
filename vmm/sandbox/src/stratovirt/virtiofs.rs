@@ -21,7 +21,7 @@ use sandbox_derive::CmdLineParamSet;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use tokio::{process::Child, sync::watch::Sender, task::JoinHandle};
-use tracing::{debug, error};
+use log::{debug, error};
 
 use crate::{
     param::ToCmdLineParams,

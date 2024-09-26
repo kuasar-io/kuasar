@@ -7,11 +7,11 @@ use std::collections::HashMap;
 
 use containerd_shim::{io_error, Error};
 use lazy_static::lazy_static;
+use log::warn;
 use tokio::{
     fs::File,
     io::{AsyncBufReadExt, BufReader},
 };
-use tracing::warn;
 
 use crate::StaticMount;
 

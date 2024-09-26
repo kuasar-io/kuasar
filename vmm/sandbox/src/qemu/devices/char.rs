@@ -23,7 +23,7 @@ use qapi::{
 };
 use sandbox_derive::CmdLineParams;
 use serde_json::Value;
-use tracing::{debug, error};
+use log::{debug, error};
 
 use crate::{
     device::{BusType, CharBackendType},

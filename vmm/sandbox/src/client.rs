@@ -29,6 +29,7 @@ use containerd_shim::{
     protos::{api::Envelope, shim::events, shim_async::Events},
     publisher::RemotePublisher,
 };
+use log::{debug, error};
 use nix::{
     sys::{
         socket::{connect, socket, AddressFamily, SockFlag, SockType, UnixAddr, VsockAddr},
@@ -42,7 +43,6 @@ use tokio::{
     net::UnixStream,
     time::timeout,
 };
-use tracing::{debug, error};
 use ttrpc::{
     context::with_timeout,
     r#async::{Client, TtrpcContext},

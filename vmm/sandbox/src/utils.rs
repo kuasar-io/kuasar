@@ -33,6 +33,7 @@ use containerd_sandbox::{
     data::SandboxData,
     error::{Error, Result},
 };
+use log::{error, info};
 use nix::{
     fcntl::{fcntl, open, FdFlag, OFlag, F_GETFD, F_SETFD},
     libc::{kill, setns, FD_CLOEXEC},
@@ -48,7 +49,6 @@ use tokio::{
     sync::watch::Receiver,
     time::sleep,
 };
-use tracing::{error, info};
 use vmm_common::NET_NAMESPACE;
 
 pub async fn read_file<P: AsRef<Path>>(filename: P) -> Result<String> {

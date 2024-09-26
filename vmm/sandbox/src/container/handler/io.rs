@@ -17,7 +17,7 @@ limitations under the License.
 use anyhow::anyhow;
 use async_trait::async_trait;
 use containerd_sandbox::{data::Io, error::Result, Sandbox};
-use tracing::debug;
+use log::debug;
 use vmm_common::IO_FILE_PREFIX;
 
 use crate::{
