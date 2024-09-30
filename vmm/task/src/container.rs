@@ -204,19 +204,20 @@ impl KuasarFactory {
             }
             Err(e) => debug!("get mount type failed {}", e),
         };
-        let mut socket_path = PathBuf::new();
-        let (socket, pio) = if stdio.terminal {
+
+        let (socket, pio, socket_path) = if stdio.terminal {
             let s = ConsoleSocket::new().await?;
-            socket_path = s.path.to_owned();
-            (Some(s), None)
+            let path = s.path.to_owned();
+            (Some(s), None, Some(path))
         } else {
             let pio = create_io(&id, opts.io_uid, opts.io_gid, stdio)?;
-            (None, Some(pio))
-        };
+            (None, Some(pio), None)
+        }; 
+
         let resp = ContainerBuilder::new(id.to_string(), SyscallType::default())
             .with_pid_file(Some(pid_path.clone()))
             .map_err(other_error!(e, "failed to set youki create pid file"))?
-            .with_console_socket(Some(socket_path))
+            .with_console_socket(socket_path)
             .with_root_path(PathBuf::from(YOUKI_DIR))
             .map_err(other_error!(e, "failed to set youki create root path"))?
             .as_init(bundle)
@@ -447,15 +448,14 @@ impl ProcessLifecycle<ExecProcess> for KuasarExecLifecycle {
     #[instrument(skip_all)]
     async fn start(&self, p: &mut ExecProcess) -> containerd_shim::Result<()> {
         rescan_pci_bus().await?;
-        let pid_path = Path::new(self.bundle.as_str()).join(format!("{}.pid", &p.id));
-        let mut socket_path = PathBuf::new();
-        let (socket, pio) = if p.stdio.terminal {
+        let pid_path = Path::new(self.bundle.as_str()).join(format!("{}.pid", &p.id)); 
+        let (socket, pio, socket_path) = if p.stdio.terminal {
             let s = ConsoleSocket::new().await?;
-            socket_path = s.path.to_owned();
-            (Some(s), None)
+            let path = s.path.to_owned();
+            (Some(s), None, Some(path))
         } else {
             let pio = create_io(&p.id, self.io_uid, self.io_gid, &p.stdio)?;
-            (None, Some(pio))
+            (None, Some(pio), None)
         };
 
         let probe_path = format!("{}/{}-process.json", self.bundle, &p.id);
@@ -469,7 +469,7 @@ impl ProcessLifecycle<ExecProcess> for KuasarExecLifecycle {
         let exec_result = ContainerBuilder::new(self.container_id.clone(), SyscallType::default())
             .with_root_path(PathBuf::from(YOUKI_DIR))
             .map_err(other_error!(e, "failed to set youki root path"))?
-            .with_console_socket(Some(socket_path))
+            .with_console_socket(socket_path)
             .with_pid_file(Some(pid_path.clone()))
             .map_err(other_error!(e, "failed to set process pid file"))?
             .as_tenant()
