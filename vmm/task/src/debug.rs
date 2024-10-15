@@ -69,6 +69,12 @@ pub async fn debug_console(stream: VsockStream) -> Result<()> {
     let pty_fd = RawStream::new(pty_master)
         .map_err(io_error!(e, "failed to create AsyncDirectFd from rawfd"))?;
     tokio::spawn(async move {
+        if let Some(id) = child.id() {
+            let exit_status = wait_pid(id as i32, s).await;
+            debug!("debug console shell exit with {}", exit_status)
+        }
+    });
+    tokio::spawn(async move {
         let (mut pty_reader, mut pty_writer) = tokio::io::split(pty_fd);
         tokio::select! {
             res = tokio::io::copy(&mut pty_reader, &mut stream_writer) => {
@@ -77,10 +83,6 @@ pub async fn debug_console(stream: VsockStream) -> Result<()> {
             res = tokio::io::copy(&mut stream_reader, &mut pty_writer) => {
                 debug!("stream closed: {:?}", res);
             }
-        }
-        if let Some(id) = child.id() {
-            let exit_status = wait_pid(id as i32, s).await;
-            debug!("debug console shell exit with {}", exit_status)
         }
     });
 
