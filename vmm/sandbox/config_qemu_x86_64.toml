@@ -1,0 +1,41 @@
+[sandbox]
+log_level = "info"
+
+[hypervisor]
+machine_accelerators = ""
+firmware_path = ""
+cpu_features = "pmu=off"
+cpu_model = "host"
+qemu_path = "/usr/bin/qemu-system-x86_64"
+machine_type = "virt"
+default_bridges = 1
+default_max_vcpus = 0
+entropy_source = "/dev/urandom"
+mem_slots = 1
+mem_offset = 0
+memory_path = ""
+file_backend_mem_path = ""
+mem_prealloc = false
+hugepages = false
+enable_vhost_user_store = false
+enable_swap = false
+virtiofs_daemon_path = "/usr/libexec/virtiofsd"
+virtiofs_cache = "auto"
+virtiofs_extra_args = ["--thread-pool-size=1", "--announce-submounts"]
+virtiofs_cache_size = 0
+msize_9p = 8192
+virtio_9p_direct_io = false
+virtio_9p_multidevs = ""
+enable_iothreads = false
+block_device_driver = "VirtioScsi"
+disable_nvdimm = true
+share_fs = "Virtio9P"
+use_vsock = true
+
+[hypervisor.common]
+memory_in_mb = 2048
+vcpus = 1
+kernel_params = "task.log_level=debug task.sharefs_type=9p tsc=reliable rcupdate.rcu_expedited=1 i8042.direct=1 i8042.dumbkbd=1 i8042.nopnp=1 i8042.noaux=1 noreplace-smp= reboot=k console=hvc0 console=hvc1 iommu=off cryptomgr.notests= net.ifnames=0 pci=lastbus=0"
+kernel_path = "/var/lib/kuasar/vmlinux.bin"
+initrd_path = "/var/lib/kuasar/kuasar.img"
+image_path = ""

@@ -34,8 +34,7 @@ async fn main() {
     }
 
     // For compatibility with kata config
-    let config_path = std::env::var("KATA_CONFIG_PATH")
-        .unwrap_or_else(|_| "/usr/share/defaults/kata-containers/configuration.toml".to_string());
+    let config_path = std::env::var("KATA_CONFIG_PATH").unwrap_or_default();
     let path = std::path::Path::new(&config_path);
 
     let config = if path.exists() {
@@ -54,11 +53,14 @@ async fn main() {
     // Initialize log
     init_logger(&config.sandbox.log_level());
 
-    let sandboxer: KuasarSandboxer<QemuVMFactory, QemuHooks> = KuasarSandboxer::new(
+    let mut sandboxer: KuasarSandboxer<QemuVMFactory, QemuHooks> = KuasarSandboxer::new(
         config.sandbox,
         config.hypervisor.clone(),
         QemuHooks::new(config.hypervisor),
     );
+
+    // Do recovery job
+    sandboxer.recover(&args.dir).await;
 
     // Run the sandboxer
     containerd_sandbox::run(

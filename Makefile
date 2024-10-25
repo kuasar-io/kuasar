@@ -54,6 +54,8 @@ runc: bin/runc-sandboxer
 
 ifeq ($(HYPERVISOR), stratovirt)
 vmm: bin/vmm-sandboxer bin/kuasar.initrd bin/vmlinux.bin
+else ifeq ($(HYPERVISOR), qemu)
+vmm: bin/vmm-sandboxer bin/kuasar.img bin/vmlinux.bin
 else
 vmm: bin/vmm-sandboxer bin/kuasar.img bin/vmlinux.bin
 endif
@@ -78,10 +80,13 @@ install-vmm:
 
 ifeq ($(HYPERVISOR), stratovirt)
 	@install -p -m 640 bin/kuasar.initrd ${DEST_DIR}${INSTALL_DIR}/kuasar.initrd
-	@install -p -m 640 vmm/sandbox/config_stratovirt_${ARCH}.toml ${DEST_DIR}${INSTALL_DIR}/config_stratovirt.toml
+	@install -p -m 640 vmm/sandbox/config_stratovirt_${ARCH}.toml ${DEST_DIR}${INSTALL_DIR}/config.toml
+else ifeq ($(HYPERVISOR), qemu)
+	@install -p -m 640 bin/kuasar.img ${DEST_DIR}${INSTALL_DIR}/kuasar.img
+	@install -p -m 640 vmm/sandbox/config_qemu_${ARCH}.toml ${DEST_DIR}${INSTALL_DIR}/config.toml
 else
 	@install -p -m 640 bin/kuasar.img ${DEST_DIR}${INSTALL_DIR}/kuasar.img
-	@install -p -m 640 vmm/sandbox/config_clh.toml ${DEST_DIR}${INSTALL_DIR}/config_clh.toml
+	@install -p -m 640 vmm/sandbox/config_clh.toml ${DEST_DIR}${INSTALL_DIR}/config.toml
 endif
 
 install-wasm:
