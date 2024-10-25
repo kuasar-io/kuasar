@@ -64,6 +64,7 @@ lazy_static! {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct QemuVMConfig {
+    #[serde(flatten)]
     pub common: HypervisorCommonConfig,
     pub machine_accelerators: String,
     pub firmware_path: String,
