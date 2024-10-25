@@ -60,10 +60,11 @@ wasm: bin/wasm-sandboxer
 quark: bin/quark-sandboxer
 runc: bin/runc-sandboxer
 
-ifeq ($(HYPERVISOR), stratovirt)
-vmm: bin/vmm-sandboxer bin/kuasar.initrd bin/vmlinux.bin
-else
+ifeq ($(HYPERVISOR), cloud_hypervisor)
 vmm: bin/vmm-sandboxer bin/kuasar.img bin/vmlinux.bin
+else
+# stratovirt or qemu
+vmm: bin/vmm-sandboxer bin/kuasar.initrd bin/vmlinux.bin
 endif
 
 clean:
@@ -84,12 +85,13 @@ install-vmm:
 	@install -d -m 750 ${DEST_DIR}${SYSTEMD_CONF_DIR}
 	@install -p -m 640 vmm/service/kuasar-vmm ${DEST_DIR}${SYSTEMD_CONF_DIR}/kuasar-vmm
 
-ifeq ($(HYPERVISOR), stratovirt)
-	@install -p -m 640 bin/kuasar.initrd ${DEST_DIR}${INSTALL_DIR}/kuasar.initrd
-	@install -p -m 640 vmm/sandbox/config_stratovirt_${ARCH}.toml ${DEST_DIR}${INSTALL_DIR}/config_stratovirt.toml
-else
+ifeq ($(HYPERVISOR), cloud_hypervisor)
 	@install -p -m 640 bin/kuasar.img ${DEST_DIR}${INSTALL_DIR}/kuasar.img
-	@install -p -m 640 vmm/sandbox/config_clh.toml ${DEST_DIR}${INSTALL_DIR}/config_clh.toml
+	@install -p -m 640 vmm/sandbox/config_clh.toml ${DEST_DIR}${INSTALL_DIR}/config.toml
+else
+# stratovirt or qemu
+	@install -p -m 640 bin/kuasar.initrd ${DEST_DIR}${INSTALL_DIR}/kuasar.initrd
+	@install -p -m 640 vmm/sandbox/config_${HYPERVISOR}_${ARCH}.toml ${DEST_DIR}${INSTALL_DIR}/config.toml
 endif
 
 install-wasm:
