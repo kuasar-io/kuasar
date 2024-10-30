@@ -26,7 +26,11 @@ use containerd_shim::{
 };
 use futures::StreamExt;
 use log::{debug, error};
-use nix::{pty::openpty, unistd::setsid};
+use nix::{
+    pty::openpty,
+    sys::signal::{kill, Signal},
+    unistd::{setsid, Pid},
+};
 use tokio::process::Command;
 use tokio_vsock::VsockStream;
 
@@ -79,6 +83,7 @@ pub async fn debug_console(stream: VsockStream) -> Result<()> {
             }
         }
         if let Some(id) = child.id() {
+            kill(Pid::from_raw(id as i32), Signal::SIGKILL).unwrap_or_default();
             let exit_status = wait_pid(id as i32, s).await;
             debug!("debug console shell exit with {}", exit_status)
         }
