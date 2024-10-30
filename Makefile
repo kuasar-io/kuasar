@@ -9,6 +9,14 @@ INSTALL_DIR := /var/lib/kuasar
 BIN_DIR := /usr/local/bin
 SYSTEMD_SERVICE_DIR := /usr/lib/systemd/system
 SYSTEMD_CONF_DIR := /etc/sysconfig
+ENABLE_YOUKI ?= false
+RUNC_FEATURES =
+VMM_TASK_FEATURES =
+
+ifeq ($(ENABLE_YOUKI), true)
+	RUNC_FEATURES = youki
+	VMM_TASK_FEATURES = youki
+endif
 
 .PHONY: vmm wasm quark clean all install-vmm install-wasm install-quark install \
         bin/vmm-sandboxer bin/vmm-task bin/vmlinux.bin bin/kuasar.img bin/kuasar.initrd \
@@ -21,7 +29,7 @@ bin/vmm-sandboxer:
 	@mkdir -p bin && cp vmm/sandbox/target/release/${HYPERVISOR} bin/vmm-sandboxer
 
 bin/vmm-task:
-	@cd vmm/task && cargo build --release --target=${ARCH}-unknown-linux-musl
+	@cd vmm/task && cargo build --release --target=${ARCH}-unknown-linux-musl --features=${VMM_TASK_FEATURES}
 	@mkdir -p bin && cp vmm/task/target/${ARCH}-unknown-linux-musl/release/vmm-task bin/vmm-task
 
 bin/vmlinux.bin:
@@ -45,7 +53,7 @@ bin/quark-sandboxer:
 	@mkdir -p bin && cp quark/target/release/quark-sandboxer bin/quark-sandboxer
 
 bin/runc-sandboxer:
-	@cd runc && cargo build --release
+	@cd runc && cargo build --release --features=${RUNC_FEATURES}
 	@mkdir -p bin && cp runc/target/release/runc-sandboxer bin/runc-sandboxer
 
 wasm: bin/wasm-sandboxer

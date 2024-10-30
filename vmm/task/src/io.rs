@@ -27,12 +27,12 @@ use std::{
     task::{Context, Poll},
 };
 
+#[cfg(not(feature = "youki"))]
+use containerd_shim::util::IntoOption;
 use containerd_shim::{
     asynchronous::{console::ConsoleSocket, processes::ProcessTemplate, util::asyncify},
     io::Stdio,
-    io_error, other,
-    util::IntoOption,
-    Console, Error, ExitSignal, Result,
+    io_error, other, Console, Error, ExitSignal, Result,
 };
 use log::{debug, error, warn};
 use nix::{
@@ -42,7 +42,9 @@ use nix::{
         termios::tcgetattr,
     },
 };
-use runc::io::{IOOption, Io, NullIo, PipedIo, FIFO};
+use runc::io::Io;
+#[cfg(not(feature = "youki"))]
+use runc::io::{IOOption, NullIo, PipedIo, FIFO};
 use tokio::{
     fs::{File, OpenOptions},
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf},
@@ -63,6 +65,7 @@ pub struct ProcessIO {
 const VSOCK: &str = "vsock";
 const STREAMING: &str = "streaming";
 
+#[cfg(not(feature = "youki"))]
 pub fn create_io(
     id: &str,
     io_uid: u32,
@@ -145,7 +148,7 @@ pub(crate) async fn copy_io_or_console<P>(
     Ok(())
 }
 
-async fn copy_console<P>(
+pub async fn copy_console<P>(
     p: &ProcessTemplate<P>,
     console_socket: &ConsoleSocket,
     stdio: &Stdio,

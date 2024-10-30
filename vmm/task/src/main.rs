@@ -45,9 +45,8 @@ use tracing_subscriber::{
 use vmm_common::{
     api::{sandbox_ttrpc::create_sandbox_service, streaming_ttrpc::create_streaming},
     mount::mount,
-    trace,
-    ETC_RESOLV, IPC_NAMESPACE, KUASAR_STATE_DIR, PID_NAMESPACE, RESOLV_FILENAME, UTS_NAMESPACE,
-    HOSTNAME_FILENAME, SANDBOX_NS_PATH, YOUKI_DIR,
+    trace, ETC_RESOLV, IPC_NAMESPACE, KUASAR_STATE_DIR, PID_NAMESPACE, RESOLV_FILENAME,
+    UTS_NAMESPACE,
 };
 
 use crate::{
@@ -59,6 +58,7 @@ use crate::{
 };
 
 mod config;
+#[cfg(not(feature = "youki"))]
 mod container;
 mod debug;
 mod device;
@@ -72,6 +72,8 @@ mod streaming;
 mod task;
 mod util;
 mod vsock;
+#[cfg(feature = "youki")]
+mod youki;
 
 const NAMESPACE: &str = "k8s.io";
 
@@ -172,8 +174,6 @@ async fn initialize() -> anyhow::Result<TaskConfig> {
             error!("failed to listen debug console port, {:?}", e);
         }
     }
-
-    tokio::fs::create_dir_all(YOUKI_DIR).await.expect("failed to create youki dir");
 
     late_init_call().await?;
 

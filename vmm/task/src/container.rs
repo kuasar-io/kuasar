@@ -15,12 +15,8 @@ limitations under the License.
 */
 
 use std::{
-    convert::TryFrom,
-    io::SeekFrom,
-    os::unix::prelude::ExitStatusExt,
-    path::{Path, PathBuf},
-    process::ExitStatus,
-    sync::Arc,
+    convert::TryFrom, io::SeekFrom, os::unix::prelude::ExitStatusExt, path::Path,
+    process::ExitStatus, sync::Arc,
 };
 
 use async_trait::async_trait;
@@ -46,15 +42,10 @@ use containerd_shim::{
     util::read_spec,
     ExitSignal,
 };
-use libcontainer::{
-    container::{builder::ContainerBuilder, Container},
-    signal::Signal,
-    syscall::syscall::SyscallType,
-};
 use log::{debug, error};
 use nix::{sys::signalfd::signal::kill, unistd::Pid};
 use oci_spec::runtime::{LinuxResources, Process, Spec};
-use runc::Spawner;
+use runc::{options::GlobalOpts, Runc, Spawner};
 use serde::Deserialize;
 use tokio::{
     fs::{remove_file, File},
@@ -63,7 +54,11 @@ use tokio::{
     sync::Mutex,
 };
 use tracing::instrument;
-use vmm_common::{mount::get_mount_type, storage::Storage, KUASAR_STATE_DIR, YOUKI_DIR};
+use vmm_common::{
+    mount::get_mount_type,
+    storage::{Storage, ANNOTATION_KEY_STORAGE},
+    KUASAR_STATE_DIR,
+};
 
 use crate::{
     device::rescan_pci_bus,
@@ -73,8 +68,6 @@ use crate::{
 };
 
 pub const INIT_PID_FILE: &str = "init.pid";
-
-const STORAGE_ANNOTATION: &str = "io.kuasar.storages";
 
 pub type ExecProcess = ProcessTemplate<KuasarExecLifecycle>;
 pub type InitProcess = ProcessTemplate<KuasarInitLifecycle>;
@@ -87,12 +80,14 @@ pub(crate) struct KuasarFactory {
 }
 
 pub struct KuasarExecFactory {
+    runtime: Runc,
     bundle: String,
     io_uid: u32,
     io_gid: u32,
 }
 
 pub struct KuasarExecLifecycle {
+    runtime: Runc,
     bundle: String,
     container_id: String,
     io_uid: u32,
@@ -102,6 +97,7 @@ pub struct KuasarExecLifecycle {
 }
 
 pub struct KuasarInitLifecycle {
+    runtime: Runc,
     opts: Options,
     bundle: String,
     exit_signal: Arc<ExitSignal>,
@@ -118,14 +114,14 @@ impl ContainerFactory<KuasarContainer> for KuasarFactory {
     #[instrument(skip_all)]
     async fn create(
         &self,
-        _ns: &str,
+        ns: &str,
         req: &CreateTaskRequest,
     ) -> containerd_shim::Result<KuasarContainer> {
         rescan_pci_bus().await?;
         let bundle = format!("{}/{}", KUASAR_STATE_DIR, req.id);
         let spec: Spec = read_spec(&bundle).await?;
         let annotations = spec.annotations().clone().unwrap_or_default();
-        let storages = if let Some(storage_str) = annotations.get(STORAGE_ANNOTATION) {
+        let storages = if let Some(storage_str) = annotations.get(ANNOTATION_KEY_STORAGE) {
             serde_json::from_str::<Vec<Storage>>(storage_str)?
         } else {
             read_storages(&bundle, req.id()).await?
@@ -143,9 +139,18 @@ impl ContainerFactory<KuasarContainer> for KuasarFactory {
         if opts.compute_size() > 0 {
             debug!("create options: {:?}", &opts);
         }
+        let runtime = opts.binary_name.as_str();
 
         // As the rootfs is already mounted when handling the storage, the root in spec is one of the
         // storage mount point. so no need to mount rootfs anymore
+        let runc = create_runc(
+            runtime,
+            ns,
+            &bundle,
+            &opts,
+            Some(Arc::new(ShimExecutor::default())),
+        )?;
+
         let id = req.id();
 
         let stdio = match read_io(&bundle, req.id(), None).await {
@@ -157,7 +162,11 @@ impl ContainerFactory<KuasarContainer> for KuasarFactory {
         // that needs to be converted to the serial file path
         let stdio = convert_stdio(&stdio).await?;
 
-        let mut init = InitProcess::new(id, stdio, KuasarInitLifecycle::new(opts.clone(), &bundle));
+        let mut init = InitProcess::new(
+            id,
+            stdio,
+            KuasarInitLifecycle::new(runc.clone(), opts.clone(), &bundle),
+        );
 
         self.do_create(&mut init).await?;
         let container = KuasarContainer {
@@ -165,6 +174,7 @@ impl ContainerFactory<KuasarContainer> for KuasarFactory {
             bundle: bundle.to_string(),
             init,
             process_factory: KuasarExecFactory {
+                runtime: runc,
                 bundle: bundle.to_string(),
                 io_uid: opts.io_uid,
                 io_gid: opts.io_gid,
@@ -193,51 +203,65 @@ impl KuasarFactory {
         let opts = &init.lifecycle.opts;
         let bundle = &init.lifecycle.bundle;
         let pid_path = Path::new(bundle).join(INIT_PID_FILE);
-        let mut _no_pivot_root = opts.no_pivot_root;
+        let mut no_pivot_root = opts.no_pivot_root;
         // pivot_root could not work with initramfs
-        // TODO youki not support no_pivot_root yet
         match get_mount_type("/") {
             Ok(m_type) => {
                 if m_type == *"rootfs" {
-                    _no_pivot_root = true;
+                    no_pivot_root = true;
                 }
             }
             Err(e) => debug!("get mount type failed {}", e),
         };
-
-        let (socket, pio, socket_path) = if stdio.terminal {
+        let mut create_opts = runc::options::CreateOpts::new()
+            .pid_file(&pid_path)
+            .no_pivot(no_pivot_root)
+            .no_new_keyring(opts.no_new_keyring)
+            .detach(false);
+        let (socket, pio) = if stdio.terminal {
             let s = ConsoleSocket::new().await?;
-            let path = s.path.to_owned();
-            (Some(s), None, Some(path))
+            create_opts.console_socket = Some(s.path.to_owned());
+            (Some(s), None)
         } else {
             let pio = create_io(&id, opts.io_uid, opts.io_gid, stdio)?;
-            (None, Some(pio), None)
-        }; 
+            create_opts.io = pio.io.as_ref().cloned();
+            (None, Some(pio))
+        };
 
-        let resp = ContainerBuilder::new(id.to_string(), SyscallType::default())
-            .with_pid_file(Some(pid_path.clone()))
-            .map_err(other_error!(e, "failed to set youki create pid file"))?
-            .with_console_socket(socket_path)
-            .with_root_path(PathBuf::from(YOUKI_DIR))
-            .map_err(other_error!(e, "failed to set youki create root path"))?
-            .as_init(bundle)
-            .with_systemd(false)
-            .with_detach(false)
-            .build();
+        let resp = init
+            .lifecycle
+            .runtime
+            .create(&id, bundle, Some(&create_opts))
+            .await;
         if let Err(e) = resp {
             if let Some(s) = socket {
                 s.clean().await;
             }
-            return Err(other!(
-                "youki create container {} failed {}",
-                id.to_string(),
-                e
-            ));
+            return Err(runtime_error(bundle, e, "OCI runtime create failed").await);
         }
         copy_io_or_console(init, socket, pio, init.lifecycle.exit_signal.clone()).await?;
         let pid = read_file_to_str(pid_path).await?.parse::<i32>()?;
         init.pid = pid;
         Ok(())
+    }
+}
+
+// runtime_error will read the OCI runtime logfile retrieving OCI runtime error
+pub async fn runtime_error(bundle: &str, r_err: runc::error::Error, msg: &str) -> Error {
+    match get_last_runtime_error(bundle).await {
+        Err(e) => other!(
+            "{}: unable to retrieve OCI runtime error ({}): {}",
+            msg,
+            e,
+            r_err
+        ),
+        Ok(rt_msg) => {
+            if rt_msg.is_empty() {
+                other!("{}: empty msg in log file: {}", msg, r_err)
+            } else {
+                other!("{}: {}", msg, rt_msg)
+            }
+        }
     }
 }
 
@@ -309,6 +333,7 @@ impl ProcessFactory<ExecProcess> for KuasarExecFactory {
             wait_chan_tx: vec![],
             console: None,
             lifecycle: Arc::from(KuasarExecLifecycle {
+                runtime: self.runtime.clone(),
                 bundle: self.bundle.to_string(),
                 container_id: req.id.to_string(),
                 io_uid: self.io_uid,
@@ -325,12 +350,9 @@ impl ProcessFactory<ExecProcess> for KuasarExecFactory {
 impl ProcessLifecycle<InitProcess> for KuasarInitLifecycle {
     #[instrument(skip_all)]
     async fn start(&self, p: &mut InitProcess) -> containerd_shim::Result<()> {
-        let mut container = Container::load(PathBuf::from(YOUKI_DIR).join(p.id.as_str()))
-            .map_err(other_error!(e, "youki load container error"))?;
-
-        container
-            .start()
-            .map_err(other_error!(e, "youki start container error"))?;
+        if let Err(e) = self.runtime.start(p.id.as_str()).await {
+            return Err(runtime_error(&p.lifecycle.bundle, e, "OCI runtime start failed").await);
+        }
         p.state = Status::RUNNING;
         Ok(())
     }
@@ -342,35 +364,38 @@ impl ProcessLifecycle<InitProcess> for KuasarInitLifecycle {
         signal: u32,
         all: bool,
     ) -> containerd_shim::Result<()> {
-       let mut container = Container::load(PathBuf::from(YOUKI_DIR).join(p.id.as_str()))
-            .map_err(other_error!(e, "youki load container error"))?;
+        if let Err(r_err) = self
+            .runtime
+            .kill(
+                p.id.as_str(),
+                signal,
+                Some(&runc::options::KillOpts { all }),
+            )
+            .await
+        {
+            let e = runtime_error(&p.lifecycle.bundle, r_err, "OCI runtime kill failed").await;
 
-        let kill_signal: Signal =
-            signal.to_string().as_str().try_into().map_err(|e| {
-                Error::Other(format!("kill signal {} transfer error: {}", signal, e))
-            })?;
-
-        container
-            .kill(kill_signal, all)
-            .map_err(other_error!(e, "youki kill container error"))
-            .map_err(|e| check_kill_error(e.to_string()))
+            return Err(check_kill_error(e.to_string()));
+        }
+        Ok(())
     }
 
     #[instrument(skip_all)]
     async fn delete(&self, p: &mut InitProcess) -> containerd_shim::Result<()> {
-        let mut container = Container::load(PathBuf::from(YOUKI_DIR).join(p.id.as_str()))
-            .map_err(other_error!(e, "youki load container error"))?;
-
-        container
-            .delete(true)
-            .or_else(|e| {
-                if !e.to_string().to_lowercase().contains("does not exist") {
-                    Err(e)
-                } else {
-                    Ok(())
-                }
-            })
-            .map_err(other_error!(e, "youki delete container error"))?;
+        if let Err(e) = self
+            .runtime
+            .delete(
+                p.id.as_str(),
+                Some(&runc::options::DeleteOpts { force: true }),
+            )
+            .await
+        {
+            if !e.to_string().to_lowercase().contains("does not exist") {
+                return Err(
+                    runtime_error(&p.lifecycle.bundle, e, "OCI runtime delete failed").await,
+                );
+            }
+        }
         self.exit_signal.signal();
         Ok(())
     }
@@ -413,11 +438,12 @@ impl ProcessLifecycle<InitProcess> for KuasarInitLifecycle {
 
     #[instrument(skip_all)]
     async fn ps(&self, p: &InitProcess) -> Result<Vec<ProcessInfo>> {
-        let container = Container::load(PathBuf::from(YOUKI_DIR).join(p.id.as_str()))
-            .map_err(other_error!(e, "youki load container error"))?;
-
-        Ok(container
-            .pid()
+        let pids = self
+            .runtime
+            .ps(&p.id)
+            .await
+            .map_err(other_error!(e, "failed to execute runc ps"))?;
+        Ok(pids
             .iter()
             .map(|&x| ProcessInfo {
                 pid: x as u32,
@@ -436,6 +462,7 @@ impl KuasarInitLifecycle {
             opts.criu_path = work_dir.to_string_lossy().to_string();
         }
         Self {
+            runtime,
             opts,
             bundle: bundle.to_string(),
             exit_signal: Default::default(),
@@ -448,47 +475,34 @@ impl ProcessLifecycle<ExecProcess> for KuasarExecLifecycle {
     #[instrument(skip_all)]
     async fn start(&self, p: &mut ExecProcess) -> containerd_shim::Result<()> {
         rescan_pci_bus().await?;
-        let pid_path = Path::new(self.bundle.as_str()).join(format!("{}.pid", &p.id)); 
-        let (socket, pio, socket_path) = if p.stdio.terminal {
+        let bundle = self.bundle.to_string();
+        let pid_path = Path::new(&bundle).join(format!("{}.pid", &p.id));
+        let mut exec_opts = runc::options::ExecOpts {
+            io: None,
+            pid_file: Some(pid_path.to_owned()),
+            console_socket: None,
+            detach: true,
+        };
+        let (socket, pio) = if p.stdio.terminal {
             let s = ConsoleSocket::new().await?;
-            let path = s.path.to_owned();
-            (Some(s), None, Some(path))
+            exec_opts.console_socket = Some(s.path.to_owned());
+            (Some(s), None)
         } else {
             let pio = create_io(&p.id, self.io_uid, self.io_gid, &p.stdio)?;
-            (None, Some(pio), None)
+            exec_opts.io = pio.io.as_ref().cloned();
+            (None, Some(pio))
         };
-
-        let probe_path = format!("{}/{}-process.json", self.bundle, &p.id);
-        let spec_str = serde_json::to_string(&self.spec)
-            .map_err(other_error!(e, "failed to marshall exec spec to string"))?;
-        tokio::fs::write(&probe_path, &spec_str)
-            .await
-            .map_err(other_error!(e, "failed to write spec to process.json"))?;
-
         //TODO  checkpoint support
-        let exec_result = ContainerBuilder::new(self.container_id.clone(), SyscallType::default())
-            .with_root_path(PathBuf::from(YOUKI_DIR))
-            .map_err(other_error!(e, "failed to set youki root path"))?
-            .with_console_socket(socket_path)
-            .with_pid_file(Some(pid_path.clone()))
-            .map_err(other_error!(e, "failed to set process pid file"))?
-            .as_tenant()
-            .with_detach(true)
-            .with_process(Some(&probe_path))
-            .build();
+        let exec_result = self
+            .runtime
+            .exec(&self.container_id, &self.spec, Some(&exec_opts))
+            .await;
         if let Err(e) = exec_result {
             if let Some(s) = socket {
                 s.clean().await;
             }
-           let _ = tokio::fs::remove_file(&probe_path).await;
-            return Err(other!(
-                "youki exec container {} failed {}",
-                self.container_id,
-                e
-            ));
+            return Err(runtime_error(&bundle, e, "OCI runtime exec failed").await);
         }
-        let _ = tokio::fs::remove_file(&probe_path).await;
-
         copy_io_or_console(p, socket, pio, p.lifecycle.exit_signal.clone()).await?;
         let pid = read_file_to_str(pid_path).await?.parse::<i32>()?;
         p.pid = pid;
