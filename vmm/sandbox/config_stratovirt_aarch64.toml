@@ -1,5 +1,6 @@
 [sandbox]
 log_level = "info"
+enable_tracing = false
 
 [hypervisor]
 path = "/usr/bin/stratovirt"
