@@ -54,7 +54,11 @@ use tokio::{
     sync::Mutex,
 };
 use tracing::instrument;
-use vmm_common::{mount::get_mount_type, storage::Storage, KUASAR_STATE_DIR};
+use vmm_common::{
+    mount::get_mount_type,
+    storage::{Storage, ANNOTATION_KEY_STORAGE},
+    KUASAR_STATE_DIR,
+};
 
 use crate::{
     device::rescan_pci_bus,
@@ -64,8 +68,6 @@ use crate::{
 };
 
 pub const INIT_PID_FILE: &str = "init.pid";
-
-const STORAGE_ANNOTATION: &str = "io.kuasar.storages";
 
 pub type ExecProcess = ProcessTemplate<KuasarExecLifecycle>;
 pub type InitProcess = ProcessTemplate<KuasarInitLifecycle>;
@@ -119,7 +121,7 @@ impl ContainerFactory<KuasarContainer> for KuasarFactory {
         let bundle = format!("{}/{}", KUASAR_STATE_DIR, req.id);
         let spec: Spec = read_spec(&bundle).await?;
         let annotations = spec.annotations().clone().unwrap_or_default();
-        let storages = if let Some(storage_str) = annotations.get(STORAGE_ANNOTATION) {
+        let storages = if let Some(storage_str) = annotations.get(ANNOTATION_KEY_STORAGE) {
             serde_json::from_str::<Vec<Storage>>(storage_str)?
         } else {
             read_storages(&bundle, req.id()).await?

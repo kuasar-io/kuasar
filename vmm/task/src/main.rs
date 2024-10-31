@@ -58,6 +58,7 @@ use crate::{
 };
 
 mod config;
+#[cfg(not(feature = "youki"))]
 mod container;
 mod debug;
 mod device;
@@ -71,6 +72,8 @@ mod streaming;
 mod task;
 mod util;
 mod vsock;
+#[cfg(feature = "youki")]
+mod youki;
 
 const NAMESPACE: &str = "k8s.io";
 

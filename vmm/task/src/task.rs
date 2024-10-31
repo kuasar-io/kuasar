@@ -31,18 +31,28 @@ use log::{debug, error};
 use oci_spec::runtime::{LinuxNamespaceType, Spec};
 use tokio::sync::{mpsc::Sender, Mutex};
 
-use crate::{
-    container::{KuasarContainer, KuasarFactory},
-    sandbox::SandboxResources,
-    NAMESPACE,
-};
+#[cfg(not(feature = "youki"))]
+use crate::container::{KuasarContainer, KuasarFactory};
+#[cfg(feature = "youki")]
+use crate::youki::{YoukiContainer, YoukiFactory};
+use crate::{sandbox::SandboxResources, NAMESPACE};
+
+#[cfg(not(feature = "youki"))]
+type Factory = KuasarFactory;
+#[cfg(not(feature = "youki"))]
+type RealContainer = KuasarContainer;
+
+#[cfg(feature = "youki")]
+type Factory = YoukiFactory;
+#[cfg(feature = "youki")]
+type RealContainer = YoukiContainer;
 
 pub(crate) async fn create_task_service(
     tx: Sender<(String, Box<dyn MessageDyn>)>,
-) -> anyhow::Result<TaskService<KuasarFactory, KuasarContainer>> {
+) -> anyhow::Result<TaskService<Factory, RealContainer>> {
     let sandbox = Arc::new(Mutex::new(SandboxResources::new().await));
     let task = TaskService {
-        factory: KuasarFactory::new(sandbox),
+        factory: Factory::new(sandbox),
         containers: Arc::new(Default::default()),
         namespace: NAMESPACE.to_string(),
         exit: Arc::new(Default::default()),
@@ -54,7 +64,7 @@ pub(crate) async fn create_task_service(
     Ok(task)
 }
 
-async fn process_exits(s: Subscription, task: &TaskService<KuasarFactory, KuasarContainer>) {
+async fn process_exits(s: Subscription, task: &TaskService<Factory, RealContainer>) {
     let containers = task.containers.clone();
     let mut s = s;
     tokio::spawn(async move {
