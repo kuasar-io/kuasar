@@ -10,7 +10,7 @@ details in: https://www.secondstate.io/articles/wasm-runtime-agi/.
 
 ## How to run a llm inference application in Kuasar?
 
-Since Kuasar v0.8.0, Kuasar wasm-sandboxer with `wasmedge` and `wasmedge_wasi_nn` 
+Since Kuasar v1.0.0, Kuasar wasm-sandboxer with `wasmedge` and `wasmedge_wasi_nn` 
 features allows your WasmEdge application use the ability of WASI API for
 performing Machine Learning inference: https://github.com/WebAssembly/wasi-nn.
 
@@ -21,7 +21,6 @@ which introducing how to create an OpenAI-compatible API service for Llama-3-8B.
 
 + Install WasmEdge and plugins: 
 `curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install.sh | bash -s -- -v 0.13.5 --plugins wasi_logging wasi_nn-ggml`
-
 
 ### 1. Build docker image
 
@@ -49,6 +48,18 @@ COPY . /
 CMD ["llama-api-server.wasm", "--prompt-template", "llama-3-chat", "--ctx-size", "4096", "--model-name", "Llama-3-8B", "--log-all"]
 ```
 Build it with `docker build -t docker.io/kuasario/llama-api-server:v1 .`
+
+Otherwise, you can use this DOCKERFILE if you are debugging while developing:
+```dockerfile
+FROM ubuntu:22.04
+RUN apt-get update && apt-get install -y curl
+RUN curl -LO https://huggingface.co/second-state/Llama-3-8B-Instruct-GGUF/resolve/main/Meta-Llama-3-8B-Instruct-Q5_K_M.gguf
+RUN curl -LO https://github.com/second-state/chatbot-ui/releases/latest/download/chatbot-ui.tar.gz; tar xzf chatbot-ui.tar.gz; rm chatbot-ui.tar.gz
+COPY *.wasm .
+```
+
+This would download all prerequisites to docker image cache, allowing you pay attention only on development.
+`docker build -f Dockerfile -t docker.io/kuasario/llama-api-server:v2 $path_to_app`
 
 ### 2. Build and run Kuasar Wasm Sandboxer
 
