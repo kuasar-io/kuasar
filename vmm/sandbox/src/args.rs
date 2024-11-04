@@ -22,12 +22,12 @@ pub struct Args {
     #[arg(short, long)]
     pub version: bool,
 
-    /// Config file path, only for cloud hypervisor and stratovirt, default is `/var/lib/kuasar/config_clh.toml`
+    /// Config file path, for cloud hypervisor, qemu and stratovirt, default is `/var/lib/kuasar/config.toml`
     #[arg(
         short,
         long,
         value_name = "FILE",
-        default_value = "/var/lib/kuasar/config_clh.toml"
+        default_value = "/var/lib/kuasar/config.toml"
     )]
     pub config: String,
 
@@ -61,7 +61,7 @@ mod tests {
     fn test_args_parse_default() {
         let args = Args::parse();
         assert!(!args.version);
-        assert_eq!(args.config, "/var/lib/kuasar/config_clh.toml");
+        assert_eq!(args.config, "/var/lib/kuasar/config.toml");
         assert_eq!(args.dir, "/run/kuasar-vmm");
         assert_eq!(args.listen, "/run/vmm-sandboxer.sock");
         assert!(args.log_level.is_none());
