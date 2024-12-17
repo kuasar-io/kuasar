@@ -90,8 +90,16 @@ where
         let mut subs = match tokio::fs::read_dir(dir).await {
             Ok(subs) => subs,
             Err(e) => {
-                error!("FATAL! read working dir {} for recovery: {}", dir, e);
-                return;
+                if e.kind() == ErrorKind::NotFound {
+                    warn!(
+                        "WARN! read working dir {} for recovery: No such file or directory",
+                        dir
+                    );
+                    return;
+                } else {
+                    error!("FATAL! read working dir {} for recovery: {}", dir, e);
+                    return;
+                }
             }
         };
         while let Some(entry) = subs.next_entry().await.unwrap() {
