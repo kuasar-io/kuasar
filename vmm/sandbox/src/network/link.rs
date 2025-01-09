@@ -313,7 +313,7 @@ impl NetworkInterface {
         match &self.r#type {
             LinkType::Veth => {
                 let handle = create_netlink_handle(netns).await?;
-                let tap_name = format!("tap_kuasar_{}", self.index);
+                let tap_name = format!("tap_kua_{}", self.index);
                 let tap_intf =
                     create_tap_in_netns(netns, &tap_name, self.queue, self.mtu, &handle).await?;
                 tap_intf.add_qdisc_ingress(netns, &handle).await?;
