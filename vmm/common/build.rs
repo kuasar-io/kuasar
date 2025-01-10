@@ -14,6 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+use std::fs;
+
 use ttrpc_codegen::{Codegen, Customize, ProtobufCustomize};
 
 fn main() {
@@ -45,4 +47,24 @@ fn main() {
         )
         .run()
         .expect("Gen protos code failed");
+
+    // Protobuf-rust 3.5.1 no longer generates the `#![allow(box_pointers)]` lint.
+    // However, ttrpc-rust has not yet upgraded to protobuf-rust 3.5.1.
+    // As a temporary measure, we are modifying the files to suppress the warning.
+    remove_box_pointers("src/api").expect("Remove api box_pointer failed");
+}
+
+fn remove_box_pointers(dir: &str) -> std::io::Result<()> {
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+
+        if path.is_file() {
+            let content = fs::read_to_string(&path)?;
+            let new_content = content.replace("#![allow(box_pointers)]", "");
+
+            fs::write(path, new_content)?;
+        }
+    }
+    Ok(())
 }
