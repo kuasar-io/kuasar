@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 use std::{
+    fs,
     os::{fd::IntoRawFd, unix::prelude::FromRawFd},
     process::Stdio,
 };
@@ -22,7 +23,7 @@ use std::{
 use containerd_shim::{
     io_error,
     monitor::{monitor_subscribe, Topic},
-    other_error, Error, Result,
+    other_error, Error, Result, other
 };
 use futures::StreamExt;
 use log::{debug, error};
@@ -51,10 +52,23 @@ pub async fn listen_debug_console(addr: &str) -> Result<()> {
     Ok(())
 }
 
+pub async fn check_exec_cmd() -> Result<Command> {
+    let cmd = vec![
+        String::from("/usr/bin/bash"),
+        String::from("/bin/bash"),
+    ];
+    for file_path in &cmd {
+        if let Ok(_) = fs::metadata(file_path) {
+            return Ok(Command::new(file_path));
+        }
+    }
+    Err(other!("failed to get bash cmd"))
+}
+
 pub async fn debug_console(stream: VsockStream) -> Result<()> {
     let pty = openpty(None, None)?;
     let pty_master = pty.master;
-    let mut cmd = Command::new("/bin/bash");
+    let mut cmd = check_exec_cmd().await?;
     let pty_fd = pty.slave.into_raw_fd();
     cmd.stdin(unsafe { Stdio::from_raw_fd(pty_fd) });
     cmd.stdout(unsafe { Stdio::from_raw_fd(pty_fd) });
