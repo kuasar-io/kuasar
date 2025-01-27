@@ -168,9 +168,9 @@ async fn initialize() -> anyhow::Result<TaskConfig> {
             warn!("sharefs_type should be either 9p or virtiofs");
         }
     }
-    if config.debug {
+    if config.debug && !config.debug_shell.is_empty() {
         debug!("listen vsock port 1025 for debug console");
-        if let Err(e) = listen_debug_console("vsock://-1:1025").await {
+        if let Err(e) = listen_debug_console("vsock://-1:1025", &config.debug_shell).await {
             error!("failed to listen debug console port, {:?}", e);
         }
     }
