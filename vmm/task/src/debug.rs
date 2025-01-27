@@ -36,13 +36,14 @@ use tokio_vsock::VsockStream;
 
 use crate::{stream::RawStream, util::wait_pid, vsock::bind_vsock};
 
-pub async fn listen_debug_console(addr: &str) -> Result<()> {
+pub async fn listen_debug_console(addr: &str, debug_shell: &str) -> Result<()> {
     let l = bind_vsock(addr).await?;
+    let shell = String::from(debug_shell);
     tokio::spawn(async move {
         let mut incoming = l.incoming();
         while let Some(Ok(s)) = incoming.next().await {
             debug!("get a debug console request");
-            if let Err(e) = debug_console(s).await {
+            if let Err(e) = debug_console(s, &shell).await {
                 error!("failed to open debug console {:?}", e);
             }
         }
@@ -51,10 +52,10 @@ pub async fn listen_debug_console(addr: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn debug_console(stream: VsockStream) -> Result<()> {
+pub async fn debug_console(stream: VsockStream, debug_shell: &str) -> Result<()> {
     let pty = openpty(None, None)?;
     let pty_master = pty.master;
-    let mut cmd = Command::new("/bin/bash");
+    let mut cmd = Command::new(debug_shell);
     let pty_fd = pty.slave.into_raw_fd();
     cmd.stdin(unsafe { Stdio::from_raw_fd(pty_fd) });
     cmd.stdout(unsafe { Stdio::from_raw_fd(pty_fd) });
