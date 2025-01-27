@@ -21,6 +21,7 @@ const SHAREFS_TYPE: &str = "task.sharefs_type";
 const LOG_LEVEL: &str = "task.log_level";
 const TASK_DEBUG: &str = "task.debug";
 const ENABLE_TRACING: &str = "task.enable_tracing";
+const DEBUG_SHELL: &str = "task.debug_shell";
 
 macro_rules! parse_cmdline {
     ($param:ident, $key:ident, $field:expr) => {
@@ -44,6 +45,7 @@ pub struct TaskConfig {
     pub(crate) log_level: String,
     pub(crate) debug: bool,
     pub(crate) enable_tracing: bool,
+    pub(crate) debug_shell: String,
 }
 
 impl Default for TaskConfig {
@@ -53,6 +55,7 @@ impl Default for TaskConfig {
             log_level: "info".to_string(),
             debug: false,
             enable_tracing: false,
+            debug_shell: "/bin/bash".to_string(),
         }
     }
 }
@@ -70,6 +73,7 @@ impl TaskConfig {
             parse_cmdline!(param, LOG_LEVEL, config.log_level, String::from);
             parse_cmdline!(param, TASK_DEBUG, config.debug);
             parse_cmdline!(param, ENABLE_TRACING, config.enable_tracing);
+            parse_cmdline!(param, DEBUG_SHELL, config.debug_shell, String::from);
         }
         Ok(config)
     }
