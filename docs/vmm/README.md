@@ -39,7 +39,7 @@ The guest os can be either a busybox or any linux distributions, but make the su
 Run `make bin/kuasar.img` and `cp bin/kuasar.img /var/lib/kuasar/kuasar.img`
 
 ## Config
-Config cloud-hypervisor vmm-sandboxer, should copy the config file in vmm directory by `cp vmm/sandbox/config_clh.toml /var/lib/kuasar/config_clh.toml`.
+Config cloud-hypervisor vmm-sandboxer, should copy the config file in vmm directory by `cp vmm/sandbox/config_clh.toml /var/lib/kuasar/config.toml`.
 
 The default config looks like this:
 ```toml
