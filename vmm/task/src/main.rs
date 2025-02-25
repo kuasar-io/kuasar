@@ -16,10 +16,9 @@ limitations under the License.
 
 #![warn(clippy::expect_fun_call, clippy::expect_used)]
 
-use std::{
-    collections::HashMap, convert::TryFrom, path::Path, process::exit, str::FromStr, sync::Arc,
-};
+use std::{collections::HashMap, convert::TryFrom, path::Path, process::exit, sync::Arc};
 
+use anyhow::anyhow;
 use containerd_shim::{
     asynchronous::{monitor::monitor_notify_by_pid, util::asyncify},
     error::Error,
@@ -30,7 +29,7 @@ use containerd_shim::{
 };
 use futures::StreamExt;
 use lazy_static::lazy_static;
-use log::{debug, error, info, warn, LevelFilter};
+use log::{debug, error, info, warn};
 use nix::{
     errno::Errno,
     sched::CloneFlags,
@@ -40,10 +39,14 @@ use nix::{
 use signal_hook_tokio::Signals;
 use streaming::STREAMING_SERVICE;
 use tokio::sync::mpsc::channel;
+use tracing_subscriber::{
+    self, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer, Registry,
+};
 use vmm_common::{
     api::{sandbox_ttrpc::create_sandbox_service, streaming_ttrpc::create_streaming},
     mount::mount,
-    ETC_RESOLV, IPC_NAMESPACE, KUASAR_STATE_DIR, PID_NAMESPACE, RESOLV_FILENAME, UTS_NAMESPACE,
+    trace, ETC_RESOLV, IPC_NAMESPACE, KUASAR_STATE_DIR, PID_NAMESPACE, RESOLV_FILENAME,
+    UTS_NAMESPACE,
 };
 
 use crate::{
@@ -55,6 +58,7 @@ use crate::{
 };
 
 mod config;
+#[cfg(not(feature = "youki"))]
 mod container;
 mod debug;
 mod device;
@@ -68,6 +72,8 @@ mod streaming;
 mod task;
 mod util;
 mod vsock;
+#[cfg(feature = "youki")]
+mod youki;
 
 const NAMESPACE: &str = "k8s.io";
 
@@ -142,16 +148,13 @@ lazy_static! {
     ]);
 }
 
-async fn initialize() -> anyhow::Result<()> {
+async fn initialize() -> anyhow::Result<TaskConfig> {
     early_init_call().await?;
 
     let config = TaskConfig::new().await?;
-    let log_level = LevelFilter::from_str(&config.log_level)?;
-    env_logger::Builder::from_default_env()
-        .format_timestamp_micros()
-        .filter_module("containerd_shim", log_level)
-        .filter_module("vmm_task", log_level)
-        .init();
+    trace::set_enabled(config.enable_tracing);
+    init_logger(&config.log_level)?;
+
     info!("Task server start with config: {:?}", config);
 
     match &*config.sharefs_type {
@@ -174,16 +177,38 @@ async fn initialize() -> anyhow::Result<()> {
 
     late_init_call().await?;
 
+    Ok(config)
+}
+
+fn init_logger(log_level: &str) -> anyhow::Result<()> {
+    let env_filter = EnvFilter::from_default_env()
+        .add_directive(format!("containerd_shim={}", log_level).parse()?)
+        .add_directive(format!("vmm_task={}", log_level).parse()?);
+
+    let mut layers = vec![tracing_subscriber::fmt::layer().boxed()];
+    // TODO: shutdown tracer provider when is_enabled is false
+    if trace::is_enabled() {
+        let tracer = trace::init_otlp_tracer("kuasar-vmm-task-service")
+            .map_err(|e| anyhow!("failed to init otlp tracer: {}", e))?;
+        layers.push(tracing_opentelemetry::layer().with_tracer(tracer).boxed());
+    }
+
+    Registry::default()
+        .with(env_filter)
+        .with(layers)
+        .try_init()?;
     Ok(())
 }
 
 #[tokio::main]
 async fn main() {
-    if let Err(e) = initialize().await {
-        error!("failed to do init call: {:?}", e);
-        exit(-1);
-    }
-
+    let config = match initialize().await {
+        Ok(c) => c,
+        Err(e) => {
+            error!("failed to do init call:: {:?}", e);
+            exit(-1);
+        }
+    };
     // Keep server alive in main function
     let mut server = match create_ttrpc_server().await {
         Ok(s) => s,
@@ -197,7 +222,13 @@ async fn main() {
         exit(-1);
     }
 
-    let signals = match Signals::new([libc::SIGTERM, libc::SIGINT, libc::SIGPIPE, libc::SIGCHLD]) {
+    let signals = match Signals::new([
+        libc::SIGTERM,
+        libc::SIGINT,
+        libc::SIGPIPE,
+        libc::SIGCHLD,
+        libc::SIGUSR1,
+    ]) {
         Ok(s) => s,
         Err(e) => {
             error!("new signal failed: {:?}", e);
@@ -206,7 +237,7 @@ async fn main() {
     };
 
     info!("Task server successfully started, waiting for exit signal...");
-    handle_signals(signals).await;
+    handle_signals(signals, &config.log_level).await;
 }
 
 // Do some initialization before everything starts.
@@ -220,7 +251,7 @@ async fn early_init_call() -> Result<()> {
     Ok(())
 }
 
-async fn handle_signals(signals: Signals) {
+async fn handle_signals(signals: Signals, log_level: &str) {
     let mut signals = signals.fuse();
     while let Some(sig) = signals.next().await {
         match sig {
@@ -291,6 +322,10 @@ async fn handle_signals(signals: Signals) {
                     } // stick until exit
                 }
             },
+            libc::SIGUSR1 => {
+                trace::set_enabled(!trace::is_enabled());
+                let _ = init_logger(log_level);
+            }
             _ => {
                 if let Ok(sig) = nix::sys::signal::Signal::try_from(sig) {
                     debug!("received {}", sig);

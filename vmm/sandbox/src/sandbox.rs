@@ -35,6 +35,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     sync::{Mutex, RwLock},
 };
+use tracing::instrument;
 use ttrpc::context::with_timeout;
 use vmm_common::{
     api::{empty::Empty, sandbox::SetupSandboxRequest, sandbox_ttrpc::SandboxServiceClient},
@@ -84,6 +85,7 @@ where
     H: Hooks<F::VM>,
     F::VM: VM + DeserializeOwned + Recoverable + Sync + Send + 'static,
 {
+    #[instrument(skip_all)]
     pub async fn recover(&mut self, dir: &str) {
         let mut subs = match tokio::fs::read_dir(dir).await {
             Ok(subs) => subs,
@@ -154,6 +156,7 @@ where
 {
     type Sandbox = KuasarSandbox<F::VM>;
 
+    #[instrument(skip_all)]
     async fn create(&self, id: &str, s: SandboxOption) -> Result<()> {
         if self.sandboxes.read().await.get(id).is_some() {
             return Err(Error::AlreadyExist("sandbox".to_string()));
@@ -204,6 +207,7 @@ where
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn start(&self, id: &str) -> Result<()> {
         let sandbox_mutex = self.sandbox(id).await?;
         let mut sandbox = sandbox_mutex.lock().await;
@@ -252,6 +256,7 @@ where
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn update(&self, id: &str, data: SandboxData) -> Result<()> {
         let sandbox_mutex = self.sandbox(id).await?;
         let mut sandbox = sandbox_mutex.lock().await;
@@ -260,6 +265,7 @@ where
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn sandbox(&self, id: &str) -> Result<Arc<Mutex<Self::Sandbox>>> {
         Ok(self
             .sandboxes
@@ -270,6 +276,7 @@ where
             .clone())
     }
 
+    #[instrument(skip_all)]
     async fn stop(&self, id: &str, force: bool) -> Result<()> {
         let sandbox_mutex = self.sandbox(id).await?;
         let mut sandbox = sandbox_mutex.lock().await;
@@ -280,6 +287,7 @@ where
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn delete(&self, id: &str) -> Result<()> {
         let sb_clone = self.sandboxes.read().await.clone();
         if let Some(sb_mutex) = sb_clone.get(id) {
@@ -312,14 +320,17 @@ where
 {
     type Container = KuasarContainer;
 
+    #[instrument(skip_all)]
     fn status(&self) -> Result<SandboxStatus> {
         Ok(self.status.clone())
     }
 
+    #[instrument(skip_all)]
     async fn ping(&self) -> Result<()> {
         self.vm.ping().await
     }
 
+    #[instrument(skip_all)]
     async fn container(&self, id: &str) -> Result<&Self::Container> {
         let container = self
             .containers
@@ -328,6 +339,7 @@ where
         Ok(container)
     }
 
+    #[instrument(skip_all)]
     async fn append_container(&mut self, id: &str, options: ContainerOption) -> Result<()> {
         let handler_chain = self.container_append_handlers(id, options)?;
         handler_chain.handle(self).await?;
@@ -335,6 +347,7 @@ where
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn update_container(&mut self, id: &str, options: ContainerOption) -> Result<()> {
         let handler_chain = self.container_update_handlers(id, options).await?;
         handler_chain.handle(self).await?;
@@ -342,6 +355,7 @@ where
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn remove_container(&mut self, id: &str) -> Result<()> {
         self.deference_container_storages(id).await?;
 
@@ -365,10 +379,12 @@ where
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn exit_signal(&self) -> Result<Arc<ExitSignal>> {
         Ok(self.exit_signal.clone())
     }
 
+    #[instrument(skip_all)]
     fn get_data(&self) -> Result<SandboxData> {
         Ok(self.data.clone())
     }
@@ -378,6 +394,7 @@ impl<V> KuasarSandbox<V>
 where
     V: VM + Sync + Send,
 {
+    #[instrument(skip_all)]
     async fn dump(&self) -> Result<()> {
         let dump_data =
             serde_json::to_vec(&self).map_err(|e| anyhow!("failed to serialize sandbox, {}", e))?;
@@ -401,6 +418,7 @@ impl<V> KuasarSandbox<V>
 where
     V: VM + DeserializeOwned + Recoverable + Sync + Send,
 {
+    #[instrument(skip_all)]
     async fn recover<P: AsRef<Path>>(base_dir: P) -> Result<Self> {
         let dump_path = base_dir.as_ref().join("sandbox.json");
         let mut dump_file = OpenOptions::new()
@@ -446,6 +464,7 @@ impl<V> KuasarSandbox<V>
 where
     V: VM + Sync + Send,
 {
+    #[instrument(skip_all)]
     async fn start(&mut self) -> Result<()> {
         let pid = self.vm.start().await?;
 
@@ -471,6 +490,7 @@ where
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn stop(&mut self, force: bool) -> Result<()> {
         match self.status {
             // If a sandbox is created:
@@ -506,17 +526,20 @@ where
         Ok(())
     }
 
+    #[instrument(skip_all)]
     pub(crate) fn container_mut(&mut self, id: &str) -> Result<&mut KuasarContainer> {
         self.containers
             .get_mut(id)
             .ok_or_else(|| Error::NotFound(format!("no container with id {}", id)))
     }
 
+    #[instrument(skip_all)]
     pub(crate) fn increment_and_get_id(&mut self) -> u32 {
         self.id_generator += 1;
         self.id_generator
     }
 
+    #[instrument(skip_all)]
     async fn init_client(&mut self) -> Result<()> {
         let mut client_guard = self.client.lock().await;
         if client_guard.is_none() {
@@ -532,6 +555,7 @@ where
         Ok(())
     }
 
+    #[instrument(skip_all)]
     pub(crate) async fn setup_sandbox(&mut self) -> Result<()> {
         let mut req = SetupSandboxRequest::new();
 
@@ -566,12 +590,14 @@ where
         Ok(())
     }
 
+    #[instrument(skip_all)]
     pub(crate) async fn sync_clock(&self) {
         if let Some(client) = &*self.client.lock().await {
             client_sync_clock(client, self.id.as_str(), self.exit_signal.clone());
         }
     }
 
+    #[instrument(skip_all)]
     async fn setup_sandbox_files(&self) -> Result<()> {
         let shared_path = self.get_sandbox_shared_path();
         create_dir_all(&shared_path)
@@ -621,10 +647,12 @@ where
         Ok(())
     }
 
+    #[instrument(skip_all)]
     pub fn get_sandbox_shared_path(&self) -> String {
         format!("{}/{}", self.base_dir, SHARED_DIR_SUFFIX)
     }
 
+    #[instrument(skip_all)]
     pub async fn prepare_network(&mut self) -> Result<()> {
         // get vcpu for interface queue, at least one vcpu
         let mut vcpu = 1;
@@ -647,6 +675,7 @@ where
     }
 
     //  If a sandbox is still running, destroy network may hang with its running
+    #[instrument(skip_all)]
     pub async fn destroy_network(&mut self) {
         // Network should be destroyed only once, take it out here.
         if let Some(mut network) = self.network.take() {
@@ -654,6 +683,7 @@ where
         }
     }
 
+    #[instrument(skip_all)]
     pub async fn add_to_cgroup(&self) -> Result<()> {
         // Currently only support cgroup V1, cgroup V2 is not supported now
         if !cgroups_rs::hierarchies::is_cgroup2_unified_mode() {
@@ -768,11 +798,17 @@ fn convert_envelope(envelope: vmm_common::api::events::Envelope) -> Envelope {
 pub struct SandboxConfig {
     #[serde(default)]
     pub log_level: String,
+    #[serde(default)]
+    pub enable_tracing: bool,
 }
 
 impl SandboxConfig {
     pub fn log_level(&self) -> String {
         self.log_level.to_string()
+    }
+
+    pub fn enable_tracing(&self) -> bool {
+        self.enable_tracing
     }
 }
 

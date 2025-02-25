@@ -165,18 +165,19 @@ impl Sandboxer for RuncSandboxer {
         let mut sandbox = sandbox.lock().await;
         let mut sandbox_parent = self.sandbox_parent.lock().await;
         let sandbox_pid = sandbox_parent.fork_sandbox_process(id, &sandbox.data.netns)?;
-        sandbox.prepare_sandbox_ns(sandbox_pid).await.map_err(|e| {
-            kill(Pid::from_raw(sandbox_pid), Signal::SIGKILL).unwrap_or_default();
-            e
-        })?;
+        sandbox
+            .prepare_sandbox_ns(sandbox_pid)
+            .await
+            .inspect_err(|_| {
+                kill(Pid::from_raw(sandbox_pid), Signal::SIGKILL).unwrap_or_default();
+            })?;
 
         sandbox
             .data
             .task_address
             .clone_from(&format!("ttrpc+{}", self.task_address));
-        sandbox.dump().await.map_err(|e| {
+        sandbox.dump().await.inspect_err(|_| {
             kill(Pid::from_raw(sandbox_pid), Signal::SIGKILL).unwrap_or_default();
-            e
         })?;
         Ok(())
     }

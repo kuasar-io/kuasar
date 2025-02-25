@@ -21,7 +21,6 @@ use std::{
 };
 
 use containerd_sandbox::error::{Error, Result};
-#[cfg(target_arch = "x86_64")]
 use lazy_static::lazy_static;
 use sandbox_derive::{CmdLineParamSet, CmdLineParams};
 use serde::{Deserialize, Serialize};
@@ -40,22 +39,23 @@ const DEFAULT_QEMU_PATH: &str = "/usr/bin/qemu-system-x86_64";
 #[cfg(target_arch = "aarch64")]
 const DEFAULT_QEMU_PATH: &str = "/usr/bin/qemu-system-aarch64";
 
-#[cfg(target_arch = "x86_64")]
 lazy_static! {
     static ref SUPPORTED_MACHINES: HashMap<String, Machine> = {
         let mut sms = HashMap::new();
-        sms.insert(
-            "microvm-pci".to_string(),
-            Machine {
-                r#type: "microvm-pci".to_string(),
-                options: None,
-            },
-        );
+        #[cfg(target_arch = "x86_64")]
         sms.insert(
             "pc".to_string(),
             Machine {
                 r#type: "pc".to_string(),
                 options: Some("accel=kvm,kernel_irqchip=on".to_string()),
+            },
+        );
+        #[cfg(target_arch = "aarch64")]
+        sms.insert(
+            "virt".to_string(),
+            Machine {
+                r#type: "virt".to_string(),
+                options: Some("usb=off,accel=kvm,gic-version=3".to_string()),
             },
         );
         sms
@@ -64,6 +64,7 @@ lazy_static! {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct QemuVMConfig {
+    #[serde(flatten)]
     pub common: HypervisorCommonConfig,
     pub machine_accelerators: String,
     pub firmware_path: String,
@@ -155,7 +156,6 @@ impl QemuVMConfig {
         } else {
             return Err(Error::InvalidArgument("cpu model".to_string()));
         }
-        #[cfg(target_arch = "x86_64")]
         if let Some(machine) = SUPPORTED_MACHINES.get(&self.machine_type) {
             result.machine = machine.clone();
         } else {
@@ -163,10 +163,6 @@ impl QemuVMConfig {
                 "machine_type not supported!".to_string(),
             ));
         }
-        #[cfg(not(target_arch = "x86_64"))]
-        return Err(Error::Unimplemented(
-            "cpu other than x86 not supported".to_string(),
-        ));
         if !self.firmware_path.is_empty() {
             result.bios = Some(self.firmware_path.to_string());
         }
