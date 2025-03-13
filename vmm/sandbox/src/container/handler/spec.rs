@@ -22,6 +22,7 @@ use containerd_sandbox::{
     error::Error,
     spec::{JsonSpec, Mount},
 };
+use log::debug;
 use path_clean::clean;
 use vmm_common::{
     ETC_HOSTNAME, ETC_HOSTS, ETC_RESOLV, HOSTNAME_FILENAME, HOSTS_FILENAME, KUASAR_STATE_DIR,
@@ -69,6 +70,21 @@ where
         if let Some(p) = spec.process.as_mut() {
             p.apparmor_profile = "".to_string();
         }
+
+        // When the kubelet configures cpuManagerPolicy as static, the Pod will specify CPU IDs
+        // for CPU affinity. Due to the different cpusets of the guest OS and host OS, this can
+        // lead to configuration failures. There is no need for CPU affinity in the guest OS,
+        // so the Pod's cpuset should be cleared.
+        spec.linux
+            .as_mut()
+            .and_then(|l| l.resources.as_mut())
+            .and_then(|r| {
+                r.cpu.as_mut().map(|cpu| {
+                    debug!("Container cpuset will be clear: {:?}", &cpu.cpus);
+                    cpu.cpus = "".to_string();
+                })
+            });
+
         // Update sandbox files mounts for container
         container_mounts(&shared_path, spec);
         let spec_str = serde_json::to_string(spec)
