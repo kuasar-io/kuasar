@@ -24,7 +24,7 @@ jobs:
       - name: Build vmm sandboxer
         run: make bin/vmm-sandboxer HYPERVISOR=${{ matrix.hypervisor }}
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: vmm-sandboxer ${{ matrix.hypervisor }}
           path: |
@@ -39,7 +39,7 @@ jobs:
       - name: Build vm image
         run: sudo make bin/kuasar.img RUNTIME=docker
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: image
           path: bin/kuasar.img
@@ -55,7 +55,7 @@ jobs:
       - name: Build vm kernel
         run: make bin/vmlinux.bin HYPERVISOR=${{ matrix.hypervisor }}
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: kernel ${{ matrix.hypervisor }}
           path: bin/vmlinux.bin
@@ -68,7 +68,7 @@ jobs:
       - name: Build quark
         run: make quark
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: quark
           path: bin/quark-sandboxer
@@ -90,7 +90,7 @@ jobs:
       - name: Build wasm
         run: make wasm WASM_RUNTIME=${{ matrix.features }}
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: wasm-sandboxer ${{ matrix.features }}
           path: bin/wasm-sandboxer
@@ -103,7 +103,7 @@ jobs:
       - name: Build runc
         run: make runc
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: runc
           path: bin/runc-sandboxer
@@ -117,7 +117,7 @@ jobs:
         run: ./scripts/build/build-containerd.sh
         shell: bash
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: containerd
           path: |
@@ -149,7 +149,7 @@ jobs:
           sudo -E chown -R root:root /tmp/${dir}
           mkdir _release
           sudo -E tar -czf _release/${dir}.tar.gz -C /tmp/ ${dir}
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           path: _artifacts
       - name: Package binaries
