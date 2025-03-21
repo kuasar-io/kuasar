@@ -1,7 +1,7 @@
 HYPERVISOR ?= cloud_hypervisor
 GUESTOS_IMAGE ?= centos
 WASM_RUNTIME ?= wasmedge
-KERNEL_VERSION ?= 6.2
+KERNEL_VERSION ?= 6.12.8
 ARCH ?= x86_64
 # DEST_DIR is used when built with RPM format
 DEST_DIR ?= /
