@@ -14,8 +14,9 @@
 # limitations under the License.
 
 set -e
+set -x
 
-readonly version=${1:-6.1.6}
+readonly version=${1:-6.12.8}
 readonly base_dir="$(dirname $(readlink -f $0))"
 
 sudo apt-get update
@@ -25,12 +26,9 @@ sudo apt-get install -y libelf-dev elfutils
 rm -rf /tmp/linux-cloud-hypervisor
 git clone --depth 1 https://github.com/cloud-hypervisor/linux.git -b ch-${version} /tmp/linux-cloud-hypervisor
 pushd /tmp/linux-cloud-hypervisor
-wget --no-check-certificate https://raw.githubusercontent.com/cloud-hypervisor/cloud-hypervisor/main/resources/linux-config-x86_64
-# TODO support arm
-# wget https://raw.githubusercontent.com/cloud-hypervisor/cloud-hypervisor/main/resources/linux-config-aarch64
-cp linux-config-x86_64 .config  # x86-64
-# TODO support arm
-# cp linux-config-aarch64 .config # AArch64
+make ch_defconfig
+
+# Do native build of the x86-64 kernel
 KCFLAGS="-Wa,-mx86-used-note=no" make bzImage -j `nproc`
 # TODO support arm
 # make -j `nproc`
