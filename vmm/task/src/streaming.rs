@@ -80,6 +80,7 @@ pub struct IOChannel {
     remaining_data: Option<Any>,
     preemption_sender: Option<Sender<()>>,
     notifier: Arc<Notify>,
+    sender_closed: bool,
 }
 
 pub struct PreemptableReceiver {
@@ -116,6 +117,7 @@ impl IOChannel {
             remaining_data: None,
             preemption_sender: None,
             notifier: Arc::new(Notify::new()),
+            sender_closed: false,
         }
     }
 
@@ -135,10 +137,19 @@ impl IOChannel {
         None
     }
 
-    fn return_preempted_receiver(&mut self, r: PreemptableReceiver, remaining_data: Option<Any>) {
-        self.receiver = Some(r.receiver);
-        self.remaining_data = remaining_data;
-        self.notifier.notify_one();
+    fn return_preempted_receiver(
+        &mut self,
+        r: PreemptableReceiver,
+        remaining_data: Option<Any>,
+    ) -> bool {
+        // only return the receiver when sender is already moved to the io thread, and sender is not closed
+        if self.sender.is_none() && !self.sender_closed {
+            self.receiver = Some(r.receiver);
+            self.remaining_data = remaining_data;
+            self.notifier.notify_one();
+            return true;
+        }
+        false
     }
 }
 
@@ -214,10 +225,16 @@ impl Service {
         remaining_data: Option<Any>,
     ) {
         let mut ios = self.ios.lock().await;
+        let mut channel_used = false;
         if let Some(ch) = ios.get_mut(id) {
-            ch.return_preempted_receiver(r, remaining_data);
+            if ch.return_preempted_receiver(r, remaining_data) {
+                channel_used = true;
+            }
         } else {
             warn!("io channel removed when return the receiver");
+        }
+        if !channel_used {
+            self.ios.lock().await.remove(id);
         }
     }
 
@@ -283,18 +300,14 @@ impl Service {
                     Ok(d) => d,
                     Err(e) => {
                         debug!("failed to marshal update of stream {}, {}", stream_id, e);
-                        if let Some(c) = self.ios.lock().await.get_mut(stream_id) {
-                            c.sender = Some(sender);
-                        }
+                        self.ios.lock().await.remove(stream_id);
                         return Err(ttrpc::Error::Others(format!("failed to write data {}", e)));
                     }
                 };
                 let a = new_any!(WindowUpdate, update_bytes);
                 if let Err(e) = stream.send(&a).await {
                     debug!("failed to send update of stream {}, {}", stream_id, e);
-                    if let Some(c) = self.ios.lock().await.get_mut(stream_id) {
-                        c.sender = Some(sender);
-                    }
+                    self.ios.lock().await.remove(stream_id);
                     return Err(e);
                 }
                 window += WINDOW_SIZE;
@@ -310,6 +323,7 @@ impl Service {
                     };
                     let len: i32 = data_bytes.len().try_into().unwrap_or_default();
                     if let Err(e) = sender.send(data_bytes).await {
+                        self.ios.lock().await.remove(stream_id);
                         return Err(ttrpc::Error::Others(format!("failed to send data {}", e)));
                     }
                     window -= len;
@@ -327,6 +341,7 @@ impl Service {
         stream_id: &String,
         stream: ServerStream<Any, Any>,
     ) -> ttrpc::Result<()> {
+        // TODO the stream needs to return if client send close.
         let mut receiver = self.preempt_receiver(stream_id).await?;
         if let Some(a) = self.get_remaining_data(stream_id).await {
             if let Err(e) = stream.send(&a).await {
@@ -348,6 +363,7 @@ impl Service {
             match r {
                 Some(d) => {
                     if d.is_empty() {
+                        self.ios.lock().await.remove(stream_id);
                         return Ok(());
                     }
                     let mut data = Data::new();
@@ -376,6 +392,7 @@ impl Service {
                     };
                 }
                 None => {
+                    self.ios.lock().await.remove(stream_id);
                     return Ok(());
                 }
             }
@@ -391,6 +408,14 @@ pub async fn get_stdin(url: &str) -> containerd_shim::Result<StreamingStdin> {
 pub async fn remove_channel(url: &str) -> containerd_shim::Result<()> {
     let id = get_id(url)?;
     STREAMING_SERVICE.remove_io_channel(id).await;
+    Ok(())
+}
+
+pub async fn close_stdout(url: &str) -> containerd_shim::Result<()> {
+    let id = get_id(url)?;
+    if let Some(ch) = STREAMING_SERVICE.ios.lock().await.get_mut(id) {
+        ch.sender_closed = true;
+    }
     Ok(())
 }
 
