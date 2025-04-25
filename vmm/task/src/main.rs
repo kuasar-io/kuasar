@@ -62,6 +62,8 @@ mod config;
 mod container;
 mod debug;
 mod device;
+#[cfg(feature = "image-service")]
+mod image_rpc;
 mod io;
 mod mount;
 mod netlink;
@@ -175,8 +177,13 @@ async fn initialize() -> anyhow::Result<TaskConfig> {
         }
     }
 
-    late_init_call().await?;
+    #[cfg(feature = "image-service")]
+    {
+        let image_client = crate::image_rpc::KuasarImageClient::new(&config);
+        *crate::image_rpc::KUASAR_IMAGE_CLIENT.lock().await = Some(image_client.clone());
+    }
 
+    late_init_call().await?;
     Ok(config)
 }
 
