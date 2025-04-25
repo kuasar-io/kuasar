@@ -57,6 +57,9 @@ use crate::{
     task::create_task_service,
 };
 
+#[cfg(feature = "image-service")]
+use crate::image_rpc::{KuasarImageClient, KUASAR_IMAGE_CLIENT};
+
 mod config;
 #[cfg(not(feature = "youki"))]
 mod container;
@@ -74,6 +77,8 @@ mod util;
 mod vsock;
 #[cfg(feature = "youki")]
 mod youki;
+#[cfg(feature = "image-service")]
+mod image_rpc;
 
 const NAMESPACE: &str = "k8s.io";
 
@@ -174,6 +179,13 @@ async fn initialize() -> anyhow::Result<TaskConfig> {
             error!("failed to listen debug console port, {:?}", e);
         }
     }
+
+    #[cfg(feature = "image-service")]
+    {
+        let image_client = image_rpc::KuasarImageClient::new(&config);
+        *image_rpc::KUASAR_IMAGE_CLIENT.lock().await = Some(image_client.clone());
+    }
+
 
     late_init_call().await?;
 
