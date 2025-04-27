@@ -52,6 +52,20 @@ pub struct VirtioBlockDevice {
     pub format: Option<String>,
     #[property(param = "device", generator = "crate::utils::bool_to_on_off")]
     pub scsi: Option<bool>,
+    #[cfg(feature = "virtcca")]
+    #[property(
+        param = "device",
+        key = "disable-legacy",
+        generator = "crate::utils::bool_to_on_off"
+    )]
+    pub disable_legacy: bool,
+    #[cfg(feature = "virtcca")]
+    #[property(
+        param = "device",
+        key = "iommu_platform",
+        generator = "crate::utils::bool_to_on_off"
+    )]
+    pub iommu_platform: bool,
     #[property(
         param = "device",
         key = "config-wce",
@@ -87,8 +101,15 @@ impl VirtioBlockDevice {
             wce: Some(false),
             disable_modern: None,
             romfile: None,
+            #[cfg(not(feature = "virtcca"))]
             share_rw: false,
+            #[cfg(feature = "virtcca")]
+            share_rw: true,
             readonly: read_only,
+            #[cfg(feature = "virtcca")]
+            disable_legacy: true,
+            #[cfg(feature = "virtcca")]
+            iommu_platform: true,
         }
     }
 }

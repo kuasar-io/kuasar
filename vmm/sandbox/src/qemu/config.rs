@@ -47,7 +47,10 @@ lazy_static! {
             "pc".to_string(),
             Machine {
                 r#type: "pc".to_string(),
+                #[cfg(not(feature = "virtcca"))]
                 options: Some("accel=kvm,kernel_irqchip=on".to_string()),
+                #[cfg(feature = "virtcca")]
+                options: Some("accel=kvm,kernel_irqchip=on,kvm-type=cvm".to_string()),
             },
         );
         #[cfg(target_arch = "aarch64")]
@@ -55,7 +58,10 @@ lazy_static! {
             "virt".to_string(),
             Machine {
                 r#type: "virt".to_string(),
+                #[cfg(not(feature = "virtcca"))]
                 options: Some("usb=off,accel=kvm,gic-version=3".to_string()),
+                #[cfg(feature = "virtcca")]
+                options: Some("usb=off,accel=kvm,gic-version=3,kvm-type=cvm".to_string()),
             },
         );
         sms
@@ -207,6 +213,7 @@ impl QemuVMConfig {
         result.rtc = RTC {
             base: "utc".to_string(),
             clock: "host".to_string(),
+            #[cfg(not(feature = "virtcca"))]
             drift_fix: "slew".to_string(),
         };
         result.knobs = Knobs {
@@ -224,6 +231,15 @@ impl QemuVMConfig {
             param: "kvm-pit.lost_tick_policy=discard".to_string(),
         }];
         result.vga = "none".to_string();
+        #[cfg(feature = "virtcca")]
+        {
+            let mut set_virtcca_object = || {
+                result.object = Some(String::from(
+                    "tmm-guest,id=tmm0,sve-vector-length=128,num-pmu-counters=1",
+                ));
+            };
+            set_virtcca_object();
+        }
         Ok(result)
     }
 }
@@ -265,6 +281,7 @@ impl ToCmdLineParams for QmpSocket {
 pub struct RTC {
     pub base: String,
     pub clock: String,
+    #[cfg(not(feature = "virtcca"))]
     #[property(key = "driftfix")]
     pub drift_fix: String,
 }
@@ -463,6 +480,9 @@ pub struct QemuConfig {
     pub pid_file: String,
     #[param(key = "D")]
     pub log_file: Option<String>,
+    #[cfg(feature = "virtcca")]
+    #[param(key = "object")]
+    pub object: Option<String>,
 }
 
 #[derive(CmdLineParamSet, Debug, Default, Clone, Serialize, Deserialize)]

@@ -12,6 +12,7 @@ SYSTEMD_CONF_DIR := /etc/sysconfig
 ENABLE_YOUKI ?= false
 RUNC_FEATURES =
 VMM_TASK_FEATURES =
+VMM_SANDBOX_FEATURES =
 
 ifeq ($(ENABLE_YOUKI), true)
 	RUNC_FEATURES = youki
@@ -25,7 +26,7 @@ endif
 all: vmm quark wasm
 
 bin/vmm-sandboxer:
-	@cd vmm/sandbox && cargo build --release --bin ${HYPERVISOR}
+	@cd vmm/sandbox && cargo build --release --bin ${HYPERVISOR} --features=${VMM_SANDBOX_FEATURES}
 	@mkdir -p bin && cp vmm/sandbox/target/release/${HYPERVISOR} bin/vmm-sandboxer
 
 bin/vmm-task:

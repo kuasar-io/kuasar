@@ -36,6 +36,20 @@ pub struct ScsiController {
     pub(crate) romfile: Option<String>,
     #[property(ignore)]
     pub(crate) bus: Bus,
+    #[cfg(feature = "virtcca")]
+    #[property(
+        param = "device",
+        key = "disable-legacy",
+        generator = "crate::utils::bool_to_on_off"
+    )]
+    pub disable_legacy: bool,
+    #[cfg(feature = "virtcca")]
+    #[property(
+        param = "device",
+        key = "iommu_platform",
+        generator = "crate::utils::bool_to_on_off"
+    )]
+    pub iommu_platform: bool,
 }
 
 impl_device!(ScsiController);
@@ -56,6 +70,10 @@ impl ScsiController {
                 bus_addr: "0:0".to_string(),
                 slots: vec![Slot::default(); SCSI_BUS_CAPACITY],
             },
+            #[cfg(feature = "virtcca")]
+            disable_legacy: true,
+            #[cfg(feature = "virtcca")]
+            iommu_platform: true,
         }
     }
 }
@@ -84,6 +102,10 @@ mod tests {
                 bus_addr: "".to_string(),
                 slots: vec![],
             },
+            #[cfg(feature = "virtcca")]
+            disable_legacy: true,
+            #[cfg(feature = "virtcca")]
+            iommu_platform: true,
         };
         let params = c.to_params();
         let param = params.get(0).unwrap();

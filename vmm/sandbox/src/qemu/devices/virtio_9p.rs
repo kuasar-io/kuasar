@@ -47,6 +47,20 @@ pub struct Virtio9PDevice {
         generator = "writeout"
     )]
     pub direct_io: bool,
+    #[cfg(feature = "virtcca")]
+    #[property(
+        param = "device",
+        key = "disable-legacy",
+        generator = "crate::utils::bool_to_on_off"
+    )]
+    pub disable_legacy: bool,
+    #[cfg(feature = "virtcca")]
+    #[property(
+        param = "device",
+        key = "iommu_platform",
+        generator = "crate::utils::bool_to_on_off"
+    )]
+    pub iommu_platform: bool,
 }
 
 impl_device_no_bus!(Virtio9PDevice);
@@ -71,6 +85,10 @@ impl Virtio9PDevice {
             romfile: None,
             multidevs,
             direct_io,
+            #[cfg(feature = "virtcca")]
+            disable_legacy: true,
+            #[cfg(feature = "virtcca")]
+            iommu_platform: true,
         }
     }
 }

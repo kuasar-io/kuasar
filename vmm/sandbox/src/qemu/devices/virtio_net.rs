@@ -82,6 +82,20 @@ pub struct VirtioNetDevice {
     pub(crate) romfile: Option<String>,
     #[property(param = "netdev")]
     pub(crate) queues: Option<i32>,
+    #[cfg(feature = "virtcca")]
+    #[property(
+        param = "device",
+        key = "disable-legacy",
+        generator = "crate::utils::bool_to_on_off"
+    )]
+    pub disable_legacy: bool,
+    #[cfg(feature = "virtcca")]
+    #[property(
+        param = "device",
+        key = "iommu_platform",
+        generator = "crate::utils::bool_to_on_off"
+    )]
+    pub iommu_platform: bool,
 }
 
 impl VirtioNetDevice {
@@ -121,6 +135,10 @@ impl VirtioNetDevice {
             disable_modern: None,
             romfile: None,
             queues: None,
+            #[cfg(feature = "virtcca")]
+            disable_legacy: true,
+            #[cfg(feature = "virtcca")]
+            iommu_platform: true,
         }
     }
 }
@@ -153,13 +171,22 @@ mod tests {
             disable_modern: None,
             romfile: None,
             queues: None,
+            #[cfg(feature = "virtcca")]
+            disable_legacy: true,
+            #[cfg(feature = "virtcca")]
+            iommu_platform: true,
         };
         let params = device.to_cmdline_params("-");
         assert!(params
             .iter()
             .any(|x| x == "tap,id=net1,vhost=on,vhostfds=1:2:3,fds=4:5:6"));
+        #[cfg(not(feature = "virtcca"))]
         assert!(params
             .iter()
             .any(|x| x == "virtio-net-pci,netdev=net1,vectors=8,mac=a1:b2:c3:d5:f4,mq=on"));
+        #[cfg(feature = "virtcca")]
+        assert!(params
+            .iter()
+            .any(|x| x == "virtio-net-pci,netdev=net1,vectors=8,mac=a1:b2:c3:d5:f4,mq=on,disable-legacy=on,iommu_platform=on"));
     }
 }

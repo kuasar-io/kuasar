@@ -66,3 +66,6 @@ path = "src/bin/stratovirt/main.rs"
 
 [dev-dependencies]
 temp-dir = "0.1.11"
+
+[features]
+virtcca = []
