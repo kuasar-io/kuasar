@@ -14,6 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+use std::path::Path;
+
 use clap::Parser;
 use vmm_common::{signal, trace};
 use vmm_sandboxer::{
@@ -66,7 +68,9 @@ async fn main() {
     });
 
     // Do recovery job
-    sandboxer.recover(&args.dir).await;
+    if Path::new(&args.dir).exists() {
+        sandboxer.recover(&args.dir).await;
+    }
 
     // Run the sandboxer
     containerd_sandbox::run(
