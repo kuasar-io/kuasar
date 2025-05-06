@@ -247,11 +247,6 @@ impl Hypervisor {
         if !self.entropy_source.is_empty() {
             res.entropy_source = self.entropy_source.to_string();
         }
-        res.virtiofs_cache = self.virtio_fs_cache.to_string();
-        res.virtiofs_cache_size = self.virtio_fs_cache_size;
-        res.virtiofs_daemon_path = self.virtio_fs_daemon.to_string();
-        res.virtiofs_extra_args
-            .clone_from(&self.virtio_fs_extra_args);
         res.virtio_9p_direct_io = self.virtio_9p_direct_io;
         if !self.virtio_9p_multidevs.is_empty() {
             res.virtio_9p_multidevs = self.virtio_9p_multidevs.to_string();

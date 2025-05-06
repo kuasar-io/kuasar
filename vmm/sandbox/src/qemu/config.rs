@@ -90,11 +90,6 @@ pub struct QemuVMConfig {
     pub hugepages: bool,
     pub enable_vhost_user_store: bool,
     pub enable_swap: bool,
-    // virtio-fs related configrations
-    pub virtiofs_daemon_path: String,
-    pub virtiofs_cache: String,
-    pub virtiofs_extra_args: Vec<String>,
-    pub virtiofs_cache_size: u32,
     pub msize_9p: u32,
     pub virtio_9p_direct_io: bool,
     pub virtio_9p_multidevs: String,
@@ -104,6 +99,7 @@ pub struct QemuVMConfig {
     pub disable_nvdimm: bool,
     pub share_fs: ShareFsType,
     pub use_vsock: bool,
+    pub virtiofsd: Option<VirtiofsdConfig>,
 }
 
 impl Default for QemuVMConfig {
@@ -127,10 +123,6 @@ impl Default for QemuVMConfig {
             hugepages: false,
             enable_vhost_user_store: false,
             enable_swap: false,
-            virtiofs_daemon_path: "".to_string(),
-            virtiofs_cache: "".to_string(),
-            virtiofs_extra_args: vec![],
-            virtiofs_cache_size: 0,
             msize_9p: 8192,
             virtio_9p_direct_io: false,
             virtio_9p_multidevs: "".to_string(),
@@ -139,6 +131,36 @@ impl Default for QemuVMConfig {
             disable_nvdimm: false,
             share_fs: ShareFsType::Virtio9P,
             use_vsock: false,
+            virtiofsd: None,
+        }
+    }
+}
+
+#[derive(CmdLineParamSet, Deserialize, Debug, Clone, Serialize)]
+pub struct VirtiofsdConfig {
+    #[param(ignore)]
+    pub path: String,
+    pub log_level: String,
+    pub cache: String,
+    pub thread_pool_size: u32,
+    #[serde(default)]
+    pub socket_path: String,
+    #[serde(default)]
+    pub shared_dir: String,
+    #[serde(default)]
+    pub syslog: bool,
+}
+
+impl Default for VirtiofsdConfig {
+    fn default() -> Self {
+        Self {
+            path: "/usr/local/bin/virtiofsd".to_string(),
+            log_level: "info".to_string(),
+            cache: "never".to_string(),
+            thread_pool_size: 4,
+            socket_path: "".to_string(),
+            shared_dir: "".to_string(),
+            syslog: true,
         }
     }
 }

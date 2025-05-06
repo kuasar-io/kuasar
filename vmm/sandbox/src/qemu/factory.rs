@@ -30,6 +30,7 @@ use crate::{
             create_bridges,
             scsi::ScsiController,
             serial::SerialBridge,
+            vhost_user::{VhostCharDevice, VhostUserType},
             virtio_9p::Virtio9PDevice,
             virtio_rng::VirtioRngDevice,
             vsock::{find_context_id, VSockDevice},
@@ -162,8 +163,30 @@ impl VMFactory for QemuVMFactory {
                 vm.attach_device(virtio_9p);
             }
             ShareFsType::VirtioFS => {
-                // TODO support virtio fs
-                return Err(Error::Unimplemented("virtiofs not implemented".to_string()));
+                let cfg = self.default_config.virtiofsd.clone();
+                match cfg {
+                    Some(value) => {
+                        let mut virtiofs = value;
+                        virtiofs.socket_path = format!("{}/virtiofs.sock", &s.base_dir);
+                        virtiofs.shared_dir = format!("{}/{}", &s.base_dir, SHARED_DIR_SUFFIX);
+                        vm.virtiofsd_config = Some(virtiofs);
+                    }
+                    None => {
+                        return Err(Error::Unimplemented(
+                            "virtiofs can not start without virtiofsd config".to_string(),
+                        ));
+                    }
+                }
+                let virtiofsd = vm.virtiofsd_config.clone().unwrap();
+                if !virtiofsd.socket_path.is_empty() {
+                    let virtio_fs = VhostCharDevice::new(
+                        "extra-fs-kuasar",
+                        VhostUserType::VhostUserChar("vhost-user-fs-pci".to_string()),
+                        &virtiofsd.socket_path,
+                        "",
+                    );
+                    vm.attach_device(virtio_fs);
+                }
             }
         }
         if !self.default_config.common.image_path.is_empty() {
