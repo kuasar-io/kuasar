@@ -33,6 +33,20 @@ pub struct SerialBridge {
     pub max_ports: Option<i32>,
     #[property(ignore)]
     pub(crate) bus: Bus,
+    #[cfg(feature = "virtcca")]
+    #[property(
+        param = "device",
+        key = "disable-legacy",
+        generator = "crate::utils::bool_to_on_off"
+    )]
+    pub disable_legacy: bool,
+    #[cfg(feature = "virtcca")]
+    #[property(
+        param = "device",
+        key = "iommu_platform",
+        generator = "crate::utils::bool_to_on_off"
+    )]
+    pub iommu_platform: bool,
 }
 
 impl SerialBridge {
@@ -49,6 +63,10 @@ impl SerialBridge {
                 bus_addr: format!("{}.0", id),
                 slots: vec![Slot::default(); SERIAL_BUS_CAPACITY],
             },
+            #[cfg(feature = "virtcca")]
+            disable_legacy: true,
+            #[cfg(feature = "virtcca")]
+            iommu_platform: true,
         }
     }
 }

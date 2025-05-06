@@ -43,6 +43,20 @@ pub struct VSockDevice {
     pub vhost_fd_index: Option<i32>,
     pub romfile: Option<String>,
     pub disable_modern: Option<bool>,
+    #[cfg(feature = "virtcca")]
+    #[property(
+        param = "device",
+        key = "disable-legacy",
+        generator = "crate::utils::bool_to_on_off"
+    )]
+    pub disable_legacy: bool,
+    #[cfg(feature = "virtcca")]
+    #[property(
+        param = "device",
+        key = "iommu_platform",
+        generator = "crate::utils::bool_to_on_off"
+    )]
+    pub iommu_platform: bool,
 }
 
 impl_device_no_bus!(VSockDevice);
@@ -56,6 +70,10 @@ impl VSockDevice {
             vhost_fd_index: fd_index,
             romfile: None,
             disable_modern: None,
+            #[cfg(feature = "virtcca")]
+            disable_legacy: true,
+            #[cfg(feature = "virtcca")]
+            iommu_platform: true,
         }
     }
 }
