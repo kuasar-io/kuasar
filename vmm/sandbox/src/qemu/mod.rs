@@ -20,6 +20,7 @@ use std::{
         fd::OwnedFd,
         unix::io::{AsRawFd, FromRawFd, RawFd},
     },
+    process::Stdio,
     time::{Duration, SystemTime},
 };
 
@@ -34,8 +35,9 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use tokio::{
     net::UnixStream,
-    sync::watch::{channel, Receiver},
-    task::spawn_blocking,
+    process::Child,
+    sync::watch::{channel, Receiver, Sender},
+    task::{spawn_blocking, JoinHandle},
     time::sleep,
 };
 use unshare::Fd;
@@ -45,19 +47,19 @@ use crate::{
     impl_recoverable,
     param::ToCmdLineParams,
     qemu::{
-        config::QemuConfig,
+        config::{QemuConfig, VirtiofsdConfig},
         devices::{
             block::{VirtioBlockDevice, VIRTIO_BLK_DRIVER},
             char::{CharDevice, VIRT_SERIAL_PORT_DRIVER},
             vfio::VfioDevice,
-            vhost_user::{VhostUserDevice, VhostUserType},
+            vhost_user::{VhostNetDevice, VhostUserType},
             virtio_net::VirtioNetDevice,
             QemuDevice, QemuHotAttachable,
         },
         qmp_client::QmpClient,
         utils::detect_pid,
     },
-    utils::{read_std, wait_channel, wait_pid},
+    utils::{read_std, set_cmd_netns, wait_channel, wait_pid, write_file_atomic},
     vm::{BlockDriver, Pids, VcpuThreads, VM},
 };
 
@@ -93,12 +95,17 @@ pub struct QemuVM {
     wait_chan: Option<Receiver<(u32, i128)>>,
     #[serde(skip)]
     client: Option<QmpClient>,
+    virtiofsd_config: Option<VirtiofsdConfig>,
 }
 
 #[async_trait]
 impl VM for QemuVM {
     async fn start(&mut self) -> Result<u32> {
         debug!("start vm {}", self.id);
+        if self.virtiofsd_config.is_some() {
+            let virtiofsd_pid = self.start_virtiofsd().await?;
+            self.pids.affiliated_pids.push(virtiofsd_pid);
+        }
         let wait_chan = self.launch().await?;
         self.wait_chan = Some(wait_chan);
         let start_time = SystemTime::now();
@@ -191,7 +198,7 @@ impl VM for QemuVM {
                 self.attach_device(device);
             }
             DeviceInfo::VhostUser(vhost_user_info) => {
-                let device = VhostUserDevice::new(
+                let device = VhostNetDevice::new(
                     &vhost_user_info.id,
                     VhostUserType::VhostUserNet(vhost_user_info.r#type),
                     &vhost_user_info.socket_path,
@@ -333,6 +340,7 @@ impl QemuVM {
             block_driver: BlockDriver::default(),
             wait_chan: None,
             client: None,
+            virtiofsd_config: None,
         }
     }
 
@@ -452,6 +460,27 @@ impl QemuVM {
         }
     }
 
+    async fn start_virtiofsd(&self) -> Result<u32> {
+        //create_dir_all(&self.virtiofsd_config.shared_dir).await?;
+        let virtiofsd_config = self.virtiofsd_config.clone().unwrap();
+        let params = virtiofsd_config.to_cmdline_params("--");
+        let mut cmd = tokio::process::Command::new(&virtiofsd_config.path);
+        cmd.args(params.as_slice());
+        debug!("start virtiofsd with cmdline: {:?}", cmd);
+        set_cmd_netns(&mut cmd, self.netns.to_string())?;
+        cmd.stderr(Stdio::piped());
+        cmd.stdout(Stdio::piped());
+        let child = cmd
+            .spawn()
+            .map_err(|e| anyhow!("failed to spawn virtiofsd command: {}", e))?;
+        let pid = child
+            .id()
+            .ok_or(anyhow!("the virtiofsd has been polled to completion"))?;
+        warn!("virtiofsd for {} is running with pid {}", self.id, pid);
+        spawn_wait(child, format!("virtiofsd {}", self.id), None, None);
+        Ok(pid)
+    }
+
     async fn hot_attach_device<T: QemuHotAttachable + Sync + Send + 'static>(
         &mut self,
         device: T,
@@ -525,6 +554,61 @@ impl QemuVM {
                 }
             });
     }
+}
+
+macro_rules! read_stdio {
+    ($stdio:expr, $cmd_name:ident) => {
+        if let Some(std) = $stdio {
+            let cmd_name_clone = $cmd_name.clone();
+            tokio::spawn(async move {
+                read_std(std, &cmd_name_clone).await.unwrap_or_default();
+            });
+        }
+    };
+}
+
+fn spawn_wait(
+    child: Child,
+    cmd_name: String,
+    pid_file_path: Option<String>,
+    exit_chan: Option<Sender<(u32, i128)>>,
+) -> JoinHandle<()> {
+    let mut child = child;
+    tokio::spawn(async move {
+        if let Some(pid_file) = pid_file_path {
+            if let Some(pid) = child.id() {
+                write_file_atomic(&pid_file, &pid.to_string())
+                    .await
+                    .unwrap_or_default();
+            }
+        }
+
+        read_stdio!(child.stdout.take(), cmd_name);
+        read_stdio!(child.stderr.take(), cmd_name);
+
+        match child.wait().await {
+            Ok(status) => {
+                if !status.success() {
+                    error!("{} exit {}", cmd_name, status);
+                }
+                let now = OffsetDateTime::now_utc();
+                if let Some(tx) = exit_chan {
+                    tx.send((
+                        status.code().unwrap_or_default() as u32,
+                        now.unix_timestamp_nanos(),
+                    ))
+                    .unwrap_or_default();
+                }
+            }
+            Err(e) => {
+                error!("{} wait error {}", cmd_name, e);
+                let now = OffsetDateTime::now_utc();
+                if let Some(tx) = exit_chan {
+                    tx.send((0, now.unix_timestamp_nanos())).unwrap_or_default();
+                }
+            }
+        }
+    })
 }
 
 impl_recoverable!(QemuVM);
