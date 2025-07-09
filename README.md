@@ -27,12 +27,10 @@ Kuasar is an efficient container runtime that provides cloud-native, all-scenari
 |------------|------------------|-----------------|
 | MicroVM    | Cloud Hypervisor | Supported       |
 |            | QEMU             | Supported       |
-|            | Firecracker      | Planned in 2024 |
+|            | Firecracker      | Planned in 2025 |
 |            | StratoVirt       | Supported       |
 | Wasm       | WasmEdge         | Supported       |
 |            | Wasmtime         | Supported       |
-|            | Wasmer           | Planned in 2024 |
-| App Kernel | gVisor           | Planned in 2024 |
 |            | Quark            | Supported       |
 | runC       | runC             | Supported       |
 # Why Kuasar?
