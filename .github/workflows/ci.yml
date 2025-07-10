@@ -28,7 +28,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
-      - run: rustup toolchain install nightly --component rustfmt
+      - run: rustup toolchain install 1.88.0 --component rustfmt
       - run: rustup show
       - name: Install Protoc
         uses: arduino/setup-protoc@v1.1.2
