@@ -209,7 +209,7 @@ impl Sandbox for QuarkSandbox {
         return Ok(());
     }
 
-    async fn container(&self, id: &str) -> Result<&Self::Container> {
+    async fn container<'a>(&'a self, id: &str) -> Result<&'a Self::Container> {
         self.containers
             .get(id)
             .ok_or(Error::NotFound(format!("no container id {} found", id)))
@@ -403,10 +403,9 @@ impl QuarkSandbox {
     }
 
     fn container_mut(&mut self, id: &str) -> Result<&mut <Self as Sandbox>::Container> {
-        return self
-            .containers
+        self.containers
             .get_mut(id)
-            .ok_or(Error::NotFound(format!("no container id {} found", id)));
+            .ok_or(Error::NotFound(format!("no container id {} found", id)))
     }
 }
 

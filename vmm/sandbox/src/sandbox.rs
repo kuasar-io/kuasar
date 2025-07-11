@@ -331,7 +331,7 @@ where
     }
 
     #[instrument(skip_all)]
-    async fn container(&self, id: &str) -> Result<&Self::Container> {
+    async fn container<'a>(&'a self, id: &str) -> Result<&'a Self::Container> {
         let container = self
             .containers
             .get(id)
