@@ -12,7 +12,7 @@ vmm-common = { path = "../common" }
 log = "0.4"
 nix = { version = "0.28.0", features = ["sched", "term", "time", "hostname", "signal", "mount", "uio", "socket"] }
 libc = "0.2.95"
-time = { version = "=0.3.7", features = ["serde", "std"] }
+time = { version = "=0.3.23", features = ["serde", "std"] }
 serde = { version = "1.0.133", features = ["derive"] }
 serde_json = "1.0.74"
 oci-spec = "0.5.4"
@@ -24,7 +24,7 @@ netlink-packet-route = "0.19.0"
 netlink-packet-core = "0.7.0"
 ipnetwork = "0.20"
 anyhow = { version = "1.0.66", default-features = false, features = ["std", "backtrace"] }
-protobuf = "3.2"
+protobuf = { version = "=3.5.1"}
 
 tracing = "0.1.40"
 tracing-opentelemetry = "0.21.0"
@@ -33,7 +33,7 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 opentelemetry = { version = "0.20.0", features = ["rt-tokio"] }
 
 # Async dependencies
-async-trait = { version = "0.1.51" }
+async-trait = { version = "0.1.81" }
 tokio = { version = "1.17.0", features = ["full"] }
 futures = { version = "0.3.21" }
 signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }
@@ -47,9 +47,15 @@ runc = { git = "https://github.com/kuasar-io/rust-extensions.git", features = ["
 libcontainer = { git="https://github.com/containers/youki.git", version="0.4.1", optional = true, default-features = false, features = ["v1", "v2", "systemd"] }
 os_pipe = "1.0.0"
 tokio-pipe = "0.2.12"
+# Image pull/decrypt
+image-rs = { git = "https://github.com/confidential-containers/guest-components", tag="v0.10.0", default-features = false, optional = true, features = [
+    "kata-cc-native-tls",
+    "signature-simple-xrss",
+] }
 
 [patch.crates-io]
 ttrpc = { git = "https://github.com/kuasar-io/ttrpc-rust.git", branch = "v0.7.1-kuasar" }
 
 [features]
 youki = ["libcontainer"]
+image-service = ["image-rs"]

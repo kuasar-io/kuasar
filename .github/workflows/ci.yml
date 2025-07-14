@@ -7,6 +7,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  GENERATE_PROTOBUF: 1
 
 jobs:
   checks:
@@ -73,6 +74,8 @@ jobs:
       - name: Install WasmEdge
         if: ${{ matrix.wasmEdge }}
         run: curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install.sh | sudo -E bash -s -- -v ${{ matrix.wasmEdge }} >> /dev/null
+      - name: Install protobuf compiler
+        run: sudo apt-get install -y protobuf-compiler
       - name: Test
         env:
           RUST_BACKTRACE: full
