@@ -13,7 +13,7 @@ containerd-shim = {git="https://github.com/kuasar-io/rust-extensions.git", featu
 anyhow = "1.0.66"
 env_logger = "0.9.0"
 log = "0.4.14"
-async-trait = "0.1.56"
+async-trait = "0.1.88"
 serde_json = "1.0.69"
 nix = "0.23.0"
 lazy_static = "1.4.0"

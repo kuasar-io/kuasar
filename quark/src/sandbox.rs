@@ -209,7 +209,7 @@ impl Sandbox for QuarkSandbox {
         return Ok(());
     }
 
-    async fn container<'a>(&'a self, id: &str) -> Result<&'a Self::Container> {
+    async fn container(&self, id: &str) -> Result<&Self::Container> {
         self.containers
             .get(id)
             .ok_or(Error::NotFound(format!("no container id {} found", id)))

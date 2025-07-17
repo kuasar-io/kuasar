@@ -8,17 +8,17 @@ edition = "2021"
 panic = 'abort'
 
 [build-dependencies]
-built = { version = "0.7.0", features = ["cargo-lock", "dependency-tree", "git2", "chrono", "semver"] }
+built = { version = "0.7.7", features = ["cargo-lock", "dependency-tree", "git2", "chrono", "semver"] }
 
 [dependencies]
-built = { version = "0.7.0", features = ["cargo-lock", "dependency-tree", "git2", "chrono", "semver"] }
+built = { version = "0.7.7", features = ["cargo-lock", "dependency-tree", "git2", "chrono", "semver"] }
 clap = { version = "4.4.2", features = ["derive"] }
 tokio = { version = "1.19.2", features = ["full"] }
 containerd-sandbox = { git = "https://github.com/kuasar-io/rust-extensions.git" }
 containerd-shim = { git = "https://github.com/kuasar-io/rust-extensions.git", features = ["async"] }
 vmm-common = { path = "../common" }
 bytefmt = "0.1.7"
-async-trait = "0.1.56"
+async-trait = "0.1.88"
 anyhow = { version = "1.0.66", default-features = false, features = ["std", "backtrace"] }
 lazy_static = "1.4.0"
 serde = "1.0.139"

@@ -10,7 +10,7 @@ wasmedge = ["wasmedge-sdk"]
 wasmedge_wasi_nn = ["wasmedge-sdk/wasi_nn"]
 
 [build-dependencies]
-built = { version = "0.7.0", features = ["cargo-lock", "dependency-tree", "git2", "chrono", "semver"] }
+built = { version = "0.7.7", features = ["cargo-lock", "dependency-tree", "git2", "chrono", "semver"] }
 
 [dependencies]
 env_logger = "0.9.0"
@@ -18,7 +18,7 @@ anyhow = { version = "=1.0.66", default-features = false, features = ["std"] }
 tokio = "1.13.0"
 futures = { version = "0.3.21" }
 containerd-sandbox = { git = "https://github.com/kuasar-io/rust-extensions.git" }
-async-trait = "0.1.81"
+async-trait = "0.1.88"
 nix = "0.25"
 containerd-shim = { git = "https://github.com/kuasar-io/rust-extensions.git", features = ["async"] }
 oci-spec = "0.5.4"
