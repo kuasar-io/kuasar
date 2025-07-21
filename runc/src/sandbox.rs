@@ -347,7 +347,7 @@ impl Sandbox for RuncSandbox {
         Ok(())
     }
 
-    async fn container<'a>(&'a self, id: &str) -> Result<&'a Self::Container> {
+    async fn container(&self, id: &str) -> Result<&Self::Container> {
         return self.containers.get(id).ok_or(Error::NotFound(format!(
             "failed to find container by id {id}"
         )));
