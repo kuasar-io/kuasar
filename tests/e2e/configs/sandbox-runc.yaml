@@ -1,0 +1,12 @@
+metadata:
+  name: runc-sandbox
+  namespace: default
+  uid: runc-sandbox-uid-001
+  attempt: 0
+linux:
+  cgroup_parent: "/kuasar/runc"
+  security_context:
+    namespace_options:
+      network: 2
+annotations:
+  io.kubernetes.cri.runtime-handler: "runc"

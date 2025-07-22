@@ -1,0 +1,14 @@
+metadata:
+  name: runc-container
+image:
+  image: "busybox:latest"
+command:
+  - "/bin/sh"
+  - "-c"
+  - "sleep 3600"
+linux:
+  resources:
+    cpu_quota: 50000
+    cpu_period: 100000
+    memory_limit_in_bytes: 104857600
+log_path: "/tmp/runc-container.log"
