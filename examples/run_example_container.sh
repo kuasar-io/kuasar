@@ -51,6 +51,7 @@ cat > container.json <<EOF
     "log_path":"ubuntu.log",
     "linux": {
         "security_context": {
+            "apparmor_profile": "unconfined", #禁用 AppArmor 的容器配置，容器运行起来后，执行sudo crictl exec -it container_id sh 可进入容器内
             "namespace_options": {
                 "network": 2,
                 "pid": 1
@@ -61,6 +62,6 @@ cat > container.json <<EOF
 EOF
 
 # Run a container, default runtime is "kuasar-vmm".
-runtime=${1:-kuasar-vmm}
+runtime=${kuasar-vmm} # 原标志影响运行
 crictl -r unix:///run/containerd/containerd.sock run --runtime="$runtime" container.json pod.json
 rm -f container.json pod.json
