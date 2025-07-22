@@ -66,6 +66,13 @@ use crate::{
     sandbox::SandboxResources,
     util::{read_io, read_storages, wait_pid},
 };
+#[cfg(feature = "image-service")]
+use std::collections::HashMap;
+#[cfg(feature = "image-service")]
+use containerd_shim::util::{write_str_to_file, CONFIG_FILE_NAME};
+#[cfg(feature = "image-service")]
+use crate::image_rpc;
+
 
 pub const INIT_PID_FILE: &str = "init.pid";
 
@@ -119,7 +126,8 @@ impl ContainerFactory<KuasarContainer> for KuasarFactory {
     ) -> containerd_shim::Result<KuasarContainer> {
         rescan_pci_bus().await?;
         let bundle = format!("{}/{}", KUASAR_STATE_DIR, req.id);
-        let spec: Spec = read_spec(&bundle).await?;
+        let mut spec: Spec = read_spec(&bundle).await?;
+        debug!("req info: {:?} \n spec:{:?}", &req, &spec);
         let annotations = spec.annotations().clone().unwrap_or_default();
         let storages = if let Some(storage_str) = annotations.get(ANNOTATION_KEY_STORAGE) {
             serde_json::from_str::<Vec<Storage>>(storage_str)?
@@ -131,6 +139,12 @@ impl ContainerFactory<KuasarContainer> for KuasarFactory {
             .await
             .add_storages(req.id(), storages)
             .await?;
+
+        #[cfg(feature = "image-service")]
+        {
+            self.pull_image_for_container(&annotations, &mut spec, &bundle, req.id()).await?;
+        }
+
         let mut opts = Options::new();
         if let Some(any) = req.options.as_ref() {
             let mut input = CodedInputStream::from_bytes(any.value.as_ref());
@@ -187,6 +201,11 @@ impl ContainerFactory<KuasarContainer> for KuasarFactory {
     #[instrument(skip_all)]
     async fn cleanup(&self, _ns: &str, c: &KuasarContainer) -> containerd_shim::Result<()> {
         self.sandbox.lock().await.defer_storages(&c.id).await?;
+        #[cfg(feature = "image-service")]
+        {
+            let image_client = image_rpc::KuasarImageClient::singleton().await?;
+            image_client.del_image_config(&c.id).await?;
+        }
         Ok(())
     }
 }
@@ -195,6 +214,39 @@ impl KuasarFactory {
     pub fn new(sandbox: Arc<Mutex<SandboxResources>>) -> Self {
         Self { sandbox }
     }
+
+    #[cfg(feature = "image-service")]
+    async fn pull_image_for_container(
+        &self,
+        annotations: &HashMap<String, String>,
+        spec: &mut Spec,
+        bundle: &str,
+        container_id: &str,
+    ) -> Result<()> {
+        let image_name = annotations.get(image_rpc::ANNO_K8S_IMAGE_NAME)
+            .map_or_else(|| Err(other!("Container id: {:?} can not get image: {:?}", container_id, image_rpc::ANNO_K8S_IMAGE_NAME)),
+                        |name| Ok(name)
+            )?;
+        debug!("image name: {:?}, Container id: {:?}", image_name, container_id);
+
+        let image_client = image_rpc::KuasarImageClient::singleton().await?;
+        let root_path = image_client
+            .pull_image_for_container(&image_name, &container_id)
+            .await?;
+        // merge the image bundle OCI spec into container spec after pull and mount image
+        image_client.merge_bundle_oci(spec).await?;
+        
+        let mut root = spec.root().clone().unwrap_or_default();
+        root.set_path(std::path::PathBuf::from(root_path));
+        spec.set_root(Some(root));
+        debug!("new spec:{:?}", &spec);
+
+        let spec_content_new = serde_json::to_string(&spec)
+            .map_err(other_error!(e, "failed to marshal spec to string"))?;
+        write_str_to_file(format!("{}/{}", &bundle, CONFIG_FILE_NAME), &spec_content_new).await?;
+        Ok(())
+    }
+
 
     #[instrument(skip_all)]
     async fn do_create(&self, init: &mut InitProcess) -> Result<()> {
