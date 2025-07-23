@@ -31,7 +31,7 @@ Kuasar is an efficient container runtime that provides cloud-native, all-scenari
 |            | StratoVirt       | Supported       |
 | Wasm       | WasmEdge         | Supported       |
 |            | Wasmtime         | Supported       |
-|            | Quark            | Supported       |
+| App Kernel | Quark            | Supported       |
 | runC       | runC             | Supported       |
 # Why Kuasar?
 
