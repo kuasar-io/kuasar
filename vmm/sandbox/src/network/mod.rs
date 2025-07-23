@@ -148,11 +148,11 @@ impl Network {
     }
 
     pub fn interfaces(&self) -> &Vec<NetworkInterface> {
-        return self.intfs.as_ref();
+        self.intfs.as_ref()
     }
 
     pub fn routes(&self) -> &Vec<Route> {
-        return self.routes.as_ref();
+        self.routes.as_ref()
     }
 
     fn filter_intfs(intfs: Vec<NetworkInterface>) -> Vec<NetworkInterface> {

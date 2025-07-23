@@ -101,8 +101,7 @@ pub fn get_dns_config(data: &SandboxData) -> Option<&DnsConfig> {
 }
 
 pub fn get_total_resources(data: &SandboxData) -> Option<LinuxContainerResources> {
-    return data
-        .config
+    data.config
         .as_ref()
         .and_then(|c| c.linux.as_ref())
         .and_then(|l| {
@@ -114,7 +113,7 @@ pub fn get_total_resources(data: &SandboxData) -> Option<LinuxContainerResources
                 l.resources.as_ref().unwrap(),
                 l.overhead.as_ref().unwrap(),
             ))
-        });
+        })
 }
 
 fn merge_resources(

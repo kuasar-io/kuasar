@@ -102,6 +102,7 @@ unlicensed = "warn"
 # See https://spdx.org/licenses/ for list of possible licenses
 # [possible values: any SPDX 3.11 short identifier (+ optional exception)].
 allow = [
+    "Unicode-3.0",
     "MIT",
     "ISC",
     "Unlicense",
