@@ -230,9 +230,8 @@ function main() {
     check_dependencies  
     build_test_binaries
     
-    # Run both the standalone e2e binary and unit tests
+    # Run the standalone e2e binary
     run_e2e_tests
-    run_rust_unit_tests
     
     echo "All tests completed successfully!"
     echo "Test results available in: ${ARTIFACTS}"

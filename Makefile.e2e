@@ -35,7 +35,7 @@ build-runc-deps: ## Build runc runtime dependencies
 install-runc-deps: build-runc-deps ## Install runc runtime dependencies to system
 	@echo "Installing runc runtime dependencies..."
 	sudo cp $(KUASAR_ROOT)/bin/runc-sandboxer /usr/local/bin/
-	sudo cp $(KUASAR_ROOT)/shim/target/release/containerd-shim-kuasar-vmm-v2 /usr/local/bin/ || true
+	sudo cp $(KUASAR_ROOT)/shim/target/release/containerd-shim-kuasar-vmm-v2 /usr/local/bin/
 
 .PHONY: build-wasm-deps
 build-wasm-deps: ## Build wasm runtime dependencies (not implemented yet)
@@ -71,7 +71,7 @@ build-e2e: ## Build e2e test binary
 	cd $(TEST_E2E_DIR) && cargo build --release --bin kuasar-e2e
 
 .PHONY: _run-binary-runner
-_run-binary-runner: build-e2e ## Internal: Run e2e tests using the binary runner with env vars
+_run-binary-runner: build-e2e
 	@echo "Running e2e tests with binary runner..."
 	ARTIFACTS=$(ARTIFACTS_DIR) \
 	RUNTIME=$(RUNTIME) \

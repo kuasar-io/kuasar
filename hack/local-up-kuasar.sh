@@ -128,9 +128,26 @@ cleanup() {
         rm -f "$PID_FILE"
     fi
     
-    # Clean up other Kuasar processes
-    pkill -f "kuasar-" 2>/dev/null || true
-    pkill -f "runc-sandboxer" 2>/dev/null || true
+    # Ensure all Kuasar-related processes are terminated using the PID file
+    if [[ -f "$PID_FILE" ]]; then
+        while IFS= read -r pid; do
+            if kill -0 "$pid" 2>/dev/null; then
+                kuasar::log::info "Terminating process $pid"
+                kill -TERM "$pid" 2>/dev/null || true
+                sleep 1
+                if kill -0 "$pid" 2>/dev/null; then
+                    kuasar::log::warn "Force terminating process $pid"
+                    kill -KILL "$pid" 2>/dev/null || true
+                fi
+            fi
+        done < "$PID_FILE"
+        rm -f "$PID_FILE"
+    fi
+    
+    # Log a warning if any unexpected Kuasar-related processes are detected
+    if pgrep -f "kuasar-" > /dev/null; then
+        kuasar::log::warn "Detected Kuasar-related processes not tracked in PID file. Manual cleanup may be required."
+    fi
     
     # Clean up temporary files
     kuasar::log::info "Cleaning temporary files..."

@@ -243,6 +243,7 @@ function run_verification() {
         kuasar::log::info ""
         kuasar::log::info "Next steps:"
         kuasar::log::info "  1. Run tests: make -f Makefile.e2e test-e2e"
+        kuasar::log::info "     Or alternatively: make test-e2e"
         kuasar::log::info "  2. Or start local cluster: make -f Makefile.e2e local-up"
         kuasar::log::info "  3. See tests/e2e/README.md for detailed usage"
         return 0

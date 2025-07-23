@@ -18,6 +18,29 @@ limitations under the License.
 //! 
 //! This library provides utilities for running comprehensive end-to-end tests
 //! for the Kuasar container runtime, following Rust testing patterns.
+//! 
+//! # Example Usage
+//! 
+//! ```rust,no_run
+//! use kuasar_e2e::E2EContext;
+//! 
+//! #[tokio::main]
+//! async fn main() -> anyhow::Result<()> {
+//!     let mut ctx = E2EContext::new().await?;
+//!     
+//!     // Start services
+//!     ctx.start_services(&["runc"]).await?;
+//!     
+//!     // Run tests
+//!     let result = ctx.test_runtime("runc").await?;
+//!     println!("Test result: {:?}", result);
+//!     
+//!     // Always cleanup explicitly
+//!     ctx.cleanup().await?;
+//!     
+//!     Ok(())
+//! }
+//! ```
 
 use anyhow::{Context, Result};
 use serde_json::Value;
@@ -55,7 +78,7 @@ impl Default for E2EConfig {
             .map(PathBuf::from)
             .unwrap_or_else(|_| std::env::temp_dir().join("kuasar-e2e-artifacts"));
         
-        let config_dir = repo_root.join("test").join("e2e").join("configs");
+        let config_dir = repo_root.join("tests").join("e2e").join("configs");
         
         let mut socket_map = HashMap::new();
         socket_map.insert("runc".to_string(), "/run/kuasar-runc.sock".to_string());
@@ -85,6 +108,7 @@ pub struct E2EContext {
     pub config: E2EConfig,
     pub test_id: String,
     services_started: bool,
+    child_process: Option<tokio::process::Child>,
 }
 
 impl E2EContext {
@@ -106,6 +130,7 @@ impl E2EContext {
             config,
             test_id,
             services_started: false,
+            child_process: None,
         })
     }
     
@@ -128,7 +153,7 @@ impl E2EContext {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
             
-        let _child = cmd.spawn().context("Failed to start local-up-kuasar.sh")?;
+        self.child_process = Some(cmd.spawn().context("Failed to start local-up-kuasar.sh")?);
         
         // Wait a bit for services to start
         sleep(Duration::from_secs(5)).await;
@@ -264,6 +289,69 @@ impl E2EContext {
         
         Ok(test_result)
     }
+    
+    /// Explicit cleanup method for services and processes
+    pub async fn cleanup(&mut self) -> Result<()> {
+        if !self.services_started {
+            return Ok(());
+        }
+        
+        info!("Cleaning up Kuasar services...");
+        
+        // First, try to gracefully terminate the child process (local-up-kuasar.sh)
+        // This allows the script's trap handlers to perform proper cleanup
+        if let Some(mut child) = self.child_process.take() {
+            // Get the process ID to send SIGTERM first
+            if let Some(pid) = child.id() {
+                // Send SIGTERM to allow graceful shutdown via trap handlers
+                let _ = TokioCommand::new("kill")
+                    .args(&["-TERM", &pid.to_string()])
+                    .output()
+                    .await;
+                
+                // Wait for the process to exit gracefully (with timeout)
+                match tokio::time::timeout(Duration::from_secs(10), child.wait()).await {
+                    Ok(Ok(status)) => {
+                        debug!("Child process exited gracefully with status: {}", status);
+                    }
+                    Ok(Err(e)) => {
+                        warn!("Error waiting for child process: {}", e);
+                        // Force kill if graceful shutdown failed
+                        let _ = child.kill().await;
+                    }
+                    Err(_) => {
+                        warn!("Child process did not exit within timeout, force killing");
+                        // Force kill if timeout exceeded
+                        let _ = child.kill().await;
+                    }
+                }
+            } else {
+                // If we can't get PID, just force kill
+                let _ = child.kill().await;
+            }
+        }
+        
+        // Additional cleanup: force kill any remaining sandboxer processes
+        // This is a fallback in case the script's cleanup didn't work
+        let sandboxer_processes = ["runc-sandboxer", "wasm-sandboxer", "quark-sandboxer"];
+        for process in &sandboxer_processes {
+            let _ = TokioCommand::new("pkill")
+                .args(&["-f", process])
+                .output()
+                .await;
+        }
+        
+        // Clean up socket files and directories that might be left behind
+        let _ = TokioCommand::new("sudo")
+            .args(&["rm", "-rf", "/run/kuasar-runc", "/run/kuasar-wasm", "/run/kuasar-runc.sock", "/run/kuasar-wasm.sock"])
+            .output()
+            .await;
+        
+        self.services_started = false;
+        info!("Cleanup completed");
+        
+        Ok(())
+    }
 }
 
 /// Result of a runtime test
@@ -299,10 +387,9 @@ impl TestResult {
 impl Drop for E2EContext {
     fn drop(&mut self) {
         if self.services_started {
-            // Best-effort cleanup
-            let _ = std::process::Command::new("pkill")
-                .args(&["-f", "runc-sandboxer"])
-                .output();
+            // Warn if services weren't properly cleaned up
+            // We can't do async cleanup in Drop, so this is just a warning
+            eprintln!("Warning: E2EContext dropped without calling cleanup(). Services may still be running.");
         }
     }
 }

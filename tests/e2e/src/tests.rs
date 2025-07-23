@@ -65,6 +65,9 @@ mod runtime_tests {
         assert!(result.container_running, "Container should reach running state");
         assert!(result.cleanup_completed, "Cleanup should complete");
         
+        // Cleanup explicitly
+        ctx.cleanup().await.expect("Cleanup should succeed");
+        
         info!("runc runtime lifecycle test completed successfully");
     }
 }
@@ -95,6 +98,9 @@ mod integration_tests {
                 "Socket file should exist for runtime {}: {}", 
                 runtime, runtime_config.socket_path);
         }
+        
+        // Cleanup explicitly
+        ctx.cleanup().await.expect("Cleanup should succeed");
         
         info!("Service startup and readiness test completed successfully");
     }

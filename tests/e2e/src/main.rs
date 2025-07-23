@@ -22,8 +22,9 @@ use anyhow::{Context, Result};
 use kuasar_e2e::{E2EConfig, E2EContext, TestResult};
 use std::collections::HashMap;
 use std::env;
+use std::sync::Arc;
 use std::time::Instant;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber;
 
 #[tokio::main]
@@ -82,7 +83,11 @@ async fn main() -> Result<()> {
     
     // Run tests
     let results = if parallel {
-        run_tests_parallel(&ctx, &runtimes).await?
+        // For parallel execution, we can't easily share the context with Arc due to cleanup requiring &mut
+        // So for now, run sequentially even when parallel is requested
+        // TODO: Implement proper parallel execution with individual contexts per test
+        warn!("Parallel execution not yet supported with cleanup method, running sequentially");
+        run_tests_sequential(&ctx, &runtimes).await?
     } else {
         run_tests_sequential(&ctx, &runtimes).await?
     };
@@ -90,6 +95,9 @@ async fn main() -> Result<()> {
     // Print results
     let total_duration = start_time.elapsed();
     print_results(&results, total_duration);
+    
+    // Cleanup services
+    ctx.cleanup().await.context("Failed to cleanup services")?;
     
     // Exit with appropriate code
     let failed_tests = results.values().filter(|r| !r.success).count();
@@ -128,12 +136,12 @@ async fn run_tests_sequential(ctx: &E2EContext, runtimes: &[&str]) -> Result<Has
     Ok(results)
 }
 
-async fn run_tests_parallel(ctx: &E2EContext, runtimes: &[&str]) -> Result<HashMap<String, TestResult>> {
+async fn run_tests_parallel(ctx: Arc<E2EContext>, runtimes: &[&str]) -> Result<HashMap<String, TestResult>> {
     let mut handles = Vec::new();
     
     for runtime in runtimes {
         let runtime_name = runtime.to_string();
-        let ctx_clone = unsafe { std::mem::transmute::<&E2EContext, &'static E2EContext>(ctx) };
+        let ctx_clone = Arc::clone(&ctx);
         
         let handle = tokio::spawn(async move {
             info!("Running test for runtime: {}", runtime_name);
