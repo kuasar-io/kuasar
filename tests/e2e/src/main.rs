@@ -22,7 +22,6 @@ use anyhow::{Context, Result};
 use kuasar_e2e::{E2EConfig, E2EContext, TestResult};
 use std::collections::HashMap;
 use std::env;
-use std::sync::Arc;
 use std::time::Instant;
 use tracing::{error, info, warn};
 use tracing_subscriber;
@@ -131,46 +130,6 @@ async fn run_tests_sequential(ctx: &E2EContext, runtimes: &[&str]) -> Result<Has
             });
         
         results.insert(runtime.to_string(), result);
-    }
-    
-    Ok(results)
-}
-
-async fn run_tests_parallel(ctx: Arc<E2EContext>, runtimes: &[&str]) -> Result<HashMap<String, TestResult>> {
-    let mut handles = Vec::new();
-    
-    for runtime in runtimes {
-        let runtime_name = runtime.to_string();
-        let ctx_clone = Arc::clone(&ctx);
-        
-        let handle = tokio::spawn(async move {
-            info!("Running test for runtime: {}", runtime_name);
-            let result = ctx_clone.test_runtime(&runtime_name).await
-                .unwrap_or_else(|e| {
-                    TestResult {
-                        runtime: runtime_name.clone(),
-                        success: false,
-                        sandbox_created: false,
-                        container_created: false,
-                        container_started: false,
-                        container_running: false,
-                        container_stopped: false,
-                        cleanup_completed: false,
-                        error: Some(e.to_string()),
-                    }
-                });
-            
-            (runtime_name, result)
-        });
-        
-        handles.push(handle);
-    }
-    
-    let mut results = HashMap::new();
-    for handle in handles {
-        let (runtime, result) = handle.await
-            .context("Failed to join test task")?;
-        results.insert(runtime, result);
     }
     
     Ok(results)

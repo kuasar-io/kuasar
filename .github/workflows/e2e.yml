@@ -105,8 +105,7 @@ jobs:
             build-essential \
             pkg-config \
             libseccomp-dev \
-            runc \
-            criu
+            runc
 
       - name: Install crictl
         run: |
@@ -128,7 +127,7 @@ jobs:
 
       - name: Upload test artifacts
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: e2e-artifacts-runc-${{ github.run_number }}
           path: _artifacts/

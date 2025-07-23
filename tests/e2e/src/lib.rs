@@ -544,6 +544,7 @@ impl E2EContext {
 pub fn find_repo_root() -> Result<PathBuf> {
     let mut dir = std::env::current_dir().context("Failed to get current directory")?;
     
+    // Try up to 10 levels up to find the repository root
     for _ in 0..10 {
         let hack_dir = dir.join("hack");
         let local_up_script = hack_dir.join("local-up-kuasar.sh");
@@ -558,7 +559,37 @@ pub fn find_repo_root() -> Result<PathBuf> {
         }
     }
     
-    anyhow::bail!("Could not find repository root containing hack/local-up-kuasar.sh")
+    // If we can't find it by traversing up, try some common patterns
+    // This helps in CI environments where the working directory might vary
+    let current = std::env::current_dir().context("Failed to get current directory")?;
+    
+    // Try if we're in tests/e2e subdirectory
+    if current.ends_with("tests/e2e") {
+        if let Some(parent) = current.parent() {
+            if let Some(repo_root) = parent.parent() {
+                let hack_script = repo_root.join("hack").join("local-up-kuasar.sh");
+                if hack_script.exists() {
+                    return Ok(repo_root.to_path_buf());
+                }
+            }
+        }
+    }
+    
+    // Try relative to current directory
+    let candidates = [
+        current.join("../.."),  // From tests/e2e
+        current.join(".."),     // From tests
+        current.clone(),        // Current dir
+    ];
+    
+    for candidate in &candidates {
+        let hack_script = candidate.join("hack").join("local-up-kuasar.sh");
+        if hack_script.exists() {
+            return Ok(candidate.canonicalize().context("Failed to canonicalize path")?);
+        }
+    }
+    
+    anyhow::bail!("Could not find repository root containing hack/local-up-kuasar.sh. Current dir: {:?}", current)
 }
 
 #[cfg(test)]
