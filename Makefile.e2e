@@ -24,6 +24,24 @@ LOG_LEVEL ?= info
 TEST_E2E_DIR = $(KUASAR_ROOT)/tests/e2e
 HACK_DIR = $(KUASAR_ROOT)/hack
 
+# Build prerequisites for e2e tests
+.PHONY: build-runc-deps
+build-runc-deps: ## Build runc runtime dependencies
+	@echo "Building runc runtime dependencies..."
+	cd $(KUASAR_ROOT) && $(MAKE) runc
+	cd $(KUASAR_ROOT)/shim && cargo build --release
+
+.PHONY: install-runc-deps
+install-runc-deps: build-runc-deps ## Install runc runtime dependencies to system
+	@echo "Installing runc runtime dependencies..."
+	sudo cp $(KUASAR_ROOT)/bin/runc-sandboxer /usr/local/bin/
+	sudo cp $(KUASAR_ROOT)/shim/target/release/containerd-shim-kuasar-vmm-v2 /usr/local/bin/ || true
+
+.PHONY: build-wasm-deps
+build-wasm-deps: ## Build wasm runtime dependencies (not implemented yet)
+	@echo "WASM dependencies not implemented on this branch"
+	@exit 1
+
 .PHONY: help
 help: ## Show this help message
 	@echo "Kuasar E2E Testing Makefile (Rust-based)"
@@ -39,6 +57,10 @@ help: ## Show this help message
 	@echo ""
 	@echo "Note: test-e2e runs full integration tests. Use test-e2e-framework for framework"
 	@echo "      unit tests only (no service startup required)."
+	@echo ""
+	@echo "Quick start:"
+	@echo "  make setup-e2e-env    # Setup environment for local testing"
+	@echo "  make test-e2e-runc    # Run runc integration tests"
 
 .PHONY: all
 all: build-e2e ## Build all e2e test components
@@ -75,9 +97,20 @@ test-e2e-framework: ## Run e2e framework unit tests (no service startup required
 		test_invalid_runtime test_service_not_started test_configuration_files test_e2e_context_creation
 
 .PHONY: test-e2e-runc
-test-e2e-runc: build-e2e ## Test only runc runtime
+test-e2e-runc: build-runc-deps build-e2e ## Test only runc runtime
 	@echo "Testing runc runtime..."
 	RUNTIME=runc $(MAKE) -f Makefile.e2e _run-binary-runner
+
+.PHONY: test-e2e-runc-ci
+test-e2e-runc-ci: install-runc-deps build-e2e ## Test runc runtime with CI setup (installs deps to system)
+	@echo "Testing runc runtime with CI setup..."
+	RUNTIME=runc $(MAKE) -f Makefile.e2e _run-binary-runner
+
+# TODO: Enable when WASM e2e tests are implemented
+# .PHONY: test-e2e-wasm
+# test-e2e-wasm: build-e2e ## Test only wasm runtime
+# 	@echo "Testing wasm runtime..."
+# 	RUNTIME=wasm $(MAKE) -f Makefile.e2e _run-binary-runner
 
 .PHONY: test-e2e-parallel
 test-e2e-parallel: build-e2e ## Run all tests in parallel
@@ -116,8 +149,16 @@ check-dependencies: ## Check e2e test dependencies
 	fi
 
 # Development targets
+.PHONY: setup-e2e-env
+setup-e2e-env: verify-e2e build-runc-deps ## Setup complete e2e testing environment
+	@echo "E2E environment setup completed successfully"
+
+.PHONY: setup-e2e-env-ci
+setup-e2e-env-ci: verify-e2e install-runc-deps ## Setup complete e2e testing environment for CI
+	@echo "E2E CI environment setup completed successfully"
+
 .PHONY: e2e-dev
-e2e-dev: clean-test-env build-e2e _run-binary-runner ## Clean, build and run e2e tests (development workflow)
+e2e-dev: clean-test-env setup-e2e-env test-e2e-runc ## Clean, setup and run runc e2e tests (development workflow)
 
 .PHONY: lint-e2e
 lint-e2e: ## Lint e2e test code

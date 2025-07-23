@@ -124,6 +124,12 @@ test-e2e-runc: ## Test only runc runtime
 test-e2e-parallel: ## Run all tests in parallel
 	@$(MAKE) -f Makefile.e2e test-e2e-parallel
 
+setup-e2e-env: ## Setup complete e2e testing environment
+	@$(MAKE) -f Makefile.e2e setup-e2e-env
+
+build-runc-deps: ## Build runc runtime dependencies for e2e testing
+	@$(MAKE) -f Makefile.e2e build-runc-deps
+
 verify-e2e: ## Verify e2e test environment
 	@hack/verify-e2e.sh
 
