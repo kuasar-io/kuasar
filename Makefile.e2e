@@ -155,6 +155,7 @@ setup-e2e-env: verify-e2e build-runc-deps ## Setup complete e2e testing environm
 
 .PHONY: setup-e2e-env-ci
 setup-e2e-env-ci: verify-e2e install-runc-deps ## Setup complete e2e testing environment for CI
+	sudo chmod -R 777 /run
 	@echo "E2E CI environment setup completed successfully"
 
 .PHONY: e2e-dev

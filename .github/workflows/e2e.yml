@@ -112,6 +112,17 @@ jobs:
           wget -qO- https://github.com/kubernetes-sigs/cri-tools/releases/download/v1.29.0/crictl-v1.29.0-linux-amd64.tar.gz | \
             sudo tar -C /usr/local/bin -xz
           sudo chmod +x /usr/local/bin/crictl
+      
+      - name: Configure crictl for Kuasar
+        run: |
+          sudo mkdir -p /etc/crictl
+          sudo tee /etc/crictl/crictl.yaml > /dev/null <<EOF
+          runtime-endpoint: unix:///run/kuasar-runc.sock
+          image-endpoint: unix:///run/kuasar-runc.sock
+          timeout: 60s
+          debug: false
+          EOF
+          echo "crictl configured for Kuasar runc runtime"
 
       - name: Setup e2e environment
         run: make -f Makefile.e2e setup-e2e-env-ci
