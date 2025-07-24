@@ -124,6 +124,16 @@ jobs:
           EOF
           echo "crictl configured for Kuasar runc runtime"
 
+      - name: Install containerd 2.1.3
+        run: |
+          wget -qO- https://github.com/containerd/containerd/releases/download/v2.1.3/containerd-2.1.3-linux-amd64.tar.gz | \
+            sudo tar -C /usr/local -xz
+          sudo mkdir -p /usr/local/lib/systemd/system
+          wget -qO- https://raw.githubusercontent.com/containerd/containerd/main/containerd.service | \
+            sudo tee /usr/local/lib/systemd/system/containerd.service
+          sudo systemctl daemon-reload
+          sudo systemctl enable --now containerd
+
       - name: Setup e2e environment
         run: make -f Makefile.e2e setup-e2e-env-ci
 
