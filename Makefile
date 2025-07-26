@@ -21,7 +21,8 @@ endif
 
 .PHONY: vmm wasm quark clean all install-vmm install-wasm install-quark install \
         bin/vmm-sandboxer bin/vmm-task bin/vmlinux.bin bin/kuasar.img bin/kuasar.initrd \
-        bin/wasm-sandboxer bin/quark-sandboxer bin/runc-sandboxer
+        bin/wasm-sandboxer bin/quark-sandboxer bin/runc-sandboxer \
+        test-e2e test-e2e-framework verify-e2e local-up clean-e2e help
 
 all: vmm quark wasm
 
@@ -109,3 +110,46 @@ install-runc:
 	@install -p -m 550 bin/runc-sandboxer ${DEST_DIR}${BIN_DIR}/runc-sandboxer
 
 install: all install-vmm install-wasm install-quark install-runc
+
+# E2E Testing targets
+test-e2e: ## Run full e2e integration tests (requires environment setup)
+	@$(MAKE) -f Makefile.e2e test-e2e
+
+test-e2e-framework: ## Run e2e framework unit tests (no service startup required)
+	@$(MAKE) -f Makefile.e2e test-e2e-framework
+
+test-e2e-runc: ## Test only runc runtime
+	@$(MAKE) -f Makefile.e2e test-e2e-runc
+
+test-e2e-parallel: ## Run all tests in parallel
+	@$(MAKE) -f Makefile.e2e test-e2e-parallel
+
+setup-e2e-env: ## Setup complete e2e testing environment
+	@$(MAKE) -f Makefile.e2e setup-e2e-env
+
+build-runc-deps: ## Build runc runtime dependencies for e2e testing
+	@$(MAKE) -f Makefile.e2e build-runc-deps
+
+verify-e2e: ## Verify e2e test environment
+	@hack/verify-e2e.sh
+
+local-up: ## Start local Kuasar cluster for testing
+	@hack/local-up-kuasar.sh
+
+clean-e2e: ## Clean e2e test artifacts
+	@$(MAKE) -f Makefile.e2e clean-e2e
+
+.PHONY: help
+help: ## Display this help screen
+	@echo "Kuasar Build System"
+	@echo ""
+	@echo "Available targets:"
+	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ { printf "  %-20s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+	@echo ""
+	@echo "Variables:"
+	@echo "  HYPERVISOR       Hypervisor to use (default: cloud_hypervisor)"
+	@echo "  GUESTOS_IMAGE    Guest OS image type (default: centos)"
+	@echo "  WASM_RUNTIME     WebAssembly runtime (default: wasmedge)"
+	@echo "  KERNEL_VERSION   Kernel version (default: 6.12.8)"
+	@echo "  ARCH             Target architecture (default: x86_64)"
+	@echo "  ENABLE_YOUKI     Enable youki features (default: false)"
