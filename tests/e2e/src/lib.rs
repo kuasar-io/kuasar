@@ -422,6 +422,7 @@ impl E2EContext {
         let output = TokioCommand::new("crictl")
             .args(&[
                 "create",
+                "--with-pull",
                 sandbox_id,
                 container_config.to_str().unwrap(),
                 sandbox_config.to_str().unwrap(),
