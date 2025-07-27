@@ -53,7 +53,7 @@ use tokio_vsock::{VsockListener, VsockStream};
 
 use crate::{
     device::SYSTEM_DEV_PATH,
-    streaming::{get_output, get_stdin, remove_channel},
+    streaming::{close_stdout, get_output, get_stdin, remove_channel},
     vsock,
 };
 
@@ -281,7 +281,7 @@ where
         };
         copy(src, dst, exit_signal, on_close).await;
         if to.contains(STREAMING) {
-            remove_channel(&to).await.unwrap_or_default();
+            close_stdout(&to).await.unwrap_or_default();
         }
         debug!("finished copy io from container to {}", to);
     });

@@ -24,7 +24,7 @@ netlink-packet-route = "0.19.0"
 netlink-packet-core = "0.7.0"
 ipnetwork = "0.20"
 anyhow = { version = "1.0.66", default-features = false, features = ["std", "backtrace"] }
-protobuf = "3.2"
+protobuf = "=3.4.0"
 
 tracing = "0.1.40"
 tracing-opentelemetry = "0.21.0"
@@ -44,7 +44,7 @@ ttrpc = { version = "0.7", features = ["async"] }
 containerd-sandbox = { git = "https://github.com/kuasar-io/rust-extensions.git" }
 containerd-shim = { git = "https://github.com/kuasar-io/rust-extensions.git", features = ["async"] }
 runc = { git = "https://github.com/kuasar-io/rust-extensions.git", features = ["async"] }
-libcontainer = { git="https://github.com/containers/youki.git", version="0.4.1", optional = true, default-features = false, features = ["v1", "v2", "systemd"] }
+libcontainer = { version="0.5.3", optional = true, default-features = false, features = ["v1", "v2", "systemd"] }
 os_pipe = "1.0.0"
 tokio-pipe = "0.2.12"
 
