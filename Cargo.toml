@@ -6,6 +6,7 @@ members = [
     "runc",
     "quark",
     "wasm",
+    "shim",
 ]
 resolver = "2"
 

@@ -735,6 +735,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "containerd-shim-kuasar-v2"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "containerd-sandbox",
+ "containerd-shim",
+ "lazy_static",
+ "log",
+ "nix 0.24.3",
+ "prost-types 0.10.1",
+ "serde_json",
+ "tokio",
+ "tonic 0.7.2",
+ "tower",
+]
+
+[[package]]
 name = "containerd-shim-protos"
 version = "0.2.0"
 source = "git+https://github.com/kuasar-io/rust-extensions.git#1127b78fd29f55853f63a1146748ad33b25ca6b7"
