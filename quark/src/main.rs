@@ -16,21 +16,25 @@ limitations under the License.
 
 use std::sync::Arc;
 
+use clap::Parser;
+
 use crate::sandbox::QuarkSandboxer;
 
+mod args;
 mod mount;
 mod sandbox;
 mod utils;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let args = args::Args::parse();
     env_logger::Builder::from_default_env()
         .format_timestamp_micros()
         .init();
     let sandboxer = QuarkSandboxer {
         sandboxes: Arc::new(Default::default()),
     };
-    containerd_sandbox::run("io.containerd.sandboxer.quark.v1", sandboxer)
+    containerd_sandbox::run("quark-sandboxer", &args.listen, &args.dir, sandboxer)
         .await
         .unwrap();
     Ok(())
