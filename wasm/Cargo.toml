@@ -8,6 +8,7 @@ license = "Apache-2.0"
 wasmtime = ["cap-std", "wasi-cap-std-sync", "dep:wasmtime", "wasmtime-wasi"]
 wasmedge = ["wasmedge-sdk"]
 wasmedge_wasi_nn = ["wasmedge-sdk/wasi_nn"]
+default = ["wasmtime"]
 
 [build-dependencies]
 built = { version = "0.7.7", features = ["cargo-lock", "dependency-tree", "git2", "chrono", "semver"] }

@@ -244,8 +244,7 @@ where
         )
         .await?;
         // Call Controller.AppendContainer previously, so need type structure conversion at first.
-        let resp_v2 = self.sandbox.prepare_container(&shim_io, &req).await?;
-        let prepare_res = resp_v2.get_ref();
+        self.sandbox.prepare_container(&shim_io, &req).await?;
 
         // Update rootfs and io for new Task.Create request.
         let mut req_new = req.clone();
@@ -253,10 +252,6 @@ where
         req_new.stdin = shim_io.container_in();
         req_new.stdout = shim_io.container_out();
         req_new.stderr = shim_io.container_err();
-
-        if !prepare_res.bundle.is_empty() {
-            req_new.bundle.clone_from(&prepare_res.bundle);
-        }
 
         let res = self.task.create(ctx, req_new).await?;
         // Copy io after init process cloned lastly.
@@ -335,8 +330,7 @@ where
         .await?;
 
         // update container
-        let resp_v2 = self.sandbox.prepare_exec(&shim_io, &req).await?;
-        let _prepare_resp = resp_v2.get_ref();
+        self.sandbox.prepare_exec(&shim_io, &req).await?;
 
         // Update io and process spec in new Task.Exec request
         let mut req_new = req.clone();

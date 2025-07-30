@@ -28,11 +28,11 @@ all: vmm quark wasm
 
 bin/vmm-sandboxer:
 	@cd vmm/sandbox && cargo build --release --bin ${HYPERVISOR} --features=${VMM_SANDBOX_FEATURES}
-	@mkdir -p bin && cp vmm/sandbox/target/release/${HYPERVISOR} bin/vmm-sandboxer
+	@mkdir -p bin && cp target/release/${HYPERVISOR} bin/vmm-sandboxer
 
 bin/vmm-task:
 	@cd vmm/task && cargo build --release --target=${ARCH}-unknown-linux-musl --features=${VMM_TASK_FEATURES}
-	@mkdir -p bin && cp vmm/task/target/${ARCH}-unknown-linux-musl/release/vmm-task bin/vmm-task
+	@mkdir -p bin && cp target/${ARCH}-unknown-linux-musl/release/vmm-task bin/vmm-task
 
 bin/vmlinux.bin:
 	@bash vmm/scripts/kernel/${HYPERVISOR}/build.sh ${KERNEL_VERSION}
@@ -48,15 +48,15 @@ bin/kuasar.initrd:
 
 bin/wasm-sandboxer:
 	@cd wasm && cargo build --release --features=${WASM_RUNTIME}
-	@mkdir -p bin && cp wasm/target/release/wasm-sandboxer bin/wasm-sandboxer
+	@mkdir -p bin && cp target/release/wasm-sandboxer bin/wasm-sandboxer
 
 bin/quark-sandboxer:
 	@cd quark && cargo build --release
-	@mkdir -p bin && cp quark/target/release/quark-sandboxer bin/quark-sandboxer
+	@mkdir -p bin && cp target/release/quark-sandboxer bin/quark-sandboxer
 
 bin/runc-sandboxer:
 	@cd runc && cargo build --release --features=${RUNC_FEATURES}
-	@mkdir -p bin && cp runc/target/release/runc-sandboxer bin/runc-sandboxer
+	@mkdir -p bin && cp target/release/runc-sandboxer bin/runc-sandboxer
 
 wasm: bin/wasm-sandboxer
 quark: bin/quark-sandboxer

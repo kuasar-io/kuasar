@@ -147,6 +147,12 @@ impl Sandboxer for QuarkSandboxer {
         Ok(())
     }
 
+    async fn update(&self, id: &str, s: SandboxData) -> Result<()> {
+        let sandbox = self.sandbox(id).await?;
+        sandbox.lock().await.data = s;
+        Ok(())
+    }
+
     async fn sandbox(&self, id: &str) -> Result<Arc<Mutex<Self::Sandbox>>> {
         Ok(self
             .sandboxes
