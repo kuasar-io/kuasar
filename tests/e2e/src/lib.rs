@@ -49,9 +49,10 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 use tokio::fs;
+use tokio::io::AsyncBufReadExt;
 use tokio::process::Command as TokioCommand;
 use tokio::time::sleep;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 /// Configuration for e2e test execution
@@ -156,12 +157,54 @@ impl E2EContext {
             .env("KUASAR_LOG_LEVEL", &self.config.log_level)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-
+        info!("Start command: {:?}", cmd);
         self.child_process = Some(cmd.spawn().context("Failed to start local-up-kuasar.sh")?);
+        let child_stdout = self
+            .child_process
+            .as_mut()
+            .unwrap()
+            .stdout
+            .take()
+            .expect("Failed to capture stdout");
+        let child_stderr = self
+            .child_process
+            .as_mut()
+            .unwrap()
+            .stderr
+            .take()
+            .expect("Failed to capture stderr");
+
+        // Read stdout and stderr in separate tasks
+        tokio::spawn(async move {
+            let mut stdout = String::new();
+            let mut reader = tokio::io::BufReader::new(child_stdout);
+            while let Ok(n) = reader.read_line(&mut stdout).await {
+                if n == 0 {
+                    break;
+                }
+                info!("stdout: {}", stdout.trim());
+                stdout.clear();
+            }
+        });
+        tokio::spawn(async move {
+            let mut stderr = String::new();
+            let mut reader = tokio::io::BufReader::new(child_stderr);
+            while let Ok(n) = reader.read_line(&mut stderr).await {
+                if n == 0 {
+                    break;
+                }
+                error!("stderr: {}", stderr.trim());
+                stderr.clear();
+            }
+        });
+
+        // Wait for stdout and stderr tasks to complete
+        //let (stdout_result, stderr_result) = tokio::try_join!(stdout_task, stderr_task)?;
 
         // Wait a bit for services to start
         sleep(Duration::from_secs(5)).await;
 
+        info!("Waiting for Kuasar services to be ready...");
         // Wait for services to be ready
         self.wait_for_services_ready(components).await?;
 
