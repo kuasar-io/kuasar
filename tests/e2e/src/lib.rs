@@ -15,15 +15,15 @@ limitations under the License.
 */
 
 //! Kuasar End-to-End Testing Framework
-//! 
+//!
 //! This library provides utilities for running comprehensive end-to-end tests
 //! for the Kuasar container runtime, following Rust testing patterns.
-//! 
+//!
 //! # Example Usage
-//! 
+//!
 //! ```rust,no_run
 //! use kuasar_e2e::E2EContext;
-//! 
+//!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
 //!     let mut ctx = E2EContext::new().await?;
@@ -77,12 +77,12 @@ impl Default for E2EConfig {
         let artifacts_dir = std::env::var("ARTIFACTS")
             .map(PathBuf::from)
             .unwrap_or_else(|_| std::env::temp_dir().join("kuasar-e2e-artifacts"));
-        
+
         let config_dir = repo_root.join("tests").join("e2e").join("configs");
-        
+
         let mut socket_map = HashMap::new();
         socket_map.insert("runc".to_string(), "/run/kuasar-runc.sock".to_string());
-        
+
         Self {
             repo_root,
             artifacts_dir,
@@ -116,16 +116,16 @@ impl E2EContext {
     pub async fn new() -> Result<Self> {
         Self::new_with_config(E2EConfig::default()).await
     }
-    
+
     /// Create a new E2E test context with custom configuration
     pub async fn new_with_config(config: E2EConfig) -> Result<Self> {
         // Ensure artifacts directory exists
         fs::create_dir_all(&config.artifacts_dir)
             .await
             .context("Failed to create artifacts directory")?;
-            
+
         let test_id = format!("kuasar-e2e-{}", Uuid::new_v4().simple());
-        
+
         Ok(Self {
             config,
             test_id,
@@ -133,18 +133,22 @@ impl E2EContext {
             child_process: None,
         })
     }
-    
+
     /// Start Kuasar services for testing
     pub async fn start_services(&mut self, components: &[&str]) -> Result<()> {
         if self.services_started {
             return Ok(());
         }
-        
+
         info!("Starting Kuasar services: {:?}", components);
-        
-        let local_up_script = self.config.repo_root.join("hack").join("local-up-kuasar.sh");
+
+        let local_up_script = self
+            .config
+            .repo_root
+            .join("hack")
+            .join("local-up-kuasar.sh");
         let components_arg = components.join(",");
-        
+
         let mut cmd = TokioCommand::new(&local_up_script);
         cmd.args(&["--components", &components_arg])
             .current_dir(&self.config.repo_root)
@@ -152,28 +156,28 @@ impl E2EContext {
             .env("KUASAR_LOG_LEVEL", &self.config.log_level)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-            
+
         self.child_process = Some(cmd.spawn().context("Failed to start local-up-kuasar.sh")?);
-        
+
         // Wait a bit for services to start
         sleep(Duration::from_secs(5)).await;
-        
+
         // Wait for services to be ready
         self.wait_for_services_ready(components).await?;
-        
+
         self.services_started = true;
         info!("Kuasar services started successfully");
-        
+
         Ok(())
     }
-    
+
     /// Wait for services to be ready by checking socket files
     async fn wait_for_services_ready(&self, components: &[&str]) -> Result<()> {
         let start_time = Instant::now();
-        
+
         while start_time.elapsed() < self.config.timeout {
             let mut all_ready = true;
-            
+
             for component in components {
                 if let Some(socket_path) = self.config.sockets.get(*component) {
                     if !Path::new(socket_path).exists() {
@@ -183,26 +187,35 @@ impl E2EContext {
                     }
                 }
             }
-            
+
             if all_ready {
                 info!("All services are ready");
                 return Ok(());
             }
-            
+
             sleep(Duration::from_secs(2)).await;
         }
-        
+
         anyhow::bail!("Services failed to start within timeout period")
     }
-    
+
     /// Get runtime configuration for a specific runtime
     pub fn get_runtime_config(&self, runtime: &str) -> Result<RuntimeConfig> {
-        let socket_path = self.config.sockets.get(runtime)
+        let socket_path = self
+            .config
+            .sockets
+            .get(runtime)
             .ok_or_else(|| anyhow::anyhow!("Unknown runtime: {}", runtime))?;
-            
-        let sandbox_config = self.config.config_dir.join(format!("sandbox-{}.yaml", runtime));
-        let container_config = self.config.config_dir.join(format!("container-{}.yaml", runtime));
-        
+
+        let sandbox_config = self
+            .config
+            .config_dir
+            .join(format!("sandbox-{}.yaml", runtime));
+        let container_config = self
+            .config
+            .config_dir
+            .join(format!("container-{}.yaml", runtime));
+
         Ok(RuntimeConfig {
             name: runtime.to_string(),
             sandbox_config,
@@ -210,20 +223,23 @@ impl E2EContext {
             socket_path: socket_path.clone(),
         })
     }
-    
+
     /// Test a specific runtime end-to-end
     pub async fn test_runtime(&self, runtime: &str) -> Result<TestResult> {
         info!("Testing {} runtime", runtime);
-        
+
         let runtime_config = self.get_runtime_config(runtime)?;
         let mut test_result = TestResult::new(runtime);
-        
+
         // Check if the expected Kuasar service socket exists
         if !Path::new(&runtime_config.socket_path).exists() {
-            test_result.error = Some(format!("Kuasar service socket not found: {}. Service may not be running.", runtime_config.socket_path));
+            test_result.error = Some(format!(
+                "Kuasar service socket not found: {}. Service may not be running.",
+                runtime_config.socket_path
+            ));
             return Ok(test_result);
         }
-        
+
         // Create sandbox
         let sandbox_id = match self.create_sandbox(&runtime_config.sandbox_config).await {
             Ok(id) => {
@@ -235,9 +251,16 @@ impl E2EContext {
                 return Ok(test_result);
             }
         };
-        
+
         // Create container
-        let container_id = match self.create_container(&sandbox_id, &runtime_config.container_config, &runtime_config.sandbox_config).await {
+        let container_id = match self
+            .create_container(
+                &sandbox_id,
+                &runtime_config.container_config,
+                &runtime_config.sandbox_config,
+            )
+            .await
+        {
             Ok(id) => {
                 test_result.container_created = true;
                 id
@@ -248,7 +271,7 @@ impl E2EContext {
                 return Ok(test_result);
             }
         };
-        
+
         // Start container
         if let Err(e) = self.start_container(&container_id).await {
             self.cleanup_container(&container_id).await.ok();
@@ -257,47 +280,56 @@ impl E2EContext {
             return Ok(test_result);
         }
         test_result.container_started = true;
-        
+
         // Wait for container to be running
-        if let Err(e) = self.wait_for_container_state(&container_id, "CONTAINER_RUNNING").await {
+        if let Err(e) = self
+            .wait_for_container_state(&container_id, "CONTAINER_RUNNING")
+            .await
+        {
             self.cleanup_container(&container_id).await.ok();
             self.cleanup_sandbox(&sandbox_id).await.ok();
             test_result.error = Some(format!("Container failed to reach running state: {}", e));
             return Ok(test_result);
         }
         test_result.container_running = true;
-        
+
         // Stop container
         if let Err(e) = self.stop_container(&container_id).await {
             warn!("Failed to stop container gracefully: {}", e);
         }
-        
+
         // Wait for container to be stopped
-        if let Err(e) = self.wait_for_container_state(&container_id, "CONTAINER_EXITED").await {
+        if let Err(e) = self
+            .wait_for_container_state(&container_id, "CONTAINER_EXITED")
+            .await
+        {
             warn!("Container may not have stopped gracefully: {}", e);
         } else {
             test_result.container_stopped = true;
         }
-        
+
         // Cleanup
         self.cleanup_container(&container_id).await.ok();
         self.cleanup_sandbox(&sandbox_id).await.ok();
         test_result.cleanup_completed = true;
-        
+
         test_result.success = test_result.error.is_none();
-        info!("Runtime {} test completed: {:?}", runtime, test_result.success);
-        
+        info!(
+            "Runtime {} test completed: {:?}",
+            runtime, test_result.success
+        );
+
         Ok(test_result)
     }
-    
+
     /// Explicit cleanup method for services and processes
     pub async fn cleanup(&mut self) -> Result<()> {
         if !self.services_started {
             return Ok(());
         }
-        
+
         info!("Cleaning up Kuasar services...");
-        
+
         // First, try to gracefully terminate the child process (local-up-kuasar.sh)
         // This allows the script's trap handlers to perform proper cleanup
         if let Some(mut child) = self.child_process.take() {
@@ -308,7 +340,7 @@ impl E2EContext {
                     .args(&["-TERM", &pid.to_string()])
                     .output()
                     .await;
-                
+
                 // Wait for the process to exit gracefully (with timeout)
                 match tokio::time::timeout(Duration::from_secs(10), child.wait()).await {
                     Ok(Ok(status)) => {
@@ -330,7 +362,7 @@ impl E2EContext {
                 let _ = child.kill().await;
             }
         }
-        
+
         // Additional cleanup: force kill any remaining sandboxer processes
         // This is a fallback in case the script's cleanup didn't work
         let sandboxer_processes = ["runc-sandboxer", "wasm-sandboxer", "quark-sandboxer"];
@@ -340,16 +372,23 @@ impl E2EContext {
                 .output()
                 .await;
         }
-        
+
         // Clean up socket files and directories that might be left behind
         let _ = TokioCommand::new("sudo")
-            .args(&["rm", "-rf", "/run/kuasar-runc", "/run/kuasar-wasm", "/run/kuasar-runc.sock", "/run/kuasar-wasm.sock"])
+            .args(&[
+                "rm",
+                "-rf",
+                "/run/kuasar-runc",
+                "/run/kuasar-wasm",
+                "/run/kuasar-runc.sock",
+                "/run/kuasar-wasm.sock",
+            ])
             .output()
             .await;
-        
+
         self.services_started = false;
         info!("Cleanup completed");
-        
+
         Ok(())
     }
 }
@@ -402,23 +441,28 @@ impl E2EContext {
             .output()
             .await
             .context("Failed to execute crictl runp")?;
-            
+
         if !output.status.success() {
             anyhow::bail!(
                 "Failed to create sandbox: {}",
                 String::from_utf8_lossy(&output.stderr)
             );
         }
-        
+
         let sandbox_id = String::from_utf8(output.stdout)
             .context("Invalid UTF-8 in sandbox ID")?
             .trim()
             .to_string();
-            
+
         Ok(sandbox_id)
     }
-    
-    async fn create_container(&self, sandbox_id: &str, container_config: &Path, sandbox_config: &Path) -> Result<String> {
+
+    async fn create_container(
+        &self,
+        sandbox_id: &str,
+        container_config: &Path,
+        sandbox_config: &Path,
+    ) -> Result<String> {
         let output = TokioCommand::new("crictl")
             .args(&[
                 "create",
@@ -430,100 +474,110 @@ impl E2EContext {
             .output()
             .await
             .context("Failed to execute crictl create")?;
-            
+
         if !output.status.success() {
             anyhow::bail!(
                 "Failed to create container: {}",
                 String::from_utf8_lossy(&output.stderr)
             );
         }
-        
+
         let container_id = String::from_utf8(output.stdout)
             .context("Invalid UTF-8 in container ID")?
             .trim()
             .to_string();
-            
+
         Ok(container_id)
     }
-    
+
     async fn start_container(&self, container_id: &str) -> Result<()> {
         let output = TokioCommand::new("crictl")
             .args(&["start", container_id])
             .output()
             .await
             .context("Failed to execute crictl start")?;
-            
+
         if !output.status.success() {
             anyhow::bail!(
                 "Failed to start container: {}",
                 String::from_utf8_lossy(&output.stderr)
             );
         }
-        
+
         Ok(())
     }
-    
+
     async fn stop_container(&self, container_id: &str) -> Result<()> {
         let output = TokioCommand::new("crictl")
             .args(&["stop", container_id])
             .output()
             .await
             .context("Failed to execute crictl stop")?;
-            
+
         if !output.status.success() {
             anyhow::bail!(
                 "Failed to stop container: {}",
                 String::from_utf8_lossy(&output.stderr)
             );
         }
-        
+
         Ok(())
     }
-    
-    async fn wait_for_container_state(&self, container_id: &str, expected_state: &str) -> Result<()> {
+
+    async fn wait_for_container_state(
+        &self,
+        container_id: &str,
+        expected_state: &str,
+    ) -> Result<()> {
         let start_time = Instant::now();
-        
+
         while start_time.elapsed() < Duration::from_secs(60) {
             match self.get_container_state(container_id).await {
                 Ok(state) if state == expected_state => return Ok(()),
                 Ok(state) => {
-                    debug!("Container {} state: {} (waiting for {})", container_id, state, expected_state);
+                    debug!(
+                        "Container {} state: {} (waiting for {})",
+                        container_id, state, expected_state
+                    );
                 }
                 Err(e) => {
                     debug!("Failed to get container state: {}", e);
                 }
             }
-            
+
             sleep(Duration::from_secs(2)).await;
         }
-        
-        anyhow::bail!("Container failed to reach state {} within timeout", expected_state)
+
+        anyhow::bail!(
+            "Container failed to reach state {} within timeout",
+            expected_state
+        )
     }
-    
+
     async fn get_container_state(&self, container_id: &str) -> Result<String> {
         let output = TokioCommand::new("crictl")
             .args(&["inspect", container_id])
             .output()
             .await
             .context("Failed to execute crictl inspect")?;
-            
+
         if !output.status.success() {
             anyhow::bail!(
                 "Failed to inspect container: {}",
                 String::from_utf8_lossy(&output.stderr)
             );
         }
-        
+
         let json: Value = serde_json::from_slice(&output.stdout)
             .context("Failed to parse crictl inspect output")?;
-            
+
         let state = json["status"]["state"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing state in container inspect output"))?;
-            
+
         Ok(state.to_string())
     }
-    
+
     async fn cleanup_container(&self, container_id: &str) -> Result<()> {
         let _ = TokioCommand::new("crictl")
             .args(&["rm", "--force", container_id])
@@ -531,10 +585,10 @@ impl E2EContext {
             .await;
         Ok(())
     }
-    
+
     async fn cleanup_sandbox(&self, sandbox_id: &str) -> Result<()> {
         let _ = TokioCommand::new("crictl")
-            .args(&["rmp", "--force", sandbox_id])
+            .args(["rmp", "--force", sandbox_id])
             .output()
             .await;
         Ok(())
@@ -544,26 +598,26 @@ impl E2EContext {
 /// Find the root directory of the Kuasar repository
 pub fn find_repo_root() -> Result<PathBuf> {
     let mut dir = std::env::current_dir().context("Failed to get current directory")?;
-    
+
     // Try up to 10 levels up to find the repository root
     for _ in 0..10 {
         let hack_dir = dir.join("hack");
         let local_up_script = hack_dir.join("local-up-kuasar.sh");
-        
+
         if local_up_script.exists() {
             return Ok(dir);
         }
-        
+
         match dir.parent() {
             Some(parent) => dir = parent.to_path_buf(),
             None => break,
         }
     }
-    
+
     // If we can't find it by traversing up, try some common patterns
     // This helps in CI environments where the working directory might vary
     let current = std::env::current_dir().context("Failed to get current directory")?;
-    
+
     // Try if we're in tests/e2e subdirectory
     if current.ends_with("tests/e2e") {
         if let Some(parent) = current.parent() {
@@ -575,22 +629,27 @@ pub fn find_repo_root() -> Result<PathBuf> {
             }
         }
     }
-    
+
     // Try relative to current directory
     let candidates = [
-        current.join("../.."),  // From tests/e2e
-        current.join(".."),     // From tests
-        current.clone(),        // Current dir
+        current.join("../.."), // From tests/e2e
+        current.join(".."),    // From tests
+        current.clone(),       // Current dir
     ];
-    
+
     for candidate in &candidates {
         let hack_script = candidate.join("hack").join("local-up-kuasar.sh");
         if hack_script.exists() {
-            return Ok(candidate.canonicalize().context("Failed to canonicalize path")?);
+            return candidate
+                .canonicalize()
+                .context("Failed to canonicalize path");
         }
     }
-    
-    anyhow::bail!("Could not find repository root containing hack/local-up-kuasar.sh. Current dir: {:?}", current)
+
+    anyhow::bail!(
+        "Could not find repository root containing hack/local-up-kuasar.sh. Current dir: {:?}",
+        current
+    )
 }
 
 #[cfg(test)]

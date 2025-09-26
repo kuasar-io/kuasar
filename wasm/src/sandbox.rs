@@ -26,7 +26,10 @@ use containerd_sandbox::{
 };
 use containerd_shim::{
     asynchronous::task::TaskService,
-    protos::{shim::shim_ttrpc_async::create_task, ttrpc::asynchronous::Server},
+    protos::{
+        shim::shim_ttrpc_async::create_task,
+        ttrpc::asynchronous::{Server, Service},
+    },
 };
 use log::debug;
 use tokio::{
@@ -34,10 +37,8 @@ use tokio::{
     sync::{mpsc::channel, Mutex, RwLock},
 };
 
-#[cfg(feature = "wasmedge")]
-use crate::wasmedge::{process_exits, WasmEdgeContainer, WasmEdgeContainerFactory};
 #[cfg(feature = "wasmtime")]
-use crate::wasmtime::{exec_exits, WasmtimeContainer, WasmtimeContainerFactory};
+use crate::wasmtime::{exec_exits, WasmtimeContainerFactory};
 
 #[derive(Default)]
 pub struct WasmSandboxer {
@@ -138,12 +139,11 @@ impl WasmSandbox {
     }
 
     async fn start(&mut self) -> Result<()> {
-        let task = self.start_task_service().await?;
+        let task_service = self.start_task_service().await?;
         let task_address = format!("unix://{}/task.sock", self.base_dir);
         self.data
             .task_address
             .clone_from(&format!("ttrpc+{}", task_address));
-        let task_service = create_task(Arc::new(Box::new(task)));
         let mut server = Server::new().register_service(task_service);
         server = server
             .bind(&task_address)
@@ -157,53 +157,46 @@ impl WasmSandbox {
         Ok(())
     }
 
-    #[cfg(feature = "wasmedge")]
-    async fn start_task_service(
-        &self,
-    ) -> Result<TaskService<WasmEdgeContainerFactory, WasmEdgeContainer>> {
+    async fn start_task_service(&self) -> Result<HashMap<String, Service>>
+where {
         let (tx, mut rx) = channel(128);
-        let mut factory = WasmEdgeContainerFactory::default();
-        factory.netns.clone_from(&self.data.netns);
-        let task = TaskService {
-            factory,
-            containers: Arc::new(Default::default()),
-            namespace: "k8s.io".to_string(),
-            exit: Arc::new(Default::default()),
-            tx: tx.clone(),
+        #[cfg(feature = "wasmtime")]
+        let _task_service = {
+            let factory = WasmtimeContainerFactory {
+                netns: self.data.netns.clone(),
+            };
+
+            let task = TaskService {
+                factory,
+                containers: Arc::new(Default::default()),
+                namespace: "k8s.io".to_string(),
+                exit: Arc::new(Default::default()),
+                tx: tx.clone(),
+            };
+            exec_exits(&task).await;
+            create_task(Arc::new(Box::new(task)))
         };
+        #[cfg(feature = "wasmedge")]
+        let _task_service = {
+            let mut factory = crate::wasmedge::WasmEdgeContainerFactory::default();
+            factory.netns.clone_from(&self.data.netns);
+            let task = TaskService {
+                factory,
+                containers: Arc::new(Default::default()),
+                namespace: "k8s.io".to_string(),
+                exit: Arc::new(Default::default()),
+                tx: tx.clone(),
+            };
 
-        process_exits(&task).await;
-
+            crate::wasmedge::process_exits(&task).await;
+            create_task(Arc::new(Box::new(task)))
+        };
         tokio::spawn(async move {
             while let Some((_topic, e)) = rx.recv().await {
                 debug!("received event {:?}", e);
             }
         });
-        Ok(task)
-    }
-
-    #[cfg(feature = "wasmtime")]
-    async fn start_task_service(
-        &self,
-    ) -> Result<TaskService<WasmtimeContainerFactory, WasmtimeContainer>> {
-        let (tx, mut rx) = channel(128);
-        let factory = WasmtimeContainerFactory {
-            netns: self.data.netns.clone(),
-        };
-        let task = TaskService {
-            factory,
-            containers: Arc::new(Default::default()),
-            namespace: "k8s.io".to_string(),
-            exit: Arc::new(Default::default()),
-            tx: tx.clone(),
-        };
-        exec_exits(&task).await;
-        tokio::spawn(async move {
-            while let Some((_topic, e)) = rx.recv().await {
-                debug!("received event {:?}", e);
-            }
-        });
-        Ok(task)
+        Ok(_task_service)
     }
 }
 

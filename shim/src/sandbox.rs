@@ -257,16 +257,33 @@ where
     }
 
     pub async fn purge(&self, container_id: &str, exec_id: &str) -> TtrpcResult<()> {
-        // Update process of container.
-        let v2_req = v2::PurgeRequest {
-            sandboxer: "".to_string(),
-            sandbox_id: self.id(),
-            container_id: container_id.to_string(),
-            exec_id: exec_id.to_string(),
-        };
-
-        let mut sandbox_v2_cli = self.sandbox_v2_cli.clone();
-        let _resp_v2 = sandbox_v2_cli.purge(v2_req).await.map_err(grpc_to_ttrpc)?;
+        let mut task_resources = self.get_tasks_extension().await?;
+        let mut new_tasks = vec![];
+        for t in task_resources.tasks.iter_mut() {
+            if t.task_id == container_id {
+                if exec_id.is_empty() {
+                    continue;
+                }
+                let mut new_processes = vec![];
+                for p in t.processes.iter() {
+                    if p.exec_id == exec_id {
+                        continue;
+                    }
+                    new_processes.push(p.clone());
+                }
+                t.processes = new_processes;
+                new_tasks.push(t.clone());
+            }
+        }
+        task_resources.tasks = new_tasks;
+        self.update_tasks_extension(task_resources).await?;
+        let mut sandbox_guard = self.data.lock().await;
+        if exec_id.is_empty() {
+            sandbox_guard.delete_container_data(container_id);
+        } else {
+            let container_data = sandbox_guard.get_mut_container_data(container_id)?;
+            container_data.delete_process_data(exec_id);
+        }
 
         Ok(())
     }
@@ -533,5 +550,40 @@ impl<T> SandboxHandler<T> {
         remove_dir_all(shm_path).await.unwrap_or_default();
 
         Ok(())
+    }
+
+    async fn get_tasks_extension(&self) -> Result<TaskResources> {
+        let sandbox = self.data.lock().await.sandbox.clone();
+        let tasks = match sandbox.extensions.get("tasks") {
+            Some(tasks_any) => serde_json::from_slice::<TaskResources>(&tasks_any.value)?,
+            None => TaskResources { tasks: vec![] },
+        };
+        Ok(tasks)
+    }
+
+    async fn update_tasks_extension(&self, task_resources: TaskResources) -> Result<()> {
+        let mut sandbox = self.data.lock().await.sandbox.clone();
+        let tasks_bytes = serde_json::to_vec(&task_resources)?;
+        let any = prost_types::Any {
+            type_url: "github.com/containerd/containerd.TaskResources".to_string(),
+            value: tasks_bytes,
+        };
+        sandbox.extensions.insert("tasks".to_string(), any);
+        let req = v2::ControllerUpdateRequest {
+            sandbox_id: sandbox.sandbox_id.clone(),
+            sandboxer: sandbox.sandboxer.clone(),
+            sandbox: Some(sandbox),
+            fields: vec!["extensions.tasks".to_string()],
+        };
+        self.update(req).await?;
+        Ok(())
+    }
+
+    async fn update(
+        &self,
+        req: v2::ControllerUpdateRequest,
+    ) -> TtrpcResult<tonic::Response<v2::ControllerUpdateResponse>> {
+        let mut sandbox_v2_cli = self.sandbox_v2_cli.clone();
+        sandbox_v2_cli.update(req).await.map_err(grpc_to_ttrpc)
     }
 }

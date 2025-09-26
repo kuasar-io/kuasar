@@ -16,7 +16,10 @@
 
 use std::{
     convert::TryFrom,
-    os::fd::{FromRawFd, IntoRawFd, OwnedFd, RawFd},
+    os::{
+        fd::{FromRawFd, IntoRawFd, OwnedFd, RawFd},
+        unix::fs::fchown,
+    },
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -46,10 +49,7 @@ use libcontainer::{
     syscall::syscall::SyscallType,
 };
 use log::{debug, warn};
-use nix::{
-    sys::signal::kill,
-    unistd::{Gid, Pid, Uid},
-};
+use nix::{sys::signal::kill, unistd::Pid};
 use oci_spec::runtime::{LinuxResources, Process, Spec};
 use runc::io::{IOOption, Io, NullIo};
 use tokio::{
@@ -591,8 +591,13 @@ pub struct ContainerPipeIo {
 }
 
 impl Pipe {
-    fn new() -> std::io::Result<Self> {
+    fn new(uid: u32, gid: u32, stdin: bool) -> std::io::Result<Self> {
         let (rd, wr) = os_pipe::pipe()?;
+        if stdin {
+            fchown(&rd, Some(uid), Some(gid))?;
+        } else {
+            fchown(&wr, Some(uid), Some(gid))?;
+        }
         Ok(Self {
             rd: rd.into_raw_fd(),
             wr: wr.into_raw_fd(),
@@ -623,15 +628,7 @@ impl PipedIo {
     }
 
     fn create_pipe(uid: u32, gid: u32, stdin: bool) -> std::io::Result<Pipe> {
-        let pipe = Pipe::new()?;
-        let uid = Some(Uid::from_raw(uid));
-        let gid = Some(Gid::from_raw(gid));
-        if stdin {
-            nix::unistd::fchown(pipe.rd, uid, gid)?;
-        } else {
-            nix::unistd::fchown(pipe.wr, uid, gid)?;
-        }
-        Ok(pipe)
+        Pipe::new(uid, gid, stdin)
     }
 }
 
