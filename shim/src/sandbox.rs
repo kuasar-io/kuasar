@@ -14,12 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::{ops::BitOr, path::Path, sync::Arc, time::SystemTime};
+use std::{collections::HashMap, ops::BitOr, path::Path, sync::Arc, time::SystemTime};
 
 use async_trait::async_trait;
 use containerd_sandbox::{
     api::sandbox::v1 as v2,
-    spec::{to_any, JsonSpec},
+    data::{ProcessResource, TaskResource, TaskResources},
+    spec::{JsonSpec, Process},
+    types::Sandbox,
     utils::unmount,
 };
 use containerd_shim::{
@@ -28,9 +30,8 @@ use containerd_shim::{
     io_error, other_error,
     protos::{
         protobuf::{well_known_types, MessageField},
-        sandbox::{sandbox::*, sandbox_ttrpc::Sandbox},
-        ttrpc as Ttrpc,
-        ttrpc::error::get_rpc_status,
+        sandbox::{sandbox::*, sandbox_ttrpc::Sandbox as SandboxTrait},
+        ttrpc::{self as Ttrpc, error::get_rpc_status},
         types::platform::Platform,
     },
     util::read_spec,
@@ -68,7 +69,7 @@ pub fn grpc_to_ttrpc(status: tonic::Status) -> containerd_shim::protos::ttrpc::e
 }
 
 #[async_trait]
-impl<T> Sandbox for KuasarServer<T>
+impl<T> SandboxTrait for KuasarServer<T>
 where
     T: ContainerIoTransport,
 {
@@ -164,61 +165,59 @@ impl<T> SandboxHandler<T>
 where
     T: ContainerIoTransport,
 {
-    pub async fn prepare_container(
-        &self,
-        shim_io: &T,
-        req: &CreateTaskRequest,
-    ) -> TtrpcResult<tonic::Response<v2::PrepareResponse>> {
+    pub async fn prepare_container(&self, shim_io: &T, req: &CreateTaskRequest) -> TtrpcResult<()> {
         let id = req.id.to_string();
         let spec = read_spec::<JsonSpec>(&req.bundle).await?;
-        let any = to_any(&spec).map_err(other_error!(e, ""))?;
 
         let rootfs = req
             .rootfs
             .iter()
-            .map(|x| containerd_sandbox::types::Mount {
-                target: "".to_string(),
+            .map(|x| containerd_sandbox::spec::Mount {
+                destination: "".to_string(),
                 r#type: x.type_.to_string(),
                 source: x.source.to_string(),
                 options: x.options.clone(),
             })
             .collect();
-
-        let v2_req = v2::PrepareRequest {
-            sandboxer: "".to_string(),
-            sandbox_id: self.id(),
-            container_id: id.to_string(),
-            exec_id: "".to_string(),
-            spec: Some(any),
+        let mut tasks = self.get_tasks_extension().await?;
+        let task_resource = TaskResource {
+            task_id: req.id.clone(),
+            spec: Some(spec),
             rootfs,
-            stdin: shim_io.container_in(),
-            stdout: shim_io.container_out(),
-            stderr: shim_io.container_err(),
-            terminal: req.terminal,
+            stdin: req.stdin.clone(),
+            stdout: req.stdout.clone(),
+            stderr: req.stderr.clone(),
+            processes: vec![],
         };
-
-        let resp_v2 = self.prepare(v2_req).await?;
+        tasks.tasks.push(task_resource);
+        self.update_tasks_extension(tasks).await?;
 
         // Append container data to sandbox structure.
         let mut sandbox_guard = self.data.lock().await;
         let container_data = ContainerData::new(&id, shim_io.clone());
         sandbox_guard.add_container_data(container_data);
-        Ok(resp_v2)
+        Ok(())
     }
 
-    pub async fn prepare_exec(
-        &self,
-        shim_io: &T,
-        req: &ExecProcessRequest,
-    ) -> TtrpcResult<tonic::Response<v2::PrepareResponse>> {
+    pub async fn prepare_exec(&self, shim_io: &T, req: &ExecProcessRequest) -> TtrpcResult<()> {
         let id = req.id.to_string();
         let exec_id = req.exec_id.to_string();
-        // Call Controller.UpdateContainer previously, so need type structure conversion at first.
-        let spec_clone = req.spec().clone();
-        let spec_old = prost_types::Any {
-            type_url: spec_clone.type_url.to_string(),
-            value: spec_clone.value,
-        };
+
+        let mut task_resources = self.get_tasks_extension().await?;
+        for t in task_resources.tasks.iter_mut() {
+            if t.task_id == id {
+                let spec: Process =
+                    serde_json::from_slice(&req.spec.value).map_err(other_error!(e, ""))?;
+                t.processes.push(ProcessResource {
+                    exec_id: exec_id.clone(),
+                    spec: Some(spec),
+                    stdin: shim_io.container_in(),
+                    stdout: shim_io.container_out(),
+                    stderr: shim_io.container_err(),
+                });
+            }
+        }
+        self.update_tasks_extension(task_resources).await?;
         // Append process data to the container, only update process field, we don't care of other
         // fields, as the server doesn't need them either.
         // Call this before Controller.UpdateContainer because UpdateContainer need the container
@@ -229,53 +228,23 @@ where
         let process_data = ProcessData::new(&exec_id, shim_io.clone());
         let container_data = sandbox_guard.get_mut_container_data(&id)?;
         container_data.add_process_data(process_data);
-
-        // Call Controller.UpdateContainer
-        let v2_req = v2::PrepareRequest {
-            sandboxer: "".to_string(),
-            sandbox_id: self.id(),
-            container_id: id,
-            exec_id,
-            spec: Some(spec_old.clone()),
-            rootfs: vec![],
-            stdin: shim_io.container_in(),
-            stdout: shim_io.container_out(),
-            stderr: shim_io.container_err(),
-            terminal: req.terminal,
-        };
-        drop(sandbox_guard);
-
-        self.prepare(v2_req).await
-    }
-
-    pub async fn prepare(
-        &self,
-        req: v2::PrepareRequest,
-    ) -> TtrpcResult<tonic::Response<v2::PrepareResponse>> {
-        let mut sandbox_v2_cli = self.sandbox_v2_cli.clone();
-        sandbox_v2_cli.prepare(req).await.map_err(grpc_to_ttrpc)
+        Ok(())
     }
 
     pub async fn purge(&self, container_id: &str, exec_id: &str) -> TtrpcResult<()> {
         let mut task_resources = self.get_tasks_extension().await?;
-        let mut new_tasks = vec![];
-        for t in task_resources.tasks.iter_mut() {
+        task_resources.tasks.retain_mut(|t| {
             if t.task_id == container_id {
                 if exec_id.is_empty() {
-                    continue;
+                    // Remove the whole task for the container.
+                    return false;
                 }
-                let mut new_processes = vec![];
-                for p in t.processes.iter() {
-                    if p.exec_id == exec_id {
-                        continue;
-                    }
-                    new_processes.push(p.clone());
-                }
-                t.processes = new_processes;
-                new_tasks.push(t.clone());
+                // Remove just the specified process from the task.
+                t.processes.retain(|p| p.exec_id != exec_id);
             }
-        }
-        task_resources.tasks = new_tasks;
+            // Keep the task.
+            true
+        });
         self.update_tasks_extension(task_resources).await?;
         let mut sandbox_guard = self.data.lock().await;
         if exec_id.is_empty() {
@@ -303,6 +272,16 @@ where
 
         let mut data_guard = self.data.lock().await;
         *data_guard = SandboxData {
+            sandbox: Sandbox {
+                sandbox_id: req.sandbox_id,
+                runtime: None,
+                spec: None,
+                labels: HashMap::new(),
+                created_at: Some(SystemTime::now().into()),
+                updated_at: Some(SystemTime::now().into()),
+                extensions: HashMap::new(),
+                sandboxer: "".to_string(),
+            },
             containers: Default::default(),
         };
 
@@ -312,6 +291,8 @@ where
             rootfs: vec![],
             options,
             netns_path: req.netns_path.to_string(),
+            annotations: HashMap::new(),
+            sandbox: None,
         };
         let mut cli = self.sandbox_v2_cli.clone();
         let _resp_v2 = cli.create(req_v2).await.map_err(grpc_to_ttrpc)?;
@@ -361,7 +342,7 @@ where
         let resp_v2 = cli.status(req_v2).await.map_err(grpc_to_ttrpc)?;
         let status_resp = resp_v2.get_ref();
 
-        Ok((status_resp.task_address.to_string(), resp))
+        Ok((status_resp.address.to_string(), resp))
     }
 
     pub async fn stop_sandbox(
