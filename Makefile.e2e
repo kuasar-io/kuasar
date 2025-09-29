@@ -35,7 +35,7 @@ build-runc-deps: ## Build runc runtime dependencies
 install-runc-deps: build-runc-deps ## Install runc runtime dependencies to system
 	@echo "Installing runc runtime dependencies..."
 	sudo cp $(KUASAR_ROOT)/bin/runc-sandboxer /usr/local/bin/
-	sudo cp $(KUASAR_ROOT)/shim/target/release/containerd-shim-kuasar-vmm-v2 /usr/local/bin/
+	sudo cp $(KUASAR_ROOT)/target/release/containerd-shim-kuasar-vmm-v2 /usr/local/bin/
 
 .PHONY: build-wasm-deps
 build-wasm-deps: ## Build wasm runtime dependencies (not implemented yet)

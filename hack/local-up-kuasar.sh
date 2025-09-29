@@ -380,19 +380,19 @@ start_component() {
     
     case "$component" in
         runc)
-            binary="$KUASAR_ROOT/runc/target/release/runc-sandboxer"
+            binary="$KUASAR_ROOT/target/release/runc-sandboxer"
             args="--listen /run/kuasar-runc.sock --dir /run/kuasar-runc"
             ;;
         wasm)
-            binary="$KUASAR_ROOT/wasm/target/release/wasm-sandboxer"
+            binary="$KUASAR_ROOT/target/release/wasm-sandboxer"
             args="--listen /run/kuasar-wasm.sock --dir /run/kuasar-wasm"
             ;;
         vmm)
-            binary="$KUASAR_ROOT/vmm/target/release/vmm-sandboxer"
+            binary="$KUASAR_ROOT/target/release/vmm-sandboxer"
             args="--listen /run/kuasar-vmm.sock --dir /run/kuasar-vmm"
             ;;
         quark)
-            binary="$KUASAR_ROOT/quark/target/release/quark-sandboxer"
+            binary="$KUASAR_ROOT/target/release/quark-sandboxer"
             args="--listen /run/kuasar-quark.sock --dir /run/kuasar-quark"
             ;;
         *)

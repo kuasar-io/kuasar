@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+use containerd_sandbox::types::Sandbox;
 use containerd_shim::{
     error::{Error, Result},
     other,
@@ -74,6 +75,7 @@ impl<T: ContainerIoTransport> ContainerData<T> {
 
 #[derive(Clone, Default)]
 pub struct SandboxData<T> {
+    pub sandbox: Sandbox,
     pub containers: Vec<ContainerData<T>>,
 }
 

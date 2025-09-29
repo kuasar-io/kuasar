@@ -10,22 +10,8 @@ env:
 
 jobs:
   checks:
-    strategy:
-      matrix:
-        directories: [vmm/sandbox, vmm/task, shim, quark, runc]
-        features: [--all-features]
-        include:
-          - directories: wasm
-            features: --features=wasmedge
-            wasmEdge: 0.13.5
-          - directories: wasm
-            features: --features="wasmedge, wasmedge_wasi_nn"
-            wasmEdge: 0.13.5
-          - directories: wasm
-            features: --features=wasmtime
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     steps:
       - uses: actions/checkout@v3
       - run: rustup toolchain install nightly --component rustfmt
@@ -35,32 +21,17 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install WasmEdge
-        if: ${{ matrix.wasmEdge }}
-        run: curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install.sh | bash -s -- -v ${{ matrix.wasmEdge }} >> /dev/null
+        run: curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install.sh | bash -s -- -v 0.13.5 >> /dev/null
       - name: Check
-        working-directory: ${{ matrix.directories }}
-        run: cargo check --examples --tests ${{ matrix.features }}
+        run: cargo check --examples --tests --all-features
       - name: Nightly fmt
-        working-directory: ${{ matrix.directories }}
         run: cargo +nightly fmt --all -- --check
       - name: Clippy
-        working-directory: ${{ matrix.directories }}
-        run: cargo clippy ${{ matrix.features }} -- -D warnings
+        run: cargo clippy --all-features -- -D warnings
       - name: Deny
-        working-directory: ${{ matrix.directories }}
-        run: cargo install cargo-deny@0.15.1 && cargo deny -L warn ${{ matrix.features }} check
+        run: cargo install cargo-deny@0.15.1 && cargo deny -L warn --all-features check
 
   tests:
-    strategy:
-      matrix:
-        directories: [vmm/sandbox, vmm/task, shim, quark, runc]
-        features: [--all-features]
-        include:
-          - directories: wasm
-            features: --features=wasmedge
-            wasmEdge: 0.13.5
-          - directories: wasm
-            features: --features=wasmtime
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -71,11 +42,9 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install WasmEdge
-        if: ${{ matrix.wasmEdge }}
-        run: curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install.sh | sudo -E bash -s -- -v ${{ matrix.wasmEdge }} >> /dev/null
+        run: curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install.sh | sudo -E bash -s -- -v 0.13.5 >> /dev/null
       - name: Test
         env:
           RUST_BACKTRACE: full
           RUSTFLAGS: -D warnings
-        working-directory: ${{ matrix.directories }}
-        run: sudo -E $(command -v cargo) test ${{ matrix.features }}
+        run: sudo -E $(command -v cargo) test --all-features

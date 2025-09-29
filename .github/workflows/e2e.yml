@@ -118,7 +118,7 @@ jobs:
           sudo tee /etc/crictl.yaml > /dev/null <<EOF
           runtime-endpoint: "unix:///run/containerd/containerd.sock"
           image-endpoint: "unix:///run/containerd/containerd.sock"
-          timeout: 60s
+          timeout: 60
           debug: false
           pull-image-on-create: true
           EOF

@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 //! Kuasar End-to-End Test Runner
-//! 
+//!
 //! This binary runs comprehensive end-to-end tests for Kuasar runtimes.
 
 use anyhow::{Context, Result};
@@ -32,11 +32,11 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
-    
+
     let args: Vec<String> = env::args().collect();
     let mut runtimes = vec!["runc"];
     let mut parallel = false;
-    
+
     // Parse command line arguments
     let mut i = 1;
     while i < args.len() {
@@ -65,21 +65,23 @@ async fn main() -> Result<()> {
             }
         }
     }
-    
+
     info!("Starting Kuasar E2E tests");
     info!("Runtimes to test: {:?}", runtimes);
     info!("Parallel execution: {}", parallel);
-    
+
     let start_time = Instant::now();
     let config = E2EConfig::default();
-    
+
     // Create E2E context and start services
-    let mut ctx = E2EContext::new_with_config(config).await
+    let mut ctx = E2EContext::new_with_config(config)
+        .await
         .context("Failed to create E2E context")?;
-    
-    ctx.start_services(&runtimes.iter().map(|s| *s).collect::<Vec<_>>()).await
+
+    ctx.start_services(&runtimes.iter().map(|s| *s).collect::<Vec<_>>())
+        .await
         .context("Failed to start Kuasar services")?;
-    
+
     // Run tests
     let results = if parallel {
         // For parallel execution, we can't easily share the context with Arc due to cleanup requiring &mut
@@ -90,14 +92,14 @@ async fn main() -> Result<()> {
     } else {
         run_tests_sequential(&ctx, &runtimes).await?
     };
-    
+
     // Print results
     let total_duration = start_time.elapsed();
     print_results(&results, total_duration);
-    
+
     // Cleanup services
     ctx.cleanup().await.context("Failed to cleanup services")?;
-    
+
     // Exit with appropriate code
     let failed_tests = results.values().filter(|r| !r.success).count();
     if failed_tests > 0 {
@@ -109,45 +111,51 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn run_tests_sequential(ctx: &E2EContext, runtimes: &[&str]) -> Result<HashMap<String, TestResult>> {
+async fn run_tests_sequential(
+    ctx: &E2EContext,
+    runtimes: &[&str],
+) -> Result<HashMap<String, TestResult>> {
     let mut results = HashMap::new();
-    
+
     for runtime in runtimes {
         info!("Running test for runtime: {}", runtime);
-        let result = ctx.test_runtime(runtime).await
-            .unwrap_or_else(|e| {
-                TestResult {
-                    runtime: runtime.to_string(),
-                    success: false,
-                    sandbox_created: false,
-                    container_created: false,
-                    container_started: false,
-                    container_running: false,
-                    container_stopped: false,
-                    cleanup_completed: false,
-                    error: Some(e.to_string()),
-                }
+        let result = ctx
+            .test_runtime(runtime)
+            .await
+            .unwrap_or_else(|e| TestResult {
+                runtime: runtime.to_string(),
+                success: false,
+                sandbox_created: false,
+                container_created: false,
+                container_started: false,
+                container_running: false,
+                container_stopped: false,
+                cleanup_completed: false,
+                error: Some(e.to_string()),
             });
-        
+
         results.insert(runtime.to_string(), result);
     }
-    
+
     Ok(results)
 }
 
 fn print_results(results: &HashMap<String, TestResult>, total_duration: std::time::Duration) {
     println!("\n=== Kuasar E2E Test Results ===");
-    println!("Total test duration: {:.2}s\n", total_duration.as_secs_f64());
-    
+    println!(
+        "Total test duration: {:.2}s\n",
+        total_duration.as_secs_f64()
+    );
+
     let mut passed = 0;
     let mut failed = 0;
-    
+
     for (runtime, result) in results {
         let status = if result.success { "PASS" } else { "FAIL" };
         let status_symbol = if result.success { "✓" } else { "✗" };
-        
+
         println!("{} {} Runtime: {}", status_symbol, status, runtime);
-        
+
         if result.success {
             println!("  ✓ Sandbox created");
             println!("  ✓ Container created");
@@ -158,25 +166,57 @@ fn print_results(results: &HashMap<String, TestResult>, total_duration: std::tim
             passed += 1;
         } else {
             // Show detailed failure information
-            println!("  {} Sandbox created: {}", 
-                if result.sandbox_created { "✓" } else { "✗" }, 
-                result.sandbox_created);
-            println!("  {} Container created: {}", 
-                if result.container_created { "✓" } else { "✗" }, 
-                result.container_created);
-            println!("  {} Container started: {}", 
-                if result.container_started { "✓" } else { "✗" }, 
-                result.container_started);
-            println!("  {} Container running: {}", 
-                if result.container_running { "✓" } else { "✗" }, 
-                result.container_running);
-            println!("  {} Container stopped: {}", 
-                if result.container_stopped { "✓" } else { "✗" }, 
-                result.container_stopped);
-            println!("  {} Cleanup completed: {}", 
-                if result.cleanup_completed { "✓" } else { "✗" }, 
-                result.cleanup_completed);
-                
+            println!(
+                "  {} Sandbox created: {}",
+                if result.sandbox_created { "✓" } else { "✗" },
+                result.sandbox_created
+            );
+            println!(
+                "  {} Container created: {}",
+                if result.container_created {
+                    "✓"
+                } else {
+                    "✗"
+                },
+                result.container_created
+            );
+            println!(
+                "  {} Container started: {}",
+                if result.container_started {
+                    "✓"
+                } else {
+                    "✗"
+                },
+                result.container_started
+            );
+            println!(
+                "  {} Container running: {}",
+                if result.container_running {
+                    "✓"
+                } else {
+                    "✗"
+                },
+                result.container_running
+            );
+            println!(
+                "  {} Container stopped: {}",
+                if result.container_stopped {
+                    "✓"
+                } else {
+                    "✗"
+                },
+                result.container_stopped
+            );
+            println!(
+                "  {} Cleanup completed: {}",
+                if result.cleanup_completed {
+                    "✓"
+                } else {
+                    "✗"
+                },
+                result.cleanup_completed
+            );
+
             if let Some(error) = &result.error {
                 println!("  Error: {}", error);
             }
@@ -184,7 +224,7 @@ fn print_results(results: &HashMap<String, TestResult>, total_duration: std::tim
         }
         println!();
     }
-    
+
     println!("Summary: {} passed, {} failed", passed, failed);
 }
 

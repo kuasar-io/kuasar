@@ -4,9 +4,6 @@ version = "0.1.0"
 license = "Apache-2.0"
 edition = "2021"
 
-[profile.release]
-panic = 'abort'
-
 [dependencies]
 vmm-common = { path = "../common" }
 log = "0.4"
@@ -44,12 +41,10 @@ ttrpc = { version = "0.7", features = ["async"] }
 containerd-sandbox = { git = "https://github.com/kuasar-io/rust-extensions.git" }
 containerd-shim = { git = "https://github.com/kuasar-io/rust-extensions.git", features = ["async"] }
 runc = { git = "https://github.com/kuasar-io/rust-extensions.git", features = ["async"] }
-libcontainer = { git="https://github.com/containers/youki.git", version="0.4.1", optional = true, default-features = false, features = ["v1", "v2", "systemd"] }
+libcontainer = { version="0.5.4", optional = true, default-features = false, features = ["v1", "v2", "systemd"] }
 os_pipe = "1.0.0"
 tokio-pipe = "0.2.12"
 
-[patch.crates-io]
-ttrpc = { git = "https://github.com/kuasar-io/ttrpc-rust.git", branch = "v0.7.1-kuasar" }
-
 [features]
 youki = ["libcontainer"]
+default = ["youki"]
