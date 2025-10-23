@@ -20,7 +20,6 @@ readonly version=${1:-6.12}
 readonly base_dir="$(dirname "$(readlink -f "$0")")"
 
 sudo apt-get update
-sudo apt-get install -y libelf-dev elfutils
 
 # clone kernel from Linus-kernel github
 rm -rf /tmp/linux-qemu
