@@ -18,6 +18,7 @@ set -x
 
 readonly version=${1:-6.12}
 readonly base_dir="$(dirname "$(readlink -f "$0")")"
+readonly make_target="bzImage"
 
 sudo apt-get update
 
