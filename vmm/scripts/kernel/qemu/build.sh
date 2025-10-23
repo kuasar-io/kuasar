@@ -16,46 +16,21 @@
 set -e
 set -x
 
-readonly version=${1:-6.12.8}
-readonly arch=${2:-x86_64}
+readonly version=${1:-6.12}
 readonly base_dir="$(dirname "$(readlink -f "$0")")"
-readonly work_dir="/tmp/linux-qemu-build"
-readonly target_dir="${base_dir}"
 
-mkdir -p "${target_dir}"
+sudo apt-get update
+sudo apt-get install -y libelf-dev elfutils
 
-case "${arch}" in
-    x86_64)
-        defconfig="x86_64_defconfig"
-        kernel_path="arch/x86/boot/compressed/vmlinux.bin"
-        ;;
-    aarch64)
-        defconfig="defconfig"
-        kernel_path="arch/arm64/boot/Image"
-        ;;
-    *)
-        exit 1
-        ;;
-esac
+# clone kernel from Linus-kernel github
+rm -rf /tmp/linux-qemu
+git clone --depth 1 --single-branch -b "v${version}" https://github.com/torvalds/linux.git /tmp/linux-qemu
+pushd /tmp/linux-qemu
 
-sudo apt-get update -y
-sudo apt-get install -y \
-    build-essential \
-    libncurses-dev \
-    bison \
-    flex \
-    libssl-dev \
-    libelf-dev \
-    wget \
-    git
+make defconfig
+./scripts/config -e BLK_DEV_INITRD -e SERIAL_8250_CONSOLE -e DEVTMPFS -e PROC_FS -e SYSFS -e VIRTIO -e VIRTIO_BLK -e VIRTIO_NET -e VIRTIO_CONSOLE -e 8139TOO -e BINFMT_ELF
+make olddefconfig
 
-rm -rf "${work_dir}"
-mkdir -p "${work_dir}"
-
-git clone --depth 1 --single-branch -b "v${version}" \
-https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git"${work_dir}"
-
-cd "${work_dir}"
-make "${defconfig}"
+# Do native build of the x86-64 kernel
 make -j "$(nproc)" bzImage
-cp "${work_dir}/${kernel_path}" "${target_dir}/vmlinux.bin"
+cp  /tmp/linux-qemu/arch/x86/boot/compressed/vmlinux.bin ${base_dir}/vmlinux.bin
