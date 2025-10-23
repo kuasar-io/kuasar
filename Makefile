@@ -21,17 +21,18 @@ endif
 
 .PHONY: vmm wasm quark clean all install-vmm install-wasm install-quark install \
         bin/vmm-sandboxer bin/vmm-task bin/vmlinux.bin bin/kuasar.img bin/kuasar.initrd \
-        bin/wasm-sandboxer bin/quark-sandboxer bin/runc-sandboxer
+        bin/wasm-sandboxer bin/quark-sandboxer bin/runc-sandboxer \
+        test-e2e test-e2e-framework verify-e2e local-up clean-e2e help
 
 all: vmm quark wasm
 
 bin/vmm-sandboxer:
 	@cd vmm/sandbox && cargo build --release --bin ${HYPERVISOR} --features=${VMM_SANDBOX_FEATURES}
-	@mkdir -p bin && cp vmm/sandbox/target/release/${HYPERVISOR} bin/vmm-sandboxer
+	@mkdir -p bin && cp target/release/${HYPERVISOR} bin/vmm-sandboxer
 
 bin/vmm-task:
 	@cd vmm/task && cargo build --release --target=${ARCH}-unknown-linux-musl --features=${VMM_TASK_FEATURES}
-	@mkdir -p bin && cp vmm/task/target/${ARCH}-unknown-linux-musl/release/vmm-task bin/vmm-task
+	@mkdir -p bin && cp target/${ARCH}-unknown-linux-musl/release/vmm-task bin/vmm-task
 
 bin/vmlinux.bin:
 	@bash vmm/scripts/kernel/${HYPERVISOR}/build.sh ${KERNEL_VERSION}
@@ -47,15 +48,15 @@ bin/kuasar.initrd:
 
 bin/wasm-sandboxer:
 	@cd wasm && cargo build --release --features=${WASM_RUNTIME}
-	@mkdir -p bin && cp wasm/target/release/wasm-sandboxer bin/wasm-sandboxer
+	@mkdir -p bin && cp target/release/wasm-sandboxer bin/wasm-sandboxer
 
 bin/quark-sandboxer:
 	@cd quark && cargo build --release
-	@mkdir -p bin && cp quark/target/release/quark-sandboxer bin/quark-sandboxer
+	@mkdir -p bin && cp target/release/quark-sandboxer bin/quark-sandboxer
 
 bin/runc-sandboxer:
 	@cd runc && cargo build --release --features=${RUNC_FEATURES}
-	@mkdir -p bin && cp runc/target/release/runc-sandboxer bin/runc-sandboxer
+	@mkdir -p bin && cp target/release/runc-sandboxer bin/runc-sandboxer
 
 wasm: bin/wasm-sandboxer
 quark: bin/quark-sandboxer
@@ -109,3 +110,46 @@ install-runc:
 	@install -p -m 550 bin/runc-sandboxer ${DEST_DIR}${BIN_DIR}/runc-sandboxer
 
 install: all install-vmm install-wasm install-quark install-runc
+
+# E2E Testing targets
+test-e2e: ## Run full e2e integration tests (requires environment setup)
+	@$(MAKE) -f Makefile.e2e test-e2e
+
+test-e2e-framework: ## Run e2e framework unit tests (no service startup required)
+	@$(MAKE) -f Makefile.e2e test-e2e-framework
+
+test-e2e-runc: ## Test only runc runtime
+	@$(MAKE) -f Makefile.e2e test-e2e-runc
+
+test-e2e-parallel: ## Run all tests in parallel
+	@$(MAKE) -f Makefile.e2e test-e2e-parallel
+
+setup-e2e-env: ## Setup complete e2e testing environment
+	@$(MAKE) -f Makefile.e2e setup-e2e-env
+
+build-runc-deps: ## Build runc runtime dependencies for e2e testing
+	@$(MAKE) -f Makefile.e2e build-runc-deps
+
+verify-e2e: ## Verify e2e test environment
+	@hack/verify-e2e.sh
+
+local-up: ## Start local Kuasar cluster for testing
+	@hack/local-up-kuasar.sh
+
+clean-e2e: ## Clean e2e test artifacts
+	@$(MAKE) -f Makefile.e2e clean-e2e
+
+.PHONY: help
+help: ## Display this help screen
+	@echo "Kuasar Build System"
+	@echo ""
+	@echo "Available targets:"
+	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ { printf "  %-20s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+	@echo ""
+	@echo "Variables:"
+	@echo "  HYPERVISOR       Hypervisor to use (default: cloud_hypervisor)"
+	@echo "  GUESTOS_IMAGE    Guest OS image type (default: centos)"
+	@echo "  WASM_RUNTIME     WebAssembly runtime (default: wasmedge)"
+	@echo "  KERNEL_VERSION   Kernel version (default: 6.12.8)"
+	@echo "  ARCH             Target architecture (default: x86_64)"
+	@echo "  ENABLE_YOUKI     Enable youki features (default: false)"

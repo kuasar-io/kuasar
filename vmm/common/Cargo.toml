@@ -4,9 +4,6 @@ version = "0.1.0"
 license = "Apache-2.0"
 edition = "2021"
 
-[profile.release]
-panic = 'abort'
-
 [dependencies]
 containerd-sandbox = { git = "https://github.com/kuasar-io/rust-extensions.git" }
 serde = "1.0.139"

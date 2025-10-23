@@ -1,0 +1,188 @@
+# Copyright 2025 The Kuasar Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Makefile for Kuasar E2E Testing (Rust-based)
+
+KUASAR_ROOT ?= $(shell pwd)
+ARTIFACTS_DIR ?= $(KUASAR_ROOT)/_artifacts/$(shell date +%Y%m%d-%H%M%S)
+RUNTIME ?= runc
+PARALLEL ?= false
+LOG_LEVEL ?= info
+
+# Directories
+TEST_E2E_DIR = $(KUASAR_ROOT)/tests/e2e
+HACK_DIR = $(KUASAR_ROOT)/hack
+
+# Build prerequisites for e2e tests
+.PHONY: build-runc-deps
+build-runc-deps: ## Build runc runtime dependencies
+	@echo "Building runc runtime dependencies..."
+	cd $(KUASAR_ROOT) && $(MAKE) runc
+	cd $(KUASAR_ROOT)/shim && cargo build --release
+
+.PHONY: install-runc-deps
+install-runc-deps: build-runc-deps ## Install runc runtime dependencies to system
+	@echo "Installing runc runtime dependencies..."
+	sudo cp $(KUASAR_ROOT)/bin/runc-sandboxer /usr/local/bin/
+	sudo cp $(KUASAR_ROOT)/target/release/containerd-shim-kuasar-vmm-v2 /usr/local/bin/
+
+.PHONY: build-wasm-deps
+build-wasm-deps: ## Build wasm runtime dependencies (not implemented yet)
+	@echo "WASM dependencies not implemented on this branch"
+	@exit 1
+
+.PHONY: help
+help: ## Show this help message
+	@echo "Kuasar E2E Testing Makefile (Rust-based)"
+	@echo ""
+	@echo "Available targets:"
+	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*?##/ { printf "  %-20s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+	@echo ""
+	@echo "Variables:"
+	@echo "  RUNTIME          Runtimes to test (default: runc)"
+	@echo "  ARTIFACTS_DIR    Test artifacts directory"
+	@echo "  PARALLEL         Run tests in parallel (default: false)"
+	@echo "  LOG_LEVEL        Logging level (default: info)"
+	@echo ""
+	@echo "Note: test-e2e runs full integration tests. Use test-e2e-framework for framework"
+	@echo "      unit tests only (no service startup required)."
+	@echo ""
+	@echo "Quick start:"
+	@echo "  make setup-e2e-env    # Setup environment for local testing"
+	@echo "  make test-e2e-runc    # Run runc integration tests"
+
+.PHONY: all
+all: build-e2e ## Build all e2e test components
+
+.PHONY: build-e2e
+build-e2e: ## Build e2e test binary
+	@echo "Building e2e test binary..."
+	cd $(TEST_E2E_DIR) && cargo build --release --bin kuasar-e2e
+
+.PHONY: _run-binary-runner
+_run-binary-runner: build-e2e
+	@echo "Running e2e tests with binary runner..."
+	ARTIFACTS=$(ARTIFACTS_DIR) \
+	RUNTIME=$(RUNTIME) \
+	PARALLEL=$(PARALLEL) \
+	LOG_LEVEL=$(LOG_LEVEL) \
+	$(HACK_DIR)/e2e-test.sh
+
+.PHONY: test-e2e
+test-e2e: ## Run full end-to-end integration tests (requires proper environment)
+	@echo "Running full e2e integration tests..."
+	cd $(TEST_E2E_DIR) && \
+	ARTIFACTS=$(ARTIFACTS_DIR) \
+	RUST_LOG=$(LOG_LEVEL) \
+	cargo test --release -- --test-threads=1 --nocapture
+
+.PHONY: test-e2e-framework
+test-e2e-framework: ## Run e2e framework unit tests (no service startup required)
+	@echo "Running e2e framework unit tests..."
+	cd $(TEST_E2E_DIR) && \
+	ARTIFACTS=$(ARTIFACTS_DIR) \
+	RUST_LOG=$(LOG_LEVEL) \
+	cargo test --release -- --test-threads=1 --nocapture \
+		test_invalid_runtime test_service_not_started test_configuration_files test_e2e_context_creation
+
+.PHONY: test-e2e-runc
+test-e2e-runc: build-runc-deps build-e2e ## Test only runc runtime
+	@echo "Testing runc runtime..."
+	RUNTIME=runc $(MAKE) -f Makefile.e2e _run-binary-runner
+
+.PHONY: test-e2e-runc-ci
+test-e2e-runc-ci: install-runc-deps build-e2e ## Test runc runtime with CI setup (installs deps to system)
+	@echo "Testing runc runtime with CI setup..."
+	RUNTIME=runc $(MAKE) -f Makefile.e2e _run-binary-runner
+
+# TODO: Enable when WASM e2e tests are implemented
+# .PHONY: test-e2e-wasm
+# test-e2e-wasm: build-e2e ## Test only wasm runtime
+# 	@echo "Testing wasm runtime..."
+# 	RUNTIME=wasm $(MAKE) -f Makefile.e2e _run-binary-runner
+
+.PHONY: test-e2e-parallel
+test-e2e-parallel: build-e2e ## Run all tests in parallel
+	@echo "Running tests in parallel..."
+	PARALLEL=true $(MAKE) -f Makefile.e2e _run-binary-runner
+
+.PHONY: clean-e2e
+clean-e2e: ## Clean e2e build artifacts
+	@echo "Cleaning e2e build artifacts..."
+	cd $(TEST_E2E_DIR) && cargo clean
+	rm -rf $(KUASAR_ROOT)/_artifacts
+
+.PHONY: clean-test-env
+clean-test-env: ## Clean test environment (containers, sandboxes, processes)
+	@echo "Cleaning test environment..."
+	-pkill -f "runc-sandboxer" 2>/dev/null || true
+	-pkill -f "wasm-sandboxer" 2>/dev/null || true
+	-crictl rm --all --force 2>/dev/null || true
+	-crictl rmp --all --force 2>/dev/null || true
+
+.PHONY: verify-e2e
+verify-e2e: ## Verify e2e test environment
+	@echo "Verifying e2e test environment..."
+	$(HACK_DIR)/verify-e2e.sh
+
+.PHONY: check-dependencies
+check-dependencies: ## Check e2e test dependencies
+	@echo "Checking e2e test dependencies..."
+	@echo "Rust: $$(rustc --version 2>/dev/null || echo 'NOT FOUND')"
+	@echo "Cargo: $$(cargo --version 2>/dev/null || echo 'NOT FOUND')"
+	@echo "crictl: $$(crictl --version 2>/dev/null || echo 'NOT FOUND')"
+	@if [ -d $(TEST_E2E_DIR) ]; then \
+		echo "E2E test directory: OK"; \
+	else \
+		echo "E2E test directory: NOT FOUND"; \
+	fi
+
+# Development targets
+.PHONY: setup-e2e-env
+setup-e2e-env: verify-e2e build-runc-deps ## Setup complete e2e testing environment
+	@echo "E2E environment setup completed successfully"
+
+.PHONY: setup-e2e-env-ci
+setup-e2e-env-ci: verify-e2e install-runc-deps ## Setup complete e2e testing environment for CI
+	sudo chmod -R 777 /run
+	@echo "E2E CI environment setup completed successfully"
+
+.PHONY: e2e-dev
+e2e-dev: clean-test-env setup-e2e-env test-e2e-runc ## Clean, setup and run runc e2e tests (development workflow)
+
+.PHONY: lint-e2e
+lint-e2e: ## Lint e2e test code
+	@echo "Linting e2e test code..."
+	cd $(TEST_E2E_DIR) && cargo clippy --all-targets --all-features -- -D warnings
+
+.PHONY: format-e2e
+format-e2e: ## Format e2e test code
+	@echo "Formatting e2e test code..."
+	cd $(TEST_E2E_DIR) && cargo fmt
+
+.PHONY: doc-e2e
+doc-e2e: ## Generate e2e test documentation
+	@echo "Generating e2e test documentation..."
+	cd $(TEST_E2E_DIR) && cargo doc --no-deps --open
+
+# Convenience targets matching Kubernetes patterns
+.PHONY: test
+test: test-e2e ## Alias for test-e2e
+
+.PHONY: e2e
+e2e: test-e2e ## Alias for test-e2e
+
+.PHONY: integration-test
+integration-test: verify-e2e test-e2e ## Run full integration test pipeline
+	@echo "Integration test pipeline completed successfully"
