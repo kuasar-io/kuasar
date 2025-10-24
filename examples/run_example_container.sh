@@ -62,6 +62,6 @@ cat > container.json <<EOF
 EOF
 
 # Run a container, default runtime is "kuasar-vmm".
-runtime=${1:kuasar-vmm}
+runtime=${1:-kuasar-vmm}
 crictl -r unix:///run/containerd/containerd.sock run --runtime="$runtime" container.json pod.json
 rm -f container.json pod.json
