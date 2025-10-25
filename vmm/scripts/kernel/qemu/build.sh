@@ -33,4 +33,4 @@ make olddefconfig
 
 # Do native build of the x86-64 kernel
 make -j "$(nproc)" "${make_target}"
-cp  /tmp/linux-qemu/arch/x86/boot/compressed/vmlinux.bin ${base_dir}/vmlinux.bin
+cp  /tmp/linux-qemu/arch/x86/boot/bzImage ${base_dir}/vmlinux.bin
