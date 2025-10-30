@@ -51,7 +51,6 @@ cat > container.json <<EOF
     "log_path":"ubuntu.log",
     "linux": {
         "security_context": {
-            "apparmor_profile": "unconfined",
             "namespace_options": {
                 "network": 2,
                 "pid": 1

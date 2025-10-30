@@ -14,17 +14,16 @@
 # limitations under the License.
 
 set -e
-set -x
 
 readonly version=${1:-6.12}
 readonly base_dir="$(dirname "$(readlink -f "$0")")"
 readonly make_target="bzImage"
 
-sudo apt-get update
+sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc dwarves
 
 # clone kernel from Linus-kernel github
 rm -rf /tmp/linux-qemu
-git clone --depth 1 --single-branch -b "v${version}" GitHub - torvalds/linux: Linux kernel source tree /tmp/linux-qemu
+git clone --depth 1 --single-branch -b "v${version}" https://github.com/torvalds/linux.git /tmp/linux-qemu
 pushd /tmp/linux-qemu
 
 make defconfig
@@ -33,4 +32,4 @@ make olddefconfig
 
 # Do native build of the x86-64 kernel
 make -j "$(nproc)" "${make_target}"
-cp  /tmp/linux-qemu/arch/x86/boot/bzImage ${base_dir}/vmlinux.bin
+cp  /tmp/linux-qemu/arch/x86/boot/bzImage "${base_dir}/vmlinux.bin"
