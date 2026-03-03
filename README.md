@@ -103,7 +103,7 @@ The wasm sandbox, such as [WasmEdge](https://wasmedge.org/) or [Wasmtime](https:
 
 ## Runc Sandboxer
 
-Except secure containers, Kuasar also has provide the ability for [runC](https://github.com/opencontainers/runc) containers. In order to generate a seperate namespace, a slight process is created by the `runc-sandboxer` through double folked and then becomes the PID 1. Based on this namespace, the `runc-task` can create the container process and join the namespace. If the container need a private namespace, it will unshare a new namespace for itself.
+Except secure containers, Kuasar also has provide the ability for [runC](https://github.com/opencontainers/runc) containers. In order to generate a separate namespace, a slight process is created by the `runc-sandboxer` through double folked and then becomes the PID 1. Based on this namespace, the `runc-task` can create the container process and join the namespace. If the container need a private namespace, it will unshare a new namespace for itself.
 
 ![wasm](docs/images/runc-arch.png)
 
