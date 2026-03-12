@@ -45,6 +45,9 @@ libcontainer = { version="0.5.4", optional = true, default-features = false, fea
 os_pipe = "1.0.0"
 tokio-pipe = "0.2.12"
 
+[dev-dependencies]
+temp-dir = "0.1.16"
+
 [features]
 youki = ["libcontainer"]
 default = ["youki"]
