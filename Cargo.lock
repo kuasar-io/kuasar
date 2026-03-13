@@ -4950,6 +4950,7 @@ dependencies = [
  "serde",
  "serde_json",
  "signal-hook-tokio",
+ "temp-dir",
  "time",
  "tokio",
  "tokio-pipe",

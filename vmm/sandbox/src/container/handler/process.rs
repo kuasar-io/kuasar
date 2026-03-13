@@ -18,6 +18,7 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use containerd_sandbox::{
     data::{Io, ProcessData},
+    error::Error,
     Sandbox,
 };
 use vmm_common::IO_FILE_PREFIX;
@@ -167,8 +168,10 @@ async fn remove_io_devices_for_process<T: VM + Sync + Send>(
         "{}/{}-{}-{}",
         bundle, IO_FILE_PREFIX, container_id, process_id
     );
-    tokio::fs::remove_file(&io_file_path)
-        .await
-        .unwrap_or_default();
+    if let Err(e) = tokio::fs::remove_file(&io_file_path).await {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            return Err(Error::from(e));
+        }
+    }
     Ok(())
 }
