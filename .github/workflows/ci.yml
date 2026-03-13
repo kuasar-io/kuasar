@@ -13,7 +13,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
       - run: rustup toolchain install nightly --component rustfmt
       - run: rustup show
       - name: Install cargo-deny
@@ -23,7 +27,7 @@ jobs:
       - name: Deny
         run: cargo deny -L warn --all-features check bans
       - name: Install Protoc
-        uses: arduino/setup-protoc@v1.1.2
+        uses: arduino/setup-protoc@v2
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install WasmEdge
@@ -41,9 +45,13 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
       - name: Install Protoc
-        uses: arduino/setup-protoc@v1.1.2
+        uses: arduino/setup-protoc@v2
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install WasmEdge

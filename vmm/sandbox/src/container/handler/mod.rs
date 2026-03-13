@@ -119,11 +119,11 @@ where
         let ns_handler = NamespaceHandler::new(id);
         handlers.push(Box::new(ns_handler));
         for m in rootfs {
-            let mh = MountHandler::new(id, m);
+            let mh = MountHandler::new(id, m, true);
             handlers.push(Box::new(mh));
         }
         for m in mounts {
-            let mh = MountHandler::new(id, m);
+            let mh = MountHandler::new(id, m, false);
             handlers.push(Box::new(mh));
         }
         let storage_handler = StorageHandler::new(id);

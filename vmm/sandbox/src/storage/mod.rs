@@ -45,8 +45,13 @@ impl<V> KuasarSandbox<V>
 where
     V: VM + Sync + Send,
 {
-    pub async fn attach_storage(&mut self, container_id: &str, m: &Mount) -> Result<()> {
-        if let Some(storage) = self.storages.iter_mut().find(|s| s.is_for_mount(m)) {
+    pub async fn attach_storage(
+        &mut self,
+        container_id: &str,
+        m: &Mount,
+        is_rootfs_mount: bool,
+    ) -> Result<()> {
+        if let Some(storage) = self.find_reusable_storage(m, is_rootfs_mount) {
             storage.refer(container_id);
             return Ok(());
         }
@@ -88,13 +93,22 @@ where
     }
 
     pub async fn deference_storage(&mut self, container_id: &str, m: &Mount) -> Result<()> {
-        for s in &mut self.storages {
-            if s.is_for_mount(m) {
-                s.defer(container_id);
-            }
+        if let Some(s) = self
+            .storages
+            .iter_mut()
+            .find(|s| s.is_for_mount(m) && s.ref_container.contains_key(container_id))
+        {
+            s.defer(container_id);
         }
         self.gc_storages().await?;
         Ok(())
+    }
+
+    fn find_reusable_storage(&mut self, m: &Mount, is_rootfs_mount: bool) -> Option<&mut Storage> {
+        if is_rootfs_mount {
+            return None;
+        }
+        self.storages.iter_mut().find(|s| s.is_for_mount(m))
     }
 
     async fn handle_block_device(&mut self, id: &str, container_id: &str, m: &Mount) -> Result<()> {
@@ -334,6 +348,145 @@ where
         }
         self.gc_storages().await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use async_trait::async_trait;
+    use containerd_sandbox::{error::Result, spec::Mount};
+    use serde::{Deserialize, Serialize};
+    use vmm_common::storage::Storage;
+
+    use crate::{device::DeviceInfo, sandbox::KuasarSandbox, vm::VM};
+
+    #[derive(Serialize, Deserialize)]
+    struct MockVM;
+
+    #[async_trait]
+    impl VM for MockVM {
+        async fn start(&mut self) -> Result<u32> {
+            Ok(0)
+        }
+        async fn stop(&mut self, _force: bool) -> Result<()> {
+            Ok(())
+        }
+        async fn attach(&mut self, _device_info: DeviceInfo) -> Result<()> {
+            Ok(())
+        }
+        async fn hot_attach(
+            &mut self,
+            _device_info: DeviceInfo,
+        ) -> Result<(crate::device::BusType, String)> {
+            Ok((crate::device::BusType::PCI, "/dev/vda".to_string()))
+        }
+        async fn hot_detach(&mut self, _id: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn ping(&self) -> Result<()> {
+            Ok(())
+        }
+        fn socket_address(&self) -> String {
+            "/tmp/mock.sock".to_string()
+        }
+        async fn wait_channel(&self) -> Option<tokio::sync::watch::Receiver<(u32, i128)>> {
+            None
+        }
+        async fn vcpus(&self) -> Result<crate::vm::VcpuThreads> {
+            Ok(crate::vm::VcpuThreads {
+                vcpus: HashMap::new(),
+            })
+        }
+        fn pids(&self) -> crate::vm::Pids {
+            crate::vm::Pids {
+                vmm_pid: None,
+                affiliated_pids: vec![],
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_rootfs_storage_isolation() {
+        // We can't easily call attach_storage due to filesystem side-effects (mount, etc.),
+        // but we can simulate the logic of its effect and verify deference_storage.
+        let mut storages = vec![];
+        let mount = Mount {
+            r#type: "bind".to_string(),
+            source: "/tmp/rootfs".to_string(),
+            destination: "/".to_string(),
+            options: vec!["ro".to_string()],
+        };
+
+        // Simulate attach_storage for container1 (is_rootfs_mount=true)
+        let s1 = Storage {
+            host_source: mount.source.clone(),
+            r#type: mount.r#type.clone(),
+            id: "storage1".to_string(),
+            device_id: None,
+            ref_container: [("container1".to_string(), 1)].into_iter().collect(),
+            need_guest_handle: false,
+            source: "".to_string(),
+            driver: "".to_string(),
+            driver_options: vec![],
+            fstype: "test".to_string(),
+            options: vec!["ro".to_string()],
+            mount_point: "/run/kuasar/storage/containers/storage1".to_string(),
+        };
+        storages.push(s1);
+
+        let mut sandbox = KuasarSandbox {
+            vm: MockVM,
+            id: "test-sandbox".to_string(),
+            status: containerd_sandbox::SandboxStatus::Created,
+            base_dir: "/tmp".to_string(),
+            data: Default::default(),
+            containers: HashMap::new(),
+            storages,
+            id_generator: 1,
+            network: None,
+            client: Default::default(),
+            exit_signal: Default::default(),
+            sandbox_cgroups: Default::default(),
+        };
+
+        // Validate reuse logic: a second rootfs attach should NOT reuse existing storage
+        let reusable = sandbox.find_reusable_storage(&mount, true);
+        assert!(reusable.is_none());
+
+        // Validate reuse logic: a regular attach SHOULD reuse existing storage
+        let reusable = sandbox.find_reusable_storage(&mount, false);
+        assert!(reusable.is_some());
+        assert_eq!(reusable.unwrap().id, "storage1");
+
+        // Manually add a second storage for container2 to test deference_storage isolation
+        let s2 = Storage {
+            host_source: mount.source.clone(),
+            r#type: mount.r#type.clone(),
+            id: "storage2".to_string(),
+            device_id: None,
+            ref_container: [("container2".to_string(), 1)].into_iter().collect(),
+            need_guest_handle: false,
+            source: "".to_string(),
+            driver: "".to_string(),
+            driver_options: vec![],
+            fstype: "test".to_string(),
+            options: vec!["ro".to_string()],
+            mount_point: "/run/kuasar/storage/containers/storage2".to_string(),
+        };
+        sandbox.storages.push(s2);
+
+        // Act: deference_storage for container1
+        sandbox
+            .deference_storage("container1", &mount)
+            .await
+            .unwrap();
+
+        // Assert: container1's storage should be removed (by GC), container2's should remain.
+        assert_eq!(sandbox.storages.len(), 1);
+        assert_eq!(sandbox.storages[0].id, "storage2");
+        assert!(sandbox.storages[0].ref_container.contains_key("container2"));
     }
 }
 
