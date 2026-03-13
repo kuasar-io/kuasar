@@ -22,13 +22,15 @@ use crate::{container::handler::Handler, sandbox::KuasarSandbox, vm::VM};
 pub struct MountHandler {
     mount: Mount,
     container_id: String,
+    is_rootfs_mount: bool,
 }
 
 impl MountHandler {
-    pub fn new(container_id: &str, mount: Mount) -> Self {
+    pub fn new(container_id: &str, mount: Mount, is_rootfs_mount: bool) -> Self {
         Self {
             mount,
             container_id: container_id.to_string(),
+            is_rootfs_mount,
         }
     }
 }
@@ -40,7 +42,7 @@ where
 {
     async fn handle(&self, sandbox: &mut KuasarSandbox<T>) -> Result<()> {
         sandbox
-            .attach_storage(&self.container_id, &self.mount)
+            .attach_storage(&self.container_id, &self.mount, self.is_rootfs_mount)
             .await
     }
 
