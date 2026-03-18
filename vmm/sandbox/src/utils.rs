@@ -33,7 +33,7 @@ use containerd_sandbox::{
     data::SandboxData,
     error::{Error, Result},
 };
-use log::{error, info};
+use log::{debug, error, info};
 use nix::{
     fcntl::{fcntl, open, FdFlag, OFlag, F_GETFD, F_SETFD},
     libc::{kill, setns, FD_CLOEXEC},
@@ -499,4 +499,31 @@ pub fn get_sandbox_cgroup_parent_path(data: &SandboxData) -> Option<String> {
         .as_ref()
         .and_then(|c| c.linux.as_ref())
         .map(|l| l.cgroup_parent.clone())
+}
+
+pub fn start_watchdog() {
+    if let Ok(wd_usec) = std::env::var("WATCHDOG_USEC") {
+        let usec = match wd_usec.parse::<u64>() {
+            Ok(u) => u,
+            Err(e) => {
+                error!("failed to parse WATCHDOG_USEC {}: {}", wd_usec, e);
+                return;
+            }
+        };
+        let interval = Duration::from_micros(usec / 2);
+        tokio::spawn(async move {
+            let started_at = OffsetDateTime::now_utc();
+            info!(
+                "watchdog loop started at {}, interval {:?}",
+                started_at, interval
+            );
+            loop {
+                debug!("sending watchdog notify");
+                if let Err(e) = sd_notify::notify(&[sd_notify::NotifyState::Watchdog]) {
+                    error!("failed to send watchdog notify: {}", e);
+                }
+                sleep(interval).await;
+            }
+        });
+    }
 }

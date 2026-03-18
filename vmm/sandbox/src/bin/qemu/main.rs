@@ -56,6 +56,10 @@ async fn main() {
     let service_name = "kuasar-vmm-sandboxer-qemu-service";
     trace::set_enabled(config.sandbox.enable_tracing);
     trace::setup_tracing(&log_level, service_name).unwrap();
+    vmm_sandboxer::utils::start_watchdog();
+    if let Err(e) = sd_notify::notify(&[sd_notify::NotifyState::Ready]) {
+        log::error!("failed to send ready notify: {}", e);
+    }
 
     let mut sandboxer: KuasarSandboxer<QemuVMFactory, QemuHooks> = KuasarSandboxer::new(
         config.sandbox,

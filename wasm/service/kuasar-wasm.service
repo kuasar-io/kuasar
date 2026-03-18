@@ -3,12 +3,13 @@ Description=Kuasar Wasm sandboxer daemon process
 After=network.target
 
 [Service]
-Type=simple
+Type=notify
 ExecStart=/usr/local/bin/wasm-sandboxer --listen /run/wasm-sandboxer.sock --dir /run/kuasar-wasm
 LimitNOFILE=1048576
 LimitNPROC=infinity
 LimitCORE=infinity
 Delegate=yes
+WatchdogSec=30s
 KillMode=process
 
 [Install]

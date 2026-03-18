@@ -22,7 +22,7 @@ use containerd_sandbox::{
     spec::Mount,
 };
 use containerd_shim::util::IntoOption;
-use log::{debug, error};
+use log::{debug, error, info};
 use nix::{
     errno::Errno,
     libc,
@@ -127,5 +127,32 @@ pub fn unmount(target: &str, flags: i32) -> Result<()> {
             }
             Err(anyhow!("failed to umount {}, {}", target, e).into())
         }
+    }
+}
+
+pub fn start_watchdog() {
+    if let Ok(wd_usec) = std::env::var("WATCHDOG_USEC") {
+        let usec = match wd_usec.parse::<u64>() {
+            Ok(u) => u,
+            Err(e) => {
+                error!("failed to parse WATCHDOG_USEC {}: {}", wd_usec, e);
+                return;
+            }
+        };
+        let interval = std::time::Duration::from_micros(usec / 2);
+        tokio::spawn(async move {
+            let started_at = std::time::SystemTime::now();
+            info!(
+                "watchdog loop started at {:?}, interval {:?}",
+                started_at, interval
+            );
+            loop {
+                debug!("sending watchdog notify");
+                if let Err(e) = sd_notify::notify(&[sd_notify::NotifyState::Watchdog]) {
+                    error!("failed to send watchdog notify: {}", e);
+                }
+                tokio::time::sleep(interval).await;
+            }
+        });
     }
 }

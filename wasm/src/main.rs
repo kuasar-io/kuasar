@@ -19,7 +19,7 @@ use std::str::FromStr;
 use clap::Parser;
 use containerd_shim::asynchronous::monitor::monitor_notify_by_pid;
 use futures::StreamExt;
-use log::{debug, error, warn, LevelFilter};
+use log::{debug, error, info, warn, LevelFilter};
 use nix::{
     errno::Errno,
     libc,
@@ -58,6 +58,9 @@ async fn main() {
         .filter_module("containerd_sandbox", log_level)
         .filter_module("wasm_sandboxer", log_level)
         .init();
+    if let Err(e) = sd_notify::notify(&[sd_notify::NotifyState::Ready]) {
+        error!("failed to send ready notify: {}", e);
+    }
 
     // TODO: Support recovery
 
@@ -65,6 +68,8 @@ async fn main() {
         let signals = Signals::new([libc::SIGPIPE, libc::SIGCHLD]).expect("new signal failed");
         handle_signals(signals).await;
     });
+
+    start_watchdog();
 
     let sandboxer = WasmSandboxer::default();
     containerd_sandbox::run(
@@ -75,6 +80,33 @@ async fn main() {
     )
     .await
     .unwrap();
+}
+
+fn start_watchdog() {
+    if let Ok(wd_usec) = std::env::var("WATCHDOG_USEC") {
+        let usec = match wd_usec.parse::<u64>() {
+            Ok(u) => u,
+            Err(e) => {
+                error!("failed to parse WATCHDOG_USEC {}: {}", wd_usec, e);
+                return;
+            }
+        };
+        let interval = std::time::Duration::from_micros(usec / 2);
+        tokio::spawn(async move {
+            let started_at = std::time::SystemTime::now();
+            info!(
+                "watchdog loop started at {:?}, interval {:?}",
+                started_at, interval
+            );
+            loop {
+                debug!("sending watchdog notify");
+                if let Err(e) = sd_notify::notify(&[sd_notify::NotifyState::Watchdog]) {
+                    error!("failed to send watchdog notify: {}", e);
+                }
+                tokio::time::sleep(interval).await;
+            }
+        });
+    }
 }
 
 async fn handle_signals(signals: Signals) {

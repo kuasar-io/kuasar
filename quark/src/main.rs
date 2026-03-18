@@ -34,6 +34,10 @@ async fn main() {
     let sandboxer = QuarkSandboxer {
         sandboxes: Arc::new(Default::default()),
     };
+    crate::utils::start_watchdog();
+    if let Err(e) = sd_notify::notify(&[sd_notify::NotifyState::Ready]) {
+        log::error!("failed to send ready notify: {}", e);
+    }
     containerd_sandbox::run("quark-sandboxer", &args.listen, &args.dir, sandboxer)
         .await
         .unwrap();
