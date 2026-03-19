@@ -168,8 +168,7 @@ create_container_config() {
   "linux": {
     "security_context": {
       "namespace_options": {
-        "network": 2,
-        "pid": 1
+        "network": 2
       }
     }
   }
@@ -584,6 +583,14 @@ run_all_tests() {
         test_kuasar_ctl_no_proc_leak \
         test_vmm_killed_cleanup
 
+    source "${script_dir}/test_exec_streams.sh"
+    run_test_group "Streaming I/O Edge Cases" \
+        test_exec_stream_disconnect_loop \
+        test_exec_exit_drain_stdout \
+        test_exec_exit_drain_stderr \
+        test_exec_stdin_boundaries \
+        test_exec_stdin_eof \
+        test_containerd_restart_log_resume
     if [[ ${#test_failures[@]} -ne 0 ]]; then
         echo "1..${tap_count}" >> "${tap_file}"
         die "CRI tests failed: ${test_failures[*]}"
