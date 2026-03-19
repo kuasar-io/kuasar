@@ -80,6 +80,7 @@ pub struct IOChannel {
     remaining_data: Option<Any>,
     preemption_sender: Option<Sender<()>>,
     notifier: Arc<Notify>,
+    sender_closed: bool,
 }
 
 pub struct PreemptableReceiver {
@@ -116,6 +117,7 @@ impl IOChannel {
             remaining_data: None,
             preemption_sender: None,
             notifier: Arc::new(Notify::new()),
+            sender_closed: false,
         }
     }
 
@@ -138,7 +140,16 @@ impl IOChannel {
     fn return_preempted_receiver(&mut self, r: PreemptableReceiver, remaining_data: Option<Any>) {
         self.receiver = Some(r.receiver);
         self.remaining_data = remaining_data;
-        self.notifier.notify_one();
+    }
+
+    fn should_remove_closed_channel(&self) -> bool {
+        self.sender_closed
+            && self.remaining_data.is_none()
+            && self
+                .receiver
+                .as_ref()
+                .map(|receiver| receiver.is_closed() && receiver.is_empty())
+                .unwrap_or(false)
     }
 }
 
@@ -214,10 +225,18 @@ impl Service {
         remaining_data: Option<Any>,
     ) {
         let mut ios = self.ios.lock().await;
+        let mut remove_channel = false;
         if let Some(ch) = ios.get_mut(id) {
             ch.return_preempted_receiver(r, remaining_data);
+            if ch.should_remove_closed_channel() {
+                remove_channel = true;
+            }
+            ch.notifier.notify_one();
         } else {
             warn!("io channel removed when return the receiver");
+        }
+        if remove_channel {
+            ios.remove(id);
         }
     }
 
@@ -239,7 +258,10 @@ impl Service {
             ))?
             .receiver
             .take()
-            .map(|r| StreamingStdin { receiver: r })
+            .map(|r| StreamingStdin {
+                receiver: r,
+                leftover: None,
+            })
             .ok_or(containerd_shim::Error::Other(
                 "someone is taking the io channel".to_string(),
             ))
@@ -268,6 +290,19 @@ impl Service {
         self.ios.lock().await.remove(id);
     }
 
+    async fn close_output_channel(&self, id: &str) {
+        let mut ios = self.ios.lock().await;
+        let remove_channel = if let Some(ch) = ios.get_mut(id) {
+            ch.sender_closed = true;
+            ch.should_remove_closed_channel()
+        } else {
+            false
+        };
+        if remove_channel {
+            ios.remove(id);
+        }
+    }
+
     async fn handle_stdin(
         &self,
         stream_id: &String,
@@ -283,18 +318,14 @@ impl Service {
                     Ok(d) => d,
                     Err(e) => {
                         debug!("failed to marshal update of stream {}, {}", stream_id, e);
-                        if let Some(c) = self.ios.lock().await.get_mut(stream_id) {
-                            c.sender = Some(sender);
-                        }
+                        self.ios.lock().await.remove(stream_id);
                         return Err(ttrpc::Error::Others(format!("failed to write data {}", e)));
                     }
                 };
                 let a = new_any!(WindowUpdate, update_bytes);
                 if let Err(e) = stream.send(&a).await {
                     debug!("failed to send update of stream {}, {}", stream_id, e);
-                    if let Some(c) = self.ios.lock().await.get_mut(stream_id) {
-                        c.sender = Some(sender);
-                    }
+                    self.ios.lock().await.remove(stream_id);
                     return Err(e);
                 }
                 window += WINDOW_SIZE;
@@ -310,6 +341,7 @@ impl Service {
                     };
                     let len: i32 = data_bytes.len().try_into().unwrap_or_default();
                     if let Err(e) = sender.send(data_bytes).await {
+                        self.ios.lock().await.remove(stream_id);
                         return Err(ttrpc::Error::Others(format!("failed to send data {}", e)));
                     }
                     window -= len;
@@ -327,9 +359,10 @@ impl Service {
         stream_id: &String,
         stream: ServerStream<Any, Any>,
     ) -> ttrpc::Result<()> {
+        let (stream_sender, mut stream_receiver) = stream.split();
         let mut receiver = self.preempt_receiver(stream_id).await?;
         if let Some(a) = self.get_remaining_data(stream_id).await {
-            if let Err(e) = stream.send(&a).await {
+            if let Err(e) = stream_sender.send(&a).await {
                 debug!("failed to send data of stream {}, {}", stream_id, e);
                 self.return_preempted_receiver(stream_id, receiver, Some(a))
                     .await;
@@ -337,17 +370,43 @@ impl Service {
             }
         }
         loop {
-            let r = if let Ok(res) = receiver.recv().await {
-                res
-            } else {
-                self.return_preempted_receiver(stream_id, receiver, None)
-                    .await;
-                info!("stream {} is preempted", stream_id);
-                return Err(ttrpc::Error::Others("channel is preempted".to_string()));
+            let r = select! {
+                res = receiver.recv() => {
+                    match res {
+                        Ok(output) => output,
+                        Err(_) => {
+                            self.return_preempted_receiver(stream_id, receiver, None)
+                                .await;
+                            info!("stream {} is preempted", stream_id);
+                            return Err(ttrpc::Error::Others("channel is preempted".to_string()));
+                        }
+                    }
+                }
+                client = stream_receiver.recv() => {
+                    match client {
+                        Ok(None) => {
+                            debug!("stdout stream {} is closed by client", stream_id);
+                            self.return_preempted_receiver(stream_id, receiver, None)
+                                .await;
+                            return Ok(());
+                        }
+                        Ok(Some(_)) => {
+                            debug!("stdout stream {} received unexpected client message", stream_id);
+                            continue;
+                        }
+                        Err(e) => {
+                            debug!("failed to receive client close signal of stream {}, {}", stream_id, e);
+                            self.return_preempted_receiver(stream_id, receiver, None)
+                                .await;
+                            return Err(e);
+                        }
+                    }
+                }
             };
             match r {
                 Some(d) => {
                     if d.is_empty() {
+                        self.remove_io_channel(stream_id).await;
                         return Ok(());
                     }
                     let mut data = Data::new();
@@ -365,7 +424,7 @@ impl Service {
                         }
                     };
                     let a = new_any!(Data, data_bytes);
-                    match stream.send(&a).await {
+                    match stream_sender.send(&a).await {
                         Ok(_) => {}
                         Err(e) => {
                             debug!("failed to send data of stream {}, {}", stream_id, e);
@@ -376,6 +435,7 @@ impl Service {
                     };
                 }
                 None => {
+                    self.remove_io_channel(stream_id).await;
                     return Ok(());
                 }
             }
@@ -391,6 +451,12 @@ pub async fn get_stdin(url: &str) -> containerd_shim::Result<StreamingStdin> {
 pub async fn remove_channel(url: &str) -> containerd_shim::Result<()> {
     let id = get_id(url)?;
     STREAMING_SERVICE.remove_io_channel(id).await;
+    Ok(())
+}
+
+pub async fn close_output(url: &str) -> containerd_shim::Result<()> {
+    let id = get_id(url)?;
+    STREAMING_SERVICE.close_output_channel(id).await;
     Ok(())
 }
 
@@ -414,7 +480,8 @@ fn get_id(url: &str) -> containerd_shim::Result<&str> {
 
 pin_project_lite::pin_project! {
     pub struct StreamingStdin {
-        receiver: Receiver<Vec<u8>>
+        receiver: Receiver<Vec<u8>>,
+        leftover: Option<Vec<u8>>,
     }
 }
 
@@ -425,13 +492,41 @@ impl AsyncRead for StreamingStdin {
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
         let this = self.project();
-        let r = ready!(this.receiver.poll_recv(cx));
+        let mut filled = false;
+        if let Some(leftover) = this.leftover.as_mut() {
+            let len = std::cmp::min(leftover.len(), buf.remaining());
+            buf.put_slice(&leftover[..len]);
+            if len < leftover.len() {
+                *leftover = leftover.split_off(len);
+                return Poll::Ready(Ok(()));
+            } else {
+                *this.leftover = None;
+                filled = true;
+            }
+        }
+
+        if filled && buf.remaining() == 0 {
+            return Poll::Ready(Ok(()));
+        }
+
+        let r = this.receiver.poll_recv(cx);
         match r {
-            Some(a) => {
-                buf.put_slice(a.as_slice());
+            Poll::Ready(Some(mut a)) => {
+                let len = std::cmp::min(a.len(), buf.remaining());
+                buf.put_slice(&a[..len]);
+                if len < a.len() {
+                    *this.leftover = Some(a.split_off(len));
+                }
                 Poll::Ready(Ok(()))
             }
-            None => Poll::Ready(Ok(())),
+            Poll::Ready(None) => Poll::Ready(Ok(())),
+            Poll::Pending => {
+                if filled {
+                    Poll::Ready(Ok(()))
+                } else {
+                    Poll::Pending
+                }
+            }
         }
     }
 }
@@ -480,5 +575,329 @@ impl AsyncWrite for StreamingOutput {
         _cx: &mut Context<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
         Poll::Ready(Ok(()))
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use std::{collections::HashMap, sync::Arc, time::Duration};
+
+    use tokio::{sync::Mutex, time::timeout};
+
+    use super::{IOChannel, Service};
+
+    pub(crate) async fn insert_channel(id: &str) {
+        super::STREAMING_SERVICE
+            .ios
+            .lock()
+            .await
+            .insert(id.to_string(), IOChannel::new());
+    }
+
+    pub(crate) async fn has_channel(id: &str) -> bool {
+        super::STREAMING_SERVICE.ios.lock().await.contains_key(id)
+    }
+
+    pub(crate) fn output_url(id: &str) -> String {
+        format!("ttrpc+hvsock://test/stream?id={id}-stdout")
+    }
+
+    fn new_service() -> Service {
+        Service {
+            ios: Arc::new(Mutex::new(HashMap::default())),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_io_channel_cleanup() {
+        use vmm_common::api::any::Any;
+        let service = new_service();
+
+        #[derive(Debug)]
+        enum Action {
+            ReturnReceiver { remaining_data: bool },
+            CloseOutputChannel,
+        }
+
+        struct TestCase {
+            name: &'static str,
+            initial_state: fn(&mut IOChannel),
+            take_receiver: bool,
+            take_preemption_sender: bool,
+            action: Action,
+            expect_removed: bool,
+        }
+
+        let cases = vec![
+            TestCase {
+                name: "return_drained_and_closed_removes_channel",
+                initial_state: |ch| {
+                    ch.sender.take();
+                    ch.sender_closed = true;
+                },
+                take_receiver: true,
+                take_preemption_sender: false,
+                action: Action::ReturnReceiver {
+                    remaining_data: false,
+                },
+                expect_removed: true,
+            },
+            TestCase {
+                name: "return_not_drained_keeps_channel",
+                initial_state: |ch| {
+                    ch.sender_closed = true;
+                },
+                take_receiver: true,
+                take_preemption_sender: false,
+                action: Action::ReturnReceiver {
+                    remaining_data: true,
+                },
+                expect_removed: false,
+            },
+            TestCase {
+                name: "return_removes_even_if_preemption_sender_taken",
+                initial_state: |ch| {
+                    ch.sender.take();
+                    ch.sender_closed = true;
+                },
+                take_receiver: true,
+                take_preemption_sender: true,
+                action: Action::ReturnReceiver {
+                    remaining_data: false,
+                },
+                expect_removed: true,
+            },
+            TestCase {
+                name: "explicit_close_removes_drained_channel",
+                initial_state: |ch| {
+                    ch.sender.take();
+                },
+                take_receiver: false,
+                take_preemption_sender: false,
+                action: Action::CloseOutputChannel,
+                expect_removed: true,
+            },
+        ];
+
+        for tc in cases {
+            let stream_id = tc.name;
+            {
+                let mut ios = service.ios.lock().await;
+                let mut ch = IOChannel::new();
+                (tc.initial_state)(&mut ch);
+                ios.insert(stream_id.to_string(), ch);
+            }
+
+            let receiver = if tc.take_receiver {
+                let r = service.preempt_receiver(stream_id).await.unwrap();
+                if tc.take_preemption_sender {
+                    let mut ios = service.ios.lock().await;
+                    ios.get_mut(stream_id).unwrap().preemption_sender.take();
+                }
+                Some(r)
+            } else {
+                None
+            };
+
+            match tc.action {
+                Action::ReturnReceiver { remaining_data } => {
+                    let data = if remaining_data {
+                        Some(Any::new())
+                    } else {
+                        None
+                    };
+                    timeout(
+                        Duration::from_millis(200),
+                        service.return_preempted_receiver(stream_id, receiver.unwrap(), data),
+                    )
+                    .await
+                    .expect("return_preempted_receiver should not deadlock");
+                }
+                Action::CloseOutputChannel => {
+                    service.close_output_channel(stream_id).await;
+                }
+            }
+
+            let ios = service.ios.lock().await;
+            assert_eq!(
+                ios.get(stream_id).is_none(),
+                tc.expect_removed,
+                "Case '{}' failed: expected removed = {}",
+                tc.name,
+                tc.expect_removed
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_return_preempted_receiver_notifies_waiting_preemptor_after_sender_closed() {
+        let service = new_service();
+        let stream_id = "test-stderr";
+        service
+            .ios
+            .lock()
+            .await
+            .insert(stream_id.to_string(), IOChannel::new());
+
+        let receiver = service.preempt_receiver(stream_id).await.unwrap();
+        {
+            let mut ios = service.ios.lock().await;
+            let channel = ios.get_mut(stream_id).unwrap();
+            channel.sender.take();
+            channel.sender_closed = true;
+        }
+
+        let waiting_service = service.clone();
+        let waiting =
+            tokio::spawn(async move { waiting_service.preempt_receiver(stream_id).await });
+
+        tokio::task::yield_now().await;
+
+        service
+            .return_preempted_receiver(stream_id, receiver, None)
+            .await;
+
+        let next_receiver = match timeout(Duration::from_millis(200), waiting).await {
+            Ok(Ok(Ok(receiver))) => receiver,
+            Ok(Ok(Err(e))) => panic!("preemptor should get the returned receiver: {}", e),
+            Ok(Err(e)) => panic!("preempt task should join successfully: {}", e),
+            Err(_) => panic!("waiting preemptor should be notified"),
+        };
+
+        service
+            .return_preempted_receiver(stream_id, next_receiver, None)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn test_streaming_stdin_read() {
+        use tokio::io::AsyncReadExt;
+
+        struct TestCase {
+            name: &'static str,
+            inputs: Vec<Vec<u8>>,
+            read_bufs: Vec<usize>,
+            expected: Vec<Vec<u8>>,
+        }
+
+        let cases = vec![
+            TestCase {
+                name: "single_full_read",
+                inputs: vec![vec![1, 2, 3]],
+                read_bufs: vec![3],
+                expected: vec![vec![1, 2, 3]],
+            },
+            TestCase {
+                name: "partial_read_from_one_chunk",
+                inputs: vec![vec![1, 2, 3, 4, 5]],
+                read_bufs: vec![3, 2],
+                expected: vec![vec![1, 2, 3], vec![4, 5]],
+            },
+            TestCase {
+                name: "multiple_chunks_read",
+                inputs: vec![vec![1, 2], vec![3, 4]],
+                read_bufs: vec![2, 2],
+                expected: vec![vec![1, 2], vec![3, 4]],
+            },
+            TestCase {
+                name: "read_larger_than_chunk",
+                inputs: vec![vec![1, 2]],
+                read_bufs: vec![4],
+                expected: vec![vec![1, 2]],
+            },
+            TestCase {
+                name: "read_overlapping_chunks",
+                inputs: vec![vec![1, 2, 3], vec![4, 5, 6]],
+                read_bufs: vec![2, 4],
+                expected: vec![vec![1, 2], vec![3, 4, 5, 6]],
+            },
+        ];
+
+        for tc in cases {
+            let (tx, rx) = tokio::sync::mpsc::channel(tc.inputs.len() + 1);
+            let mut stdin = super::StreamingStdin {
+                receiver: rx,
+                leftover: None,
+            };
+
+            for input in tc.inputs {
+                tx.send(input).await.unwrap();
+            }
+
+            for (i, &buf_len) in tc.read_bufs.iter().enumerate() {
+                let mut buf = vec![0u8; buf_len];
+                let n = stdin.read(&mut buf).await.unwrap();
+                assert_eq!(
+                    n,
+                    tc.expected[i].len(),
+                    "case '{}' read size mismatch at index {}",
+                    tc.name,
+                    i
+                );
+                assert_eq!(
+                    &buf[..n],
+                    &tc.expected[i][..],
+                    "case '{}' content mismatch at index {}",
+                    tc.name,
+                    i
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_streaming_stdin_read_leftover_then_eof() {
+        use tokio::io::AsyncReadExt;
+
+        let (tx, rx) = tokio::sync::mpsc::channel(2);
+        let mut stdin = super::StreamingStdin {
+            receiver: rx,
+            leftover: None,
+        };
+
+        tx.send(vec![1, 2, 3]).await.unwrap();
+        drop(tx);
+
+        let mut first = vec![0u8; 2];
+        let n = stdin.read(&mut first).await.unwrap();
+        assert_eq!(n, 2);
+        assert_eq!(&first[..n], &[1, 2]);
+
+        let mut second = vec![0u8; 2];
+        let n = stdin.read(&mut second).await.unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(&second[..n], &[3]);
+
+        let mut third = vec![0u8; 2];
+        let n = stdin.read(&mut third).await.unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[tokio::test]
+    async fn test_streaming_stdin_zero_length_read_keeps_buffered_data() {
+        use tokio::io::AsyncReadExt;
+
+        let (tx, rx) = tokio::sync::mpsc::channel(2);
+        let mut stdin = super::StreamingStdin {
+            receiver: rx,
+            leftover: Some(vec![7, 8, 9]),
+        };
+
+        tx.send(vec![1, 2, 3]).await.unwrap();
+        drop(tx);
+
+        let mut empty = [];
+        let n = stdin.read(&mut empty).await.unwrap();
+        assert_eq!(n, 0);
+
+        let mut buf = vec![0u8; 3];
+        let n = stdin.read(&mut buf).await.unwrap();
+        assert_eq!(n, 3);
+        assert_eq!(&buf[..n], &[7, 8, 9]);
+
+        let mut next = vec![0u8; 3];
+        let n = stdin.read(&mut next).await.unwrap();
+        assert_eq!(n, 3);
+        assert_eq!(&next[..n], &[1, 2, 3]);
     }
 }
