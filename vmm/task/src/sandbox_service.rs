@@ -25,7 +25,6 @@ use async_trait::async_trait;
 use containerd_sandbox::PodSandboxConfig;
 use containerd_shim::{
     error::Result,
-    io_error, other, other_error,
     protos::{protobuf::MessageDyn, topics::TASK_OOM_EVENT_TOPIC},
     util::convert_to_any,
     Error, TtrpcContext, TtrpcResult,
@@ -35,10 +34,7 @@ use nix::{
     sys::time::{TimeSpec, TimeValLike},
     time::{clock_gettime, clock_settime, ClockId},
 };
-use tokio::{
-    io::AsyncWriteExt,
-    sync::{mpsc::Receiver, Mutex},
-};
+use tokio::sync::{mpsc::Receiver, Mutex};
 use vmm_common::{
     api,
     api::{
@@ -51,7 +47,7 @@ use vmm_common::{
     },
 };
 
-use crate::{netlink::Handle, sandbox::setup_sandbox, NAMESPACE};
+use crate::{netlink::Handle, sandbox::setup_sandbox, util::spawn_and_wait, NAMESPACE};
 
 pub struct SandboxService {
     pub namespace: String,
@@ -202,7 +198,7 @@ impl api::sandbox_ttrpc::SandboxService for SandboxService {
 }
 
 async fn do_execute_cmd(cmd_args: &str, stdin: &[u8]) -> Result<String> {
-    let mut cmd = tokio::process::Command::new("/bin/bash");
+    let mut cmd = std::process::Command::new("/bin/bash");
     cmd.arg("-c");
     cmd.arg(cmd_args);
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -210,33 +206,101 @@ async fn do_execute_cmd(cmd_args: &str, stdin: &[u8]) -> Result<String> {
         cmd.stdin(Stdio::piped());
     }
 
-    let mut child = cmd
-        .spawn()
-        .map_err(io_error!(e, "spawn exec vm process failed:"))?;
-    if !stdin.is_empty() {
-        let cmd_in = child.stdin.as_mut().ok_or(other!("no stdin for command"))?;
-        cmd_in
-            .write_all(stdin)
-            .await
-            .map_err(io_error!(e, "failed to write vm process stdin:"))?;
+    let (stdout, stderr, exit_code) = spawn_and_wait(cmd, stdin).await?;
+
+    if exit_code == 0 {
+        Ok(stdout)
+    } else {
+        Err(containerd_shim::other!(
+            "cmd {} failed with exit code {} and error message {}",
+            cmd_args,
+            exit_code,
+            stderr
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::do_execute_cmd;
+
+    #[tokio::test]
+    async fn test_do_execute_cmd_table() {
+        struct TestCase {
+            name: &'static str,
+            cmd: &'static str,
+            stdin: &'static [u8],
+            expected_out: &'static str,
+            expect_err: bool,
+        }
+
+        let cases = vec![
+            TestCase {
+                name: "simple echo",
+                cmd: "echo hello",
+                stdin: &[],
+                expected_out: "hello",
+                expect_err: false,
+            },
+            TestCase {
+                name: "cat with stdin",
+                cmd: "cat",
+                stdin: b"hello stdin",
+                expected_out: "hello stdin",
+                expect_err: false,
+            },
+            TestCase {
+                name: "command fail",
+                cmd: "exit 1",
+                stdin: &[],
+                expected_out: "",
+                expect_err: true,
+            },
+            TestCase {
+                name: "multi line output",
+                cmd: "echo -e 'line1\nline2'",
+                stdin: &[],
+                expected_out: "line1\nline2",
+                expect_err: false,
+            },
+            TestCase {
+                name: "invalid utf8 output",
+                cmd: "printf '\\377'",
+                stdin: &[],
+                expected_out: "",
+                expect_err: true,
+            },
+        ];
+
+        for case in cases {
+            let res = do_execute_cmd(case.cmd, case.stdin).await;
+            if case.expect_err {
+                assert!(res.is_err(), "case: {}", case.name);
+            } else {
+                assert!(res.is_ok(), "case: {}, err: {:?}", case.name, res.err());
+                assert_eq!(
+                    res.unwrap().trim(),
+                    case.expected_out,
+                    "case: {}",
+                    case.name
+                );
+            }
+        }
     }
 
-    let output = child
-        .wait_with_output()
-        .await
-        .map_err(io_error!(e, "failed to combined process output:"))?;
-    if output.status.success() {
-        let raw_output =
-            String::from_utf8(output.stdout).map_err(other_error!(e, "failed to convert"))?;
-        Ok(raw_output)
-    } else {
-        let err_msg =
-            String::from_utf8(output.stderr).map_err(other_error!(e, "failed to convert"))?;
-        Err(other!(
-            "cmd {} failed with status {:?} and error message {}",
-            cmd_args,
-            output.status,
-            err_msg
-        ))
+    #[tokio::test]
+    async fn test_do_execute_cmd_concurrency() {
+        let mut futures = vec![];
+        for i in 0..10 {
+            futures.push(tokio::spawn(async move {
+                let cmd = format!("echo hello {}", i);
+                do_execute_cmd(&cmd, &[]).await
+            }));
+        }
+        let results = futures::future::join_all(futures).await;
+        for (i, res) in results.into_iter().enumerate() {
+            let out = res.unwrap().expect("should success");
+            assert_eq!(out.trim(), format!("hello {}", i));
+        }
     }
 }

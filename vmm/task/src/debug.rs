@@ -31,7 +31,7 @@ use nix::{
     sys::signal::{kill, Signal},
     unistd::{setsid, Pid},
 };
-use tokio::process::Command;
+
 use tokio_vsock::VsockStream;
 
 use crate::{stream::RawStream, util::wait_pid, vsock::bind_vsock};
@@ -55,12 +55,13 @@ pub async fn listen_debug_console(addr: &str, debug_shell: &str) -> Result<()> {
 pub async fn debug_console(stream: VsockStream, debug_shell: &str) -> Result<()> {
     let pty = openpty(None, None)?;
     let pty_master = pty.master;
-    let mut cmd = Command::new(debug_shell);
+    let mut cmd = std::process::Command::new(debug_shell);
     let pty_fd = pty.slave.into_raw_fd();
     cmd.stdin(unsafe { Stdio::from_raw_fd(pty_fd) });
     cmd.stdout(unsafe { Stdio::from_raw_fd(pty_fd) });
     cmd.stderr(unsafe { Stdio::from_raw_fd(pty_fd) });
     unsafe {
+        use std::os::unix::process::CommandExt;
         cmd.pre_exec(move || {
             setsid()?;
             Ok(())
@@ -83,11 +84,10 @@ pub async fn debug_console(stream: VsockStream, debug_shell: &str) -> Result<()>
                 debug!("stream closed: {:?}", res);
             }
         }
-        if let Some(id) = child.id() {
-            kill(Pid::from_raw(id as i32), Signal::SIGKILL).unwrap_or_default();
-            let exit_status = wait_pid(id as i32, s).await;
-            debug!("debug console shell exit with {}", exit_status)
-        }
+        let id = child.id();
+        kill(Pid::from_raw(id as i32), Signal::SIGKILL).unwrap_or_default();
+        let exit_status = wait_pid(id as i32, s).await;
+        debug!("debug console shell exit with {}", exit_status)
     });
 
     Ok(())
