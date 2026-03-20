@@ -25,13 +25,11 @@ use containerd_shim::{
     asynchronous::{
         console::ConsoleSocket,
         container::{ContainerFactory, ContainerTemplate, ProcessFactory},
-        monitor::{monitor_subscribe, monitor_unsubscribe},
         processes::{ProcessLifecycle, ProcessTemplate},
         util::read_file_to_str,
     },
     error::{Error, Result},
     io::Stdio,
-    monitor::Topic,
     other, other_error,
     protos::{
         cgroups::metrics::Metrics,
@@ -42,15 +40,15 @@ use containerd_shim::{
     util::read_spec,
     ExitSignal,
 };
-use log::{debug, error};
+use log::debug;
 use nix::{sys::signalfd::signal::kill, unistd::Pid};
 use oci_spec::runtime::{LinuxResources, Process, Spec};
 use runc::{options::GlobalOpts, Runc, Spawner};
 use serde::Deserialize;
 use tokio::{
     fs::{remove_file, File},
-    io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncSeekExt, BufReader},
-    process::Command,
+    io::{AsyncBufReadExt, AsyncSeekExt, BufReader},
+    process::{ChildStderr, ChildStdout, Command},
     sync::Mutex,
 };
 use tracing::instrument;
@@ -64,7 +62,7 @@ use crate::{
     device::rescan_pci_bus,
     io::{convert_stdio, copy_io_or_console, create_io},
     sandbox::SandboxResources,
-    util::{read_io, read_storages, wait_pid},
+    util::{read_io, read_std, read_storages, PidMonitorGuard},
 };
 
 pub const INIT_PID_FILE: &str = "init.pid";
@@ -621,52 +619,72 @@ impl Spawner for ShimExecutor {
         wait_output: bool,
     ) -> runc::Result<(ExitStatus, u32, String, String)> {
         let mut cmd = cmd;
-        let subscription = monitor_subscribe(Topic::Pid)
+        let mut monitor = PidMonitorGuard::subscribe()
             .await
             .map_err(|e| runc::error::Error::Other(Box::new(e)))?;
-        let sid = subscription.id;
-        let child = match cmd.spawn() {
+        // avoid tokio signal conflict by spawning as std command
+        let mut child = match cmd.as_std_mut().spawn() {
             Ok(c) => c,
             Err(e) => {
-                monitor_unsubscribe(sid).await.unwrap_or_default();
+                monitor.unsubscribe().await;
                 return Err(runc::error::Error::ProcessSpawnFailed(e));
             }
         };
         after_start();
-        let pid = child.id().unwrap();
-        let (stdout, stderr, exit_code) = if wait_output {
-            tokio::join!(
-                read_std(child.stdout),
-                read_std(child.stderr),
-                wait_pid(pid as i32, subscription)
-            )
-        } else {
-            (
-                "".to_string(),
-                "".to_string(),
-                wait_pid(pid as i32, subscription).await,
-            )
-        };
-        let status = ExitStatus::from_raw(exit_code);
-        monitor_unsubscribe(sid).await.unwrap_or_default();
-        Ok((status, pid, stdout, stderr))
-    }
-}
+        let pid = child.id();
 
-async fn read_std<T>(std: Option<T>) -> String
-where
-    T: AsyncRead + Unpin,
-{
-    let mut std = std;
-    if let Some(mut std) = std.take() {
-        let mut out = String::new();
-        std.read_to_string(&mut out).await.unwrap_or_else(|e| {
-            error!("failed to read stdout {}", e);
-            0
-        });
-        return out;
+        let res: runc::Result<(String, String, i32)> = async {
+            if wait_output {
+                let stdout_stream = child
+                    .stdout
+                    .take()
+                    .map(ChildStdout::from_std)
+                    .transpose()
+                    .map_err(|e| runc::error::Error::Other(Box::new(e)))?;
+                let stderr_stream = child
+                    .stderr
+                    .take()
+                    .map(ChildStderr::from_std)
+                    .transpose()
+                    .map_err(|e| runc::error::Error::Other(Box::new(e)))?;
+
+                Ok(tokio::join!(
+                    read_std(stdout_stream),
+                    read_std(stderr_stream),
+                    monitor.wait(pid as i32)
+                ))
+            } else {
+                Ok((
+                    "".to_string(),
+                    "".to_string(),
+                    monitor.wait(pid as i32).await,
+                ))
+            }
+        }
+        .await;
+
+        match res {
+            Ok((stdout, stderr, exit_code)) => {
+                let raw_status = if exit_code >= 128 {
+                    let sig = exit_code - 128;
+                    if (1..128).contains(&sig) {
+                        sig
+                    } else {
+                        exit_code << 8
+                    }
+                } else {
+                    exit_code << 8
+                };
+                let status = ExitStatus::from_raw(raw_status);
+                Ok((status, pid, stdout, stderr))
+            }
+            Err(e) => {
+                let _ = child.kill();
+                monitor.unsubscribe().await;
+                Err(e)
+            }
+        }
     }
-    "".to_string()
 }
 
 pub fn check_kill_error(emsg: String) -> Error {

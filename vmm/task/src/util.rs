@@ -14,18 +14,52 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::path::Path;
+#[cfg(test)]
+use std::process::Child;
+use std::{io, path::Path};
 
 use containerd_shim::{
     asynchronous::{
-        monitor::{monitor_unsubscribe, Subscription},
+        monitor::{monitor_subscribe, monitor_unsubscribe, Subscription},
         util::read_file_to_str,
     },
     error::{Error, Result},
-    monitor::{ExitEvent, Subject},
-    other_error,
+    monitor::{ExitEvent, Subject, Topic},
+    other, other_error,
+};
+use log::error;
+use tokio::{
+    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
+    process::{ChildStderr, ChildStdin, ChildStdout},
 };
 use vmm_common::{storage::Storage, Io, IO_FILE_PREFIX, STORAGE_FILE_PREFIX};
+
+pub struct PidMonitorGuard {
+    subscription: Option<Subscription>,
+}
+
+impl PidMonitorGuard {
+    pub async fn subscribe() -> Result<Self> {
+        Ok(Self {
+            subscription: Some(monitor_subscribe(Topic::Pid).await?),
+        })
+    }
+
+    #[allow(clippy::expect_used)]
+    pub async fn wait(&mut self, pid: i32) -> i32 {
+        let subscription = self
+            .subscription
+            .take()
+            .expect("pid monitor subscription should exist");
+        wait_pid(pid, subscription).await
+    }
+
+    pub async fn unsubscribe(&mut self) {
+        if let Some(subscription) = self.subscription.take() {
+            let _ = monitor_unsubscribe(subscription.id).await;
+        }
+    }
+}
 
 pub async fn wait_pid(pid: i32, s: Subscription) -> i32 {
     let mut s = s;
@@ -39,6 +73,180 @@ pub async fn wait_pid(pid: i32, s: Subscription) -> i32 {
                 monitor_unsubscribe(s.id).await.unwrap_or_default();
                 return code;
             }
+        }
+    }
+}
+
+#[cfg(test)]
+fn spawn_test_reaper(child: &mut Option<Child>, pid: u32) {
+    if let Some(mut child) = child.take() {
+        tokio::spawn(async move {
+            let wait_result = tokio::task::spawn_blocking(move || {
+                use std::os::unix::process::ExitStatusExt;
+
+                child.wait().map(|status| {
+                    status
+                        .code()
+                        .unwrap_or_else(|| 128 + status.signal().unwrap_or(0))
+                })
+            })
+            .await;
+            match wait_result {
+                Ok(Ok(code)) => {
+                    let _ = containerd_shim::asynchronous::monitor::monitor_notify_by_pid(
+                        pid as i32, code,
+                    )
+                    .await;
+                }
+                Ok(Err(e)) => {
+                    error!("test reaper failed to wait child {}: {}", pid, e);
+                }
+                Err(e) => {
+                    error!("test reaper task failed for child {}: {}", pid, e);
+                }
+            }
+        });
+    }
+}
+
+#[cfg_attr(feature = "youki", allow(dead_code))]
+pub(crate) async fn read_std<T>(std: Option<T>) -> String
+where
+    T: AsyncRead + Unpin,
+{
+    let mut std = std;
+    if let Some(mut std) = std.take() {
+        let mut out = String::new();
+        if let Err(e) = std.read_to_string(&mut out).await {
+            error!("failed to read process stdio: {}", e);
+        }
+        return out;
+    }
+    "".to_string()
+}
+
+async fn read_std_bytes<T>(std: Option<T>) -> io::Result<Vec<u8>>
+where
+    T: AsyncRead + Unpin,
+{
+    let mut std = std;
+    if let Some(mut std) = std.take() {
+        let mut out = Vec::new();
+        std.read_to_end(&mut out).await?;
+        return Ok(out);
+    }
+    Ok(Vec::new())
+}
+
+pub async fn spawn_and_wait(
+    mut cmd: std::process::Command,
+    stdin: &[u8],
+) -> Result<(String, String, i32)> {
+    let mut monitor = PidMonitorGuard::subscribe().await?;
+    let child = match cmd.spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            monitor.unsubscribe().await;
+            return Err(Error::IoError {
+                context: "spawn failed".to_string(),
+                err: e,
+            });
+        }
+    };
+
+    let pid = child.id();
+    let mut child = Some(child);
+
+    let mut process_exited = false;
+
+    let result = async {
+        if !stdin.is_empty() {
+            let child_stdin = child.as_mut().unwrap().stdin.take().ok_or_else(|| {
+                other!("stdin pipe is missing, please ensure stdin(Stdio::piped()) is set")
+            })?;
+
+            let mut async_stdin =
+                ChildStdin::from_std(child_stdin).map_err(|e| Error::IoError {
+                    context: "failed to convert stdin".to_string(),
+                    err: e,
+                })?;
+
+            async_stdin
+                .write_all(stdin)
+                .await
+                .map_err(|e| Error::IoError {
+                    context: "failed to write stdin".to_string(),
+                    err: e,
+                })?;
+
+            async_stdin.shutdown().await.map_err(|e| Error::IoError {
+                context: "failed to shutdown stdin".to_string(),
+                err: e,
+            })?;
+        }
+
+        let stdout_stream = child
+            .as_mut()
+            .unwrap()
+            .stdout
+            .take()
+            .map(ChildStdout::from_std)
+            .transpose()
+            .map_err(|e| Error::IoError {
+                context: "failed to convert stdout".to_string(),
+                err: e,
+            })?;
+
+        let stderr_stream = child
+            .as_mut()
+            .unwrap()
+            .stderr
+            .take()
+            .map(ChildStderr::from_std)
+            .transpose()
+            .map_err(|e| Error::IoError {
+                context: "failed to convert stderr".to_string(),
+                err: e,
+            })?;
+
+        #[cfg(test)]
+        spawn_test_reaper(&mut child, pid);
+
+        let (stdout_bytes, stderr_bytes, exit_code) = tokio::join!(
+            read_std_bytes(stdout_stream),
+            read_std_bytes(stderr_stream),
+            monitor.wait(pid as i32)
+        );
+
+        process_exited = true;
+
+        let stdout = String::from_utf8_lossy(&stdout_bytes.map_err(|e| Error::IoError {
+            context: "failed to read stdout".to_string(),
+            err: e,
+        })?)
+        .into_owned();
+
+        let stderr = String::from_utf8_lossy(&stderr_bytes.map_err(|e| Error::IoError {
+            context: "failed to read stderr".to_string(),
+            err: e,
+        })?)
+        .into_owned();
+
+        Ok((stdout, stderr, exit_code))
+    }
+    .await;
+
+    match result {
+        Ok(res) => Ok(res),
+        Err(e) => {
+            if !process_exited {
+                let _ = nix::sys::signal::kill(
+                    nix::unistd::Pid::from_raw(pid as i32),
+                    nix::sys::signal::Signal::SIGKILL,
+                );
+            }
+            monitor.unsubscribe().await;
+            Err(e)
         }
     }
 }
