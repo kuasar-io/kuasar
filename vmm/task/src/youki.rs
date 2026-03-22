@@ -17,7 +17,7 @@
 use std::{
     convert::TryFrom,
     os::{
-        fd::{FromRawFd, IntoRawFd, OwnedFd, RawFd},
+        fd::{IntoRawFd, OwnedFd},
         unix::fs::fchown,
     },
     path::{Path, PathBuf},
@@ -158,7 +158,7 @@ impl YoukiFactory {
     ) -> Result<InitProcess> {
         // youki seems not support no_pivot_root and no_new_keyring option yet.
 
-        let (socket, pio, _container_io) = if stdio.terminal {
+        let (socket, pio, container_io) = if stdio.terminal {
             let s = ConsoleSocket::new().await?;
             (Some(s), None, None)
         } else {
@@ -170,22 +170,21 @@ impl YoukiFactory {
         let bundle_clone = bundle.to_string();
         let socket_path = socket.as_ref().map(|p| p.path.clone());
         let resp = spawn_blocking(move || {
-            let builder = ContainerBuilder::new(id_clone, SyscallType::default())
+            let mut builder = ContainerBuilder::new(id_clone, SyscallType::default())
                 .with_console_socket(socket_path)
                 .with_root_path(PathBuf::from(YOUKI_DIR))
                 .map_err(other_error!(e, "failed to set youki create root path"))?;
-            // TODO: will uncomment this after youki-dev/youki#2961 is merged.
-            // if let Some(f) = container_io {
-            //     if let Some(p) = f.stdin {
-            //         builder = builder.with_stdin(p);
-            //     }
-            //     if let Some(p) = f.stdout {
-            //         builder = builder.with_stdout(p);
-            //     }
-            //     if let Some(p) = f.stderr {
-            //         builder = builder.with_stderr(p);
-            //     }
-            // }
+            if let Some(f) = container_io {
+                if let Some(p) = f.stdin {
+                    builder = builder.with_stdin(p);
+                }
+                if let Some(p) = f.stdout {
+                    builder = builder.with_stdout(p);
+                }
+                if let Some(p) = f.stderr {
+                    builder = builder.with_stderr(p);
+                }
+            }
 
             builder
                 .as_init(bundle_clone)
@@ -296,7 +295,7 @@ impl ProcessLifecycle<InitProcess> for YoukiInitLifecycle {
             .await
             .kill(signal, all)
             .or_else(|e| {
-                if let LibcontainerError::IncorrectStatus = e {
+                if let LibcontainerError::IncorrectStatus(_) = e {
                     Ok(())
                 } else {
                     Err(e)
@@ -384,7 +383,7 @@ pub struct YoukiExecLifecycle {
 impl ProcessLifecycle<ExecProcess> for YoukiExecLifecycle {
     async fn start(&self, p: &mut ExecProcess) -> containerd_shim::Result<()> {
         rescan_pci_bus().await?;
-        let (socket, pio, _container_io) = if p.stdio.terminal {
+        let (socket, pio, container_io) = if p.stdio.terminal {
             let s = ConsoleSocket::new().await?;
             (Some(s), None, None)
         } else {
@@ -403,22 +402,21 @@ impl ProcessLifecycle<ExecProcess> for YoukiExecLifecycle {
         let socket_path = socket.as_ref().map(|p| p.path.clone());
         let probe_path_clone = probe_path.clone();
         let exec_result = spawn_blocking(move || {
-            let builder = ContainerBuilder::new(container_id, SyscallType::default())
+            let mut builder = ContainerBuilder::new(container_id, SyscallType::default())
                 .with_root_path(PathBuf::from(YOUKI_DIR))
                 .map_err(other_error!(e, "failed to set youki root path"))?
                 .with_console_socket(socket_path);
-            // TODO: will uncomment this after youki-dev/youki#2961 is merged.
-            // if let Some(f) = container_io {
-            //     if let Some(fd) = f.stdin {
-            //         builder = builder.with_stdin(fd);
-            //     }
-            //     if let Some(fd) = f.stdout {
-            //         builder = builder.with_stdout(fd);
-            //     }
-            //     if let Some(fd) = f.stderr {
-            //         builder = builder.with_stderr(fd);
-            //     }
-            // }
+            if let Some(f) = container_io {
+                if let Some(fd) = f.stdin {
+                    builder = builder.with_stdin(fd);
+                }
+                if let Some(fd) = f.stdout {
+                    builder = builder.with_stdout(fd);
+                }
+                if let Some(fd) = f.stderr {
+                    builder = builder.with_stderr(fd);
+                }
+            }
 
             builder
                 .as_tenant()
@@ -534,24 +532,45 @@ pub fn create_io(
 
 impl Io for PipedIo {
     fn stdin(&self) -> Option<Box<dyn AsyncWrite + Send + Sync + Unpin>> {
-        self.stdin.and_then(|pipe| {
-            tokio_pipe::PipeWrite::from_raw_fd_checked(pipe)
+        let mut guard = match self.stdin.lock() {
+            Ok(g) => g,
+            Err(p) => {
+                warn!("stdin mutex is poisoned, recovering");
+                p.into_inner()
+            }
+        };
+        guard.take().and_then(|pipe| {
+            tokio_pipe::PipeWrite::from_raw_fd_checked(pipe.into_raw_fd())
                 .map(|x| Box::new(x) as Box<dyn AsyncWrite + Send + Sync + Unpin>)
                 .ok()
         })
     }
 
     fn stdout(&self) -> Option<Box<dyn AsyncRead + Send + Sync + Unpin>> {
-        self.stdout.and_then(|pipe| {
-            tokio_pipe::PipeRead::from_raw_fd_checked(pipe)
+        let mut guard = match self.stdout.lock() {
+            Ok(g) => g,
+            Err(p) => {
+                warn!("stdout mutex is poisoned, recovering");
+                p.into_inner()
+            }
+        };
+        guard.take().and_then(|pipe| {
+            tokio_pipe::PipeRead::from_raw_fd_checked(pipe.into_raw_fd())
                 .map(|x| Box::new(x) as Box<dyn AsyncRead + Send + Sync + Unpin>)
                 .ok()
         })
     }
 
     fn stderr(&self) -> Option<Box<dyn AsyncRead + Send + Sync + Unpin>> {
-        self.stderr.and_then(|pipe| {
-            tokio_pipe::PipeRead::from_raw_fd_checked(pipe)
+        let mut guard = match self.stderr.lock() {
+            Ok(g) => g,
+            Err(p) => {
+                warn!("stderr mutex is poisoned, recovering");
+                p.into_inner()
+            }
+        };
+        guard.take().and_then(|pipe| {
+            tokio_pipe::PipeRead::from_raw_fd_checked(pipe.into_raw_fd())
                 .map(|x| Box::new(x) as Box<dyn AsyncRead + Send + Sync + Unpin>)
                 .ok()
         })
@@ -572,15 +591,15 @@ impl Io for PipedIo {
 /// When one side of the pipe is closed, the state will be represented with [`None`].
 #[derive(Debug)]
 pub struct Pipe {
-    rd: RawFd,
-    wr: RawFd,
+    rd: OwnedFd,
+    wr: OwnedFd,
 }
 
 #[derive(Debug, Default)]
 pub struct PipedIo {
-    stdin: Option<RawFd>,
-    stdout: Option<RawFd>,
-    stderr: Option<RawFd>,
+    stdin: std::sync::Mutex<Option<OwnedFd>>,
+    stdout: std::sync::Mutex<Option<OwnedFd>>,
+    stderr: std::sync::Mutex<Option<OwnedFd>>,
 }
 
 #[derive(Debug, Default)]
@@ -599,8 +618,8 @@ impl Pipe {
             fchown(&wr, Some(uid), Some(gid))?;
         }
         Ok(Self {
-            rd: rd.into_raw_fd(),
-            wr: wr.into_raw_fd(),
+            rd: OwnedFd::from(rd),
+            wr: OwnedFd::from(wr),
         })
     }
 }
@@ -611,18 +630,18 @@ impl PipedIo {
         let mut container_pipes = ContainerPipeIo::default();
         if opts.open_stdin {
             let pipe = Self::create_pipe(uid, gid, true)?;
-            res.stdin = Some(pipe.wr);
-            container_pipes.stdin = Some(unsafe { OwnedFd::from_raw_fd(pipe.rd) });
+            res.stdin = std::sync::Mutex::new(Some(pipe.wr));
+            container_pipes.stdin = Some(pipe.rd);
         }
         if opts.open_stdout {
             let pipe = Self::create_pipe(uid, gid, false)?;
-            res.stdout = Some(pipe.rd);
-            container_pipes.stdout = Some(unsafe { OwnedFd::from_raw_fd(pipe.wr) });
+            res.stdout = std::sync::Mutex::new(Some(pipe.rd));
+            container_pipes.stdout = Some(pipe.wr);
         }
         if opts.open_stderr {
             let pipe = Self::create_pipe(uid, gid, false)?;
-            res.stderr = Some(pipe.rd);
-            container_pipes.stderr = Some(unsafe { OwnedFd::from_raw_fd(pipe.wr) });
+            res.stderr = std::sync::Mutex::new(Some(pipe.rd));
+            container_pipes.stderr = Some(pipe.wr);
         }
         Ok((res, container_pipes))
     }
