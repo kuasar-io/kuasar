@@ -25,7 +25,7 @@ use async_trait::async_trait;
 use containerd_shim::protos::protobuf::{CodedInputStream, Message};
 use futures::{ready, Future};
 use lazy_static::lazy_static;
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use protobuf::MessageFull;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
@@ -146,7 +146,7 @@ impl IOChannel {
 impl api::streaming_ttrpc::Streaming for Service {
     async fn stream(
         &self,
-        _ctx: &TtrpcContext,
+        ctx: &TtrpcContext,
         mut stream: ServerStream<Any, Any>,
     ) -> ::ttrpc::Result<()> {
         let stream_id = if let Some(i) = stream.recv().await? {
@@ -165,15 +165,33 @@ impl api::streaming_ttrpc::Streaming for Service {
         let a = new_any!(Empty);
         stream.send(&a).await?;
 
-        if stream_id.ends_with("stdin") {
-            self.handle_stdin(&stream_id, stream).await?;
+        // Save the connection fd before consuming stream, so we can shutdown it after handler exits.
+        let conn_fd = ctx.fd;
+
+        let res = if stream_id.ends_with("stdin") {
+            self.handle_stdin(&stream_id, stream).await
         } else if stream_id.ends_with("stdout") || stream_id.ends_with("stderr") {
-            self.handle_stdout(&stream_id, stream).await?;
+            self.handle_stdout(&stream_id, stream).await
         } else {
             warn!("unrecognized stream {}", stream_id);
+            Ok(())
+        };
+
+        match res {
+            Ok(_) => debug!("handle stream for {} finished successfully", stream_id),
+            Err(e) => error!("handle stream for {} finished with error: {}", stream_id, e),
         }
 
-        debug!("stream with id {} handle finished", stream_id);
+        // Proactively shutdown the connection to force ttrpc Connection::run() to exit immediately.
+        // This prevents socket FD and tokio task leaks after the streaming handler finishes.
+        info!(
+            "shutting down streaming connection fd {} for stream {}",
+            conn_fd, stream_id
+        );
+        unsafe {
+            libc::shutdown(conn_fd, libc::SHUT_RDWR);
+        }
+
         Ok(())
     }
 }
