@@ -202,6 +202,7 @@ fn init_logger(log_level: &str) -> anyhow::Result<()> {
 
 #[tokio::main]
 async fn main() {
+    vmm_common::panic::set_panic_hook();
     let config = match initialize().await {
         Ok(c) => c,
         Err(e) => {

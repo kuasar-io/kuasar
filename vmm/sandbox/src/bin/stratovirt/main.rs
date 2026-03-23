@@ -30,6 +30,7 @@ use vmm_sandboxer::{
 
 #[tokio::main]
 async fn main() {
+    vmm_common::panic::set_panic_hook();
     let args = args::Args::parse();
     if args.version {
         version::print_version_info();
