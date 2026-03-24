@@ -22,7 +22,7 @@ endif
 .PHONY: vmm wasm quark clean all install-vmm install-wasm install-quark install \
         bin/vmm-sandboxer bin/vmm-task bin/vmlinux.bin bin/kuasar.img bin/kuasar.initrd \
         bin/wasm-sandboxer bin/quark-sandboxer bin/runc-sandboxer \
-        test-e2e test-e2e-framework verify-e2e local-up clean-e2e help
+        test-e2e test-e2e-framework verify-e2e local-up clean-e2e check help
 
 all: vmm quark wasm
 
@@ -138,6 +138,16 @@ local-up: ## Start local Kuasar cluster for testing
 
 clean-e2e: ## Clean e2e test artifacts
 	@$(MAKE) -f Makefile.e2e clean-e2e
+
+# Check targets for Rust code quality
+check: ## Run cargo check, clippy, and fmt check
+	@echo "==> Running: cargo check --workspace --all-targets"
+	@cargo check --workspace --all-targets
+	@echo "==> Running: cargo clippy --workspace -- -D warnings"
+	@cargo clippy --workspace -- -D warnings
+	@echo "==> Running: cargo +nightly fmt --all -- --check"
+	@cargo +nightly fmt --all -- --check
+	@echo "==> All checks passed!"
 
 .PHONY: help
 help: ## Display this help screen
