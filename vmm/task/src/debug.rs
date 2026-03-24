@@ -19,22 +19,17 @@ use std::{
     process::Stdio,
 };
 
-use containerd_shim::{
-    io_error,
-    monitor::{monitor_subscribe, Topic},
-    other_error, Error, Result,
-};
+use containerd_shim::{io_error, Error, Result};
 use futures::StreamExt;
 use log::{debug, error};
 use nix::{
     pty::openpty,
     sys::signal::{kill, Signal},
-    unistd::{setsid, Pid},
+    unistd::{dup, setsid, Pid},
 };
-use tokio::process::Command;
 use tokio_vsock::VsockStream;
 
-use crate::{stream::RawStream, util::wait_pid, vsock::bind_vsock};
+use crate::{stream::RawStream, util::PidMonitorGuard, vsock::bind_vsock};
 
 pub async fn listen_debug_console(addr: &str, debug_shell: &str) -> Result<()> {
     let l = bind_vsock(addr).await?;
@@ -55,21 +50,28 @@ pub async fn listen_debug_console(addr: &str, debug_shell: &str) -> Result<()> {
 pub async fn debug_console(stream: VsockStream, debug_shell: &str) -> Result<()> {
     let pty = openpty(None, None)?;
     let pty_master = pty.master;
-    let mut cmd = Command::new(debug_shell);
+    let mut cmd = std::process::Command::new(debug_shell);
     let pty_fd = pty.slave.into_raw_fd();
-    cmd.stdin(unsafe { Stdio::from_raw_fd(pty_fd) });
-    cmd.stdout(unsafe { Stdio::from_raw_fd(pty_fd) });
+    cmd.stdin(unsafe { Stdio::from_raw_fd(dup(pty_fd).map_err(|e| Error::Other(e.to_string()))?) });
+    cmd.stdout(unsafe {
+        Stdio::from_raw_fd(dup(pty_fd).map_err(|e| Error::Other(e.to_string()))?)
+    });
     cmd.stderr(unsafe { Stdio::from_raw_fd(pty_fd) });
     unsafe {
+        use std::os::unix::process::CommandExt;
         cmd.pre_exec(move || {
-            setsid()?;
+            setsid().map_err(|e| std::io::Error::from_raw_os_error(e as i32))?;
             Ok(())
         })
     };
-    let s = monitor_subscribe(Topic::Pid).await?;
-    let child = cmd
-        .spawn()
-        .map_err(other_error!(e, "failed to spawn console"))?;
+    let mut monitor = PidMonitorGuard::subscribe().await?;
+    let child = match cmd.spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            monitor.unsubscribe().await;
+            return Err(Error::Other(format!("failed to spawn console: {}", e)));
+        }
+    };
     let (mut stream_reader, mut stream_writer) = stream.split();
     let pty_fd = RawStream::new(pty_master)
         .map_err(io_error!(e, "failed to create AsyncDirectFd from rawfd"))?;
@@ -83,11 +85,10 @@ pub async fn debug_console(stream: VsockStream, debug_shell: &str) -> Result<()>
                 debug!("stream closed: {:?}", res);
             }
         }
-        if let Some(id) = child.id() {
-            kill(Pid::from_raw(id as i32), Signal::SIGKILL).unwrap_or_default();
-            let exit_status = wait_pid(id as i32, s).await;
-            debug!("debug console shell exit with {}", exit_status)
-        }
+        let id = child.id();
+        kill(Pid::from_raw(id as i32), Signal::SIGKILL).unwrap_or_default();
+        let exit_status = monitor.wait(id as i32).await;
+        debug!("debug console shell exit with {}", exit_status)
     });
 
     Ok(())
