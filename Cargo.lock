@@ -4908,6 +4908,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "backtrace",
  "containerd-sandbox",
  "futures",
  "lazy_static",
@@ -4921,6 +4922,7 @@ dependencies = [
  "signal-hook-tokio",
  "tonic-build",
  "tracing",
+ "tracing-log 0.2.0",
  "tracing-opentelemetry",
  "tracing-subscriber",
  "ttrpc",
