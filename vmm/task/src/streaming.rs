@@ -239,7 +239,10 @@ impl Service {
             ))?
             .receiver
             .take()
-            .map(|r| StreamingStdin { receiver: r })
+            .map(|r| StreamingStdin {
+                receiver: r,
+                remaining: None,
+            })
             .ok_or(containerd_shim::Error::Other(
                 "someone is taking the io channel".to_string(),
             ))
@@ -414,7 +417,8 @@ fn get_id(url: &str) -> containerd_shim::Result<&str> {
 
 pin_project_lite::pin_project! {
     pub struct StreamingStdin {
-        receiver: Receiver<Vec<u8>>
+        receiver: Receiver<Vec<u8>>,
+        remaining: Option<(Vec<u8>, usize)>,
     }
 }
 
@@ -425,13 +429,32 @@ impl AsyncRead for StreamingStdin {
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
         let this = self.project();
-        let r = ready!(this.receiver.poll_recv(cx));
-        match r {
-            Some(a) => {
-                buf.put_slice(a.as_slice());
-                Poll::Ready(Ok(()))
+        if let Some((data, offset)) = this.remaining.take() {
+            let len = std::cmp::min(data.len() - offset, buf.remaining());
+            buf.put_slice(&data[offset..offset + len]);
+            let new_offset = offset + len;
+            if new_offset < data.len() {
+                *this.remaining = Some((data, new_offset));
             }
-            None => Poll::Ready(Ok(())),
+            return Poll::Ready(Ok(()));
+        }
+
+        loop {
+            let r = ready!(this.receiver.poll_recv(cx));
+            match r {
+                Some(a) => {
+                    if a.is_empty() {
+                        continue;
+                    }
+                    let len = std::cmp::min(a.len(), buf.remaining());
+                    buf.put_slice(&a[..len]);
+                    if len < a.len() {
+                        *this.remaining = Some((a, len));
+                    }
+                    return Poll::Ready(Ok(()));
+                }
+                None => return Poll::Ready(Ok(())),
+            }
         }
     }
 }
@@ -480,5 +503,108 @@ impl AsyncWrite for StreamingOutput {
         _cx: &mut Context<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
         Poll::Ready(Ok(()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::io::AsyncReadExt;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_streaming_stdin() {
+        #[derive(Debug)]
+        enum Action {
+            Send(Vec<u8>),
+            Read(usize, Vec<u8>), // buf_size, expected_result
+            Close,
+        }
+
+        let tests = vec![
+            (
+                "large data read in chunks",
+                vec![
+                    Action::Send(vec![1u8; 8192]),
+                    Action::Read(4096, vec![1u8; 4096]),
+                    Action::Read(4096, vec![1u8; 4096]),
+                    Action::Close,
+                    Action::Read(4096, vec![]),
+                ],
+            ),
+            (
+                "incremental read bytes",
+                vec![
+                    Action::Send(vec![1, 2, 3, 4, 5]),
+                    Action::Read(1, vec![1]),
+                    Action::Read(1, vec![2]),
+                    Action::Read(1, vec![3]),
+                    Action::Read(1, vec![4]),
+                    Action::Read(1, vec![5]),
+                    Action::Send(vec![6, 7, 8, 9, 10]),
+                    Action::Read(3, vec![6, 7, 8]),
+                    Action::Read(3, vec![9, 10]),
+                ],
+            ),
+            (
+                "empty data and EOF",
+                vec![
+                    Action::Send(vec![]),
+                    Action::Send(vec![1, 2, 3]),
+                    Action::Read(10, vec![1, 2, 3]),
+                    Action::Send(vec![]),
+                    Action::Close,
+                    Action::Read(10, vec![]),
+                ],
+            ),
+            (
+                "empty data before EOF",
+                vec![
+                    Action::Send(vec![]),
+                    Action::Close,
+                    Action::Read(10, vec![]),
+                ],
+            ),
+        ];
+
+        for (name, actions) in tests {
+            let (tx, rx) = channel(32);
+            let mut stdin = StreamingStdin {
+                receiver: rx,
+                remaining: None,
+            };
+            let mut tx = Some(tx);
+
+            for action in actions {
+                match action {
+                    Action::Send(data) => {
+                        tx.as_ref().unwrap().try_send(data).unwrap_or_else(|e| {
+                            panic!("case '{}' failed to send data: {}", name, e)
+                        });
+                    }
+                    Action::Read(buf_size, expected) => {
+                        let mut buf = vec![0u8; buf_size];
+                        let n = stdin.read(&mut buf).await.unwrap();
+                        assert_eq!(
+                            n,
+                            expected.len(),
+                            "case '{}' failed at read: expected {} bytes, got {}",
+                            name,
+                            expected.len(),
+                            n
+                        );
+                        assert_eq!(
+                            &buf[..n],
+                            &expected[..],
+                            "case '{}' failed at data comparison",
+                            name
+                        );
+                    }
+                    Action::Close => {
+                        tx.take();
+                    }
+                }
+            }
+        }
     }
 }
