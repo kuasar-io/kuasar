@@ -142,6 +142,16 @@ Then developers could enter the guest os debug console shell environment by:
 $ ncat --vsock 395568061 1025
 ```
 
+### Using kuasar-ctl (Recommended for Cloud Hypervisor)
+
+For Cloud Hypervisor sandboxes, you can use the `kuasar-ctl` tool for a more streamlined experience without manually searching for CIDs:
+
+```bash
+$ kuasar-ctl exec <sandbox-id-or-prefix> -- uname -a
+```
+
+Refer to [tools/kuasar-ctl/README.md](../../tools/kuasar-ctl/README.md) for more details.
+
 # Note
 
 Please note that this guide only teach you how to build kuasar from source code, if you want to run the kuasar, hypervisor and virtiofsd are also needed!
