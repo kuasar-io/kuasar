@@ -19,12 +19,12 @@ ifeq ($(ENABLE_YOUKI), true)
 	VMM_TASK_FEATURES = youki
 endif
 
-.PHONY: vmm wasm quark clean all install-vmm install-wasm install-quark install \
+.PHONY: vmm wasm quark clean all install-vmm install-wasm install-quark install-runc install-ctl install \
         bin/vmm-sandboxer bin/vmm-task bin/vmlinux.bin bin/kuasar.img bin/kuasar.initrd \
-        bin/wasm-sandboxer bin/quark-sandboxer bin/runc-sandboxer \
+        bin/wasm-sandboxer bin/quark-sandboxer bin/runc-sandboxer bin/kuasar-ctl \
         test-e2e test-e2e-framework verify-e2e local-up clean-e2e check help
 
-all: vmm quark wasm
+all: vmm quark wasm bin/kuasar-ctl
 
 bin/vmm-sandboxer:
 	@cd vmm/sandbox && cargo build --release --bin ${HYPERVISOR} --features=${VMM_SANDBOX_FEATURES}
@@ -58,6 +58,10 @@ bin/runc-sandboxer:
 	@cd runc && cargo build --release --features=${RUNC_FEATURES}
 	@mkdir -p bin && cp target/release/runc-sandboxer bin/runc-sandboxer
 
+bin/kuasar-ctl:
+	@cd tools/kuasar-ctl && cargo build --release
+	@mkdir -p bin && cp target/release/kuasar-ctl bin/kuasar-ctl
+
 wasm: bin/wasm-sandboxer
 quark: bin/quark-sandboxer
 runc: bin/runc-sandboxer
@@ -76,6 +80,7 @@ clean:
 	@cd wasm && cargo clean
 	@cd quark && cargo clean
 	@cd runc && cargo clean
+	@cd tools/kuasar-ctl && cargo clean
 
 install-vmm:
 	@install -d -m 750 ${DEST_DIR}${BIN_DIR}
@@ -109,7 +114,11 @@ install-quark:
 install-runc:
 	@install -p -m 550 bin/runc-sandboxer ${DEST_DIR}${BIN_DIR}/runc-sandboxer
 
-install: all install-vmm install-wasm install-quark install-runc
+install-ctl:
+	@install -d -m 750 ${DEST_DIR}${BIN_DIR}
+	@install -p -m 550 bin/kuasar-ctl ${DEST_DIR}${BIN_DIR}/kuasar-ctl
+
+install: all install-vmm install-wasm install-quark install-runc install-ctl
 
 # E2E Testing targets
 test-e2e: ## Run full e2e integration tests (requires environment setup)

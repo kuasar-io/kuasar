@@ -1,0 +1,16 @@
+[package]
+name = "kuasar-ctl"
+version = "0.1.0"
+edition = "2021"
+authors = ["The Kuasar Authors"]
+description = "Kuasar diagnostic tool for troubleshooting Guest VMs"
+
+[dependencies]
+clap = { version = "4.6", features = ["derive"] }
+tokio = { version = "1.40", features = ["full"] }
+anyhow = "1.0"
+log = "0.4"
+env_logger = "0.11"
+
+[dev-dependencies]
+tempfile = "3.0"
