@@ -1,0 +1,186 @@
+name: Build VMM Artifacts
+
+on:
+  workflow_call:
+    inputs:
+      hypervisor:
+        required: false
+        type: string
+        default: clh
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.hypervisor }}-build
+  cancel-in-progress: true
+
+jobs:
+  build-vmm-artifacts:
+    name: build-vmm-artifacts (${{ inputs.hypervisor }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set hypervisor variables
+        run: |
+          case "${{ inputs.hypervisor }}" in
+            clh)
+              echo "MAKE_HYPERVISOR=cloud_hypervisor" >> "$GITHUB_ENV"
+              echo "CONFIG_FILE=vmm/sandbox/config_clh.toml" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "unsupported hypervisor: ${{ inputs.hypervisor }}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Setup Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v5.0.2
+        with:
+          go-version: '1.22'
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@150fca883cd4034361b621bd4e6a9d34e5143606 # v1.15.4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libseccomp-dev \
+            protobuf-compiler \
+            curl \
+            git \
+            qemu-utils \
+            flex \
+            bison \
+            bc \
+            libelf-dev \
+            libssl-dev
+      - name: Extract versions from Makefile
+        run: |
+          KERNEL_VERSION=$(grep "KERNEL_VERSION ?=" Makefile | awk '{print $3}')
+          GUESTOS_IMAGE=$(grep "GUESTOS_IMAGE ?=" Makefile | awk '{print $3}')
+          echo "KERNEL_VERSION=${KERNEL_VERSION}" >> "$GITHUB_ENV"
+          echo "GUESTOS_IMAGE=${GUESTOS_IMAGE}" >> "$GITHUB_ENV"
+
+      - name: Restore Kernel Artifact Cache
+        id: cache-kernel
+        uses: actions/cache/restore@v4
+        with:
+          path: bin/vmlinux.bin
+          key: vmlinux-${{ inputs.hypervisor }}-${{ hashFiles('vmm/scripts/kernel/**', 'Makefile') }}-${{ env.KERNEL_VERSION }}
+
+      - name: Restore VM Image Cache
+        id: cache-image
+        uses: actions/cache/restore@v4
+        with:
+          path: bin/kuasar.img
+          key: vmm-img-${{ inputs.hypervisor }}-${{ env.GUESTOS_IMAGE }}-${{ hashFiles('vmm/task/**', 'Cargo.lock', 'vmm/scripts/image/**', 'Makefile') }}
+
+      - name: Restore Sandboxer Artifact Cache
+        id: cache-sandboxer
+        uses: actions/cache/restore@v4
+        with:
+          path: bin/vmm-sandboxer
+          key: sandboxer-${{ inputs.hypervisor }}-${{ hashFiles('vmm/sandbox/**', 'vmm/common/**', 'Cargo.lock', 'Makefile') }}
+
+      - name: Restore kuasar-ctl Cache
+        id: cache-ctl
+        uses: actions/cache/restore@v4
+        with:
+          path: bin/kuasar-ctl
+          key: kuasar-ctl-${{ hashFiles('tools/kuasar-ctl/**', 'Cargo.lock', 'Makefile') }}
+
+      - name: Build vmm sandboxer
+        if: steps.cache-sandboxer.outputs.cache-hit != 'true'
+        run: |
+          make HYPERVISOR="${MAKE_HYPERVISOR}" bin/vmm-sandboxer
+
+      - name: Save Sandboxer Artifact Cache
+        if: steps.cache-sandboxer.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: bin/vmm-sandboxer
+          key: ${{ steps.cache-sandboxer.outputs.cache-primary-key }}
+
+      - name: Build kuasar-ctl
+        if: steps.cache-ctl.outputs.cache-hit != 'true'
+        run: |
+          make bin/kuasar-ctl
+
+      - name: Save kuasar-ctl Cache
+        if: steps.cache-ctl.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: bin/kuasar-ctl
+          key: ${{ steps.cache-ctl.outputs.cache-primary-key }}
+
+      - name: Build vm image
+        if: steps.cache-image.outputs.cache-hit != 'true'
+        run: |
+          # The guest image builder shells out to ctr by default. In GitHub
+          # Actions the root-owned containerd socket is not accessible to the
+          # unprivileged runner user, so reuse the repository's release flow.
+          sudo make bin/kuasar.img RUNTIME=docker
+
+      - name: Save VM Image Cache
+        if: steps.cache-image.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: bin/kuasar.img
+          key: ${{ steps.cache-image.outputs.cache-primary-key }}
+
+      - name: Build vm kernel
+        if: steps.cache-kernel.outputs.cache-hit != 'true'
+        run: |
+          make HYPERVISOR="${MAKE_HYPERVISOR}" bin/vmlinux.bin
+
+      - name: Save Kernel Artifact Cache
+        if: steps.cache-kernel.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: bin/vmlinux.bin
+          key: ${{ steps.cache-kernel.outputs.cache-primary-key }}
+
+      - name: Restore containerd Cache
+        id: cache-containerd
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            bin/containerd
+            bin/config.toml
+          key: containerd-${{ hashFiles('scripts/build/build-containerd.sh') }}
+
+      - name: Build Kuasar containerd binary and config
+        if: steps.cache-containerd.outputs.cache-hit != 'true'
+        run: |
+          bash scripts/build/build-containerd.sh
+
+      - name: Save containerd Cache
+        if: steps.cache-containerd.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            bin/containerd
+            bin/config.toml
+          key: ${{ steps.cache-containerd.outputs.cache-primary-key }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vmm-artifacts-${{ inputs.hypervisor }}
+          path: |
+            bin/containerd
+            bin/config.toml
+            bin/vmm-sandboxer
+            bin/vmlinux.bin
+            bin/kuasar.img
+            bin/kuasar-ctl
+            ${{ env.CONFIG_FILE }}
+          retention-days: 7

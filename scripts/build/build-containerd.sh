@@ -13,12 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -e
+set -euo pipefail
 
-git clone -b v0.2.0-kuasar https://github.com/kuasar-io/containerd.git
-mkdir bin && make -C containerd bin/containerd && mv containerd/bin/containerd bin
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "${tmp_dir}"' EXIT
 
-tee bin/config.toml > /dev/null <<EOF
+git clone --depth 1 -b v0.2.0-kuasar https://github.com/kuasar-io/containerd.git "${tmp_dir}/containerd"
+mkdir -p "${repo_root}/bin"
+make -C "${tmp_dir}/containerd" bin/containerd
+mv "${tmp_dir}/containerd/bin/containerd" "${repo_root}/bin/containerd"
+
+tee "${repo_root}/bin/config.toml" > /dev/null <<EOF
 version = 3
 
 [plugins.'io.containerd.cri.v1.runtime']
