@@ -278,7 +278,17 @@ where
 
     #[instrument(skip_all)]
     async fn stop(&self, id: &str, force: bool) -> Result<()> {
-        let sandbox_mutex = self.sandbox(id).await?;
+        let sandbox_mutex = match self.sandbox(id).await {
+            Ok(sb) => sb,
+            Err(Error::NotFound(_)) => {
+                // Sandbox not found in the hashmap, nothing to stop.
+                // This can happen during batch pod creation if a sandbox
+                // was never fully created before KillPodSandbox is called.
+                warn!("sandbox {} not found during stop, skipping", id);
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        };
         let mut sandbox = sandbox_mutex.lock().await;
         self.hooks.pre_stop(&mut sandbox).await?;
         sandbox.stop(force).await?;
