@@ -345,12 +345,30 @@ pub async fn write_file_atomic<P: AsRef<Path>>(path: P, s: &str) -> Result<()> {
     let tmp_path = tmp_path.to_str().ok_or_else(|| {
         Error::InvalidArgument(format!("failed to get path: {}", tmp_path.display()))
     })?;
-    let mut f = OpenOptions::new()
+    let mut f = match OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(tmp_path)
         .await
-        .map_err(|e| anyhow!("failed to open path {}, {}", tmp_path, e))?;
+    {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            // Atomic file writes may be retried after a previous attempt was interrupted,
+            // leaving the temporary file behind. Remove the stale temp file and retry once.
+            tokio::fs::remove_file(tmp_path)
+                .await
+                .map_err(|e| anyhow!("failed to remove stale temp path {}, {}", tmp_path, e))?;
+            OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(tmp_path)
+                .await
+                .map_err(|e| anyhow!("failed to open path {}, {}", tmp_path, e))?
+        }
+        Err(e) => {
+            return Err(anyhow!("failed to open path {}, {}", tmp_path, e).into());
+        }
+    };
     f.write_all(s.as_bytes())
         .await
         .map_err(|e| anyhow!("failed to write string to path {}, {}", tmp_path, e))?;
@@ -525,5 +543,27 @@ pub fn start_watchdog() {
                 sleep(interval).await;
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use temp_dir::TempDir;
+
+    use super::write_file_atomic;
+
+    #[tokio::test]
+    async fn test_write_file_atomic_retries_when_stale_temp_exists() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.child("io-file");
+        let tmp_path = dir.child(".io-file");
+
+        tokio::fs::write(&tmp_path, "stale").await.unwrap();
+
+        write_file_atomic(&path, "fresh").await.unwrap();
+
+        let content = tokio::fs::read_to_string(&path).await.unwrap();
+        assert_eq!(content, "fresh");
+        assert!(!tmp_path.exists());
     }
 }
