@@ -5028,6 +5028,7 @@ dependencies = [
  "regex",
  "serde",
  "signal-hook-tokio",
+ "temp-dir",
  "tonic-build",
  "tracing",
  "tracing-log 0.2.0",

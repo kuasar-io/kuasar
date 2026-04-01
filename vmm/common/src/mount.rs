@@ -317,8 +317,8 @@ pub fn unmount(target: &str, flags: i32) -> Result<()> {
     match err {
         Ok(_) => Ok(()),
         Err(e) => {
-            if e == Errno::ENOENT {
-                debug!("the umount path {} not exist", target);
+            if e == Errno::ENOENT || e == Errno::EINVAL {
+                debug!("the umount path {} not exist or not a mountpoint", target);
                 return Ok(());
             }
             Err(anyhow!("failed to umount {}, {}", target, e))
@@ -366,4 +366,50 @@ pub fn get_mount_type(mount_point: &str) -> Result<String> {
     }
 
     Err(anyhow!("get type for mount point {} failed", mount_point))
+}
+
+#[cfg(test)]
+mod tests {
+    use temp_dir::TempDir;
+
+    use super::*;
+
+    #[test]
+    fn test_unmount_enoent() {
+        // Test unmount on a non-existent path
+        let res = unmount("/tmp/non-existent-path-12345", 0);
+        match res {
+            Ok(_) => {}
+            Err(e) => {
+                let e_str = e.to_string();
+                if !e_str.contains("Operation not permitted") {
+                    panic!(
+                        "expected success or EPERM (in restricted environment), got: {}",
+                        e_str
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_unmount_einval() {
+        // Test unmount on an existent directory that is not a mountpoint
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().to_str().unwrap();
+        let res = unmount(path, 0);
+
+        match res {
+            Ok(_) => {}
+            Err(e) => {
+                // In some restricted environments (like some CI containers),
+                // umount2 might return EPERM even if it's not a mountpoint.
+                // But we want to ensure that if it returns EINVAL, we catch it.
+                let e_str = e.to_string();
+                if !e_str.contains("Operation not permitted") {
+                    panic!("expected success or EPERM, got: {}", e_str);
+                }
+            }
+        }
+    }
 }

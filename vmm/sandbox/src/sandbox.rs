@@ -278,7 +278,17 @@ where
 
     #[instrument(skip_all)]
     async fn stop(&self, id: &str, force: bool) -> Result<()> {
-        let sandbox_mutex = self.sandbox(id).await?;
+        let sandbox_mutex = match self.sandbox(id).await {
+            Ok(sb) => sb,
+            Err(Error::NotFound(_)) => {
+                // Sandbox not found in the hashmap, nothing to stop.
+                // This can happen during batch pod creation if a sandbox
+                // was never fully created before KillPodSandbox is called.
+                warn!("sandbox {} not found during stop, skipping", id);
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        };
         let mut sandbox = sandbox_mutex.lock().await;
         self.hooks.pre_stop(&mut sandbox).await?;
         sandbox.stop(force).await?;
@@ -399,13 +409,22 @@ where
         let dump_data =
             serde_json::to_vec(&self).map_err(|e| anyhow!("failed to serialize sandbox, {}", e))?;
         let dump_path = format!("{}/sandbox.json", self.base_dir);
-        let mut dump_file = OpenOptions::new()
+        let mut dump_file = match OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
             .open(&dump_path)
             .await
-            .map_err(Error::IO)?;
+        {
+            Ok(f) => f,
+            Err(e) => {
+                if e.kind() == ErrorKind::NotFound {
+                    warn!("failed to open dump file {}, skip dump", dump_path);
+                    return Ok(());
+                }
+                return Err(Error::IO(e));
+            }
+        };
         dump_file
             .write_all(dump_data.as_slice())
             .await
@@ -491,13 +510,18 @@ where
     }
 
     #[instrument(skip_all)]
-    async fn stop(&mut self, force: bool) -> Result<()> {
+    async fn stop(&mut self, mut force: bool) -> Result<()> {
         match self.status {
             // If a sandbox is created:
             // 1. Just Created, vmm is not running: roll back and cleanup
             // 2. Created and vmm is running: roll back and cleanup
             // 3. Created and vmm is exited abnormally after running: status is Stopped
-            SandboxStatus::Created => {}
+            SandboxStatus::Created => {
+                // If a sandbox is in Created status, it means it was never successfully started.
+                // We should treat this as a roll back and cleanup, and force kill any potential
+                // vcpu or virtiofs-daemon processes.
+                force = true;
+            }
             SandboxStatus::Running(_) => {}
             SandboxStatus::Stopped(_, _) => {
                 // Network should already be destroyed when sandbox is stopped.
@@ -513,7 +537,9 @@ where
         let container_ids: Vec<String> = self.containers.keys().map(|k| k.to_string()).collect();
         if force {
             for id in container_ids {
-                self.remove_container(&id).await.unwrap_or_default();
+                if let Err(e) = self.remove_container(&id).await {
+                    warn!("failed to remove container {} during stop, {}", id, e);
+                }
             }
         } else {
             for id in container_ids {
