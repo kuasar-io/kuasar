@@ -156,7 +156,14 @@ impl VM for StratoVirtVM {
     async fn stop(&mut self, force: bool) -> Result<()> {
         // before stop the vm process, stop the virtiofs daemon process firstly
         debug!("stop virtiofs daemon process");
-        self.virtiofs_daemon.as_mut().unwrap().stop()?;
+        if let Some(daemon) = self.virtiofs_daemon.as_mut() {
+            if let Err(e) = daemon.stop() {
+                warn!("failed to stop virtiofs daemon: {}", e);
+                if !force {
+                    return Err(e.into());
+                }
+            }
+        }
 
         debug!("stop vm {}", self.id);
         if !force {

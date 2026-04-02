@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, io::ErrorKind, path::Path};
 
 use anyhow::anyhow;
 use containerd_sandbox::{
@@ -328,13 +328,22 @@ where
             let mount_point = format!("{}/{}", self.get_sandbox_shared_path(), &id);
             unmount(&mount_point, MNT_DETACH | MNT_NOFOLLOW)?;
             if Path::new(&mount_point).is_dir() {
-                tokio::fs::remove_dir(&mount_point).await.map_err(|e| {
-                    anyhow!("failed to remove dir of storage {}, {}", mount_point, e)
-                })?;
-            } else {
-                tokio::fs::remove_file(&mount_point).await.map_err(|e| {
-                    anyhow!("failed to remove file of storage {}, {}", mount_point, e)
-                })?;
+                if let Err(e) = tokio::fs::remove_dir(&mount_point).await {
+                    if e.kind() != ErrorKind::NotFound {
+                        return Err(anyhow!(
+                            "failed to remove dir of storage {}, {}",
+                            mount_point,
+                            e
+                        )
+                        .into());
+                    }
+                }
+            } else if let Err(e) = tokio::fs::remove_file(&mount_point).await {
+                if e.kind() != ErrorKind::NotFound {
+                    return Err(
+                        anyhow!("failed to remove file of storage {}, {}", mount_point, e).into(),
+                    );
+                }
             }
         }
         Ok(())
@@ -487,6 +496,30 @@ mod tests {
         assert_eq!(sandbox.storages.len(), 1);
         assert_eq!(sandbox.storages[0].id, "storage2");
         assert!(sandbox.storages[0].ref_container.contains_key("container2"));
+    }
+
+    #[tokio::test]
+    async fn test_detach_storage_not_found() {
+        let mut sandbox = KuasarSandbox {
+            vm: MockVM,
+            id: "test-sandbox".to_string(),
+            status: containerd_sandbox::SandboxStatus::Created,
+            base_dir: "/tmp/non-existent-dir-12345".to_string(),
+            data: Default::default(),
+            containers: HashMap::new(),
+            storages: vec![],
+            id_generator: 1,
+            network: None,
+            client: Default::default(),
+            exit_signal: Default::default(),
+            sandbox_cgroups: Default::default(),
+        };
+
+        // This should not fail even if the directory doesn't exist
+        sandbox
+            .detach_storage(None, "storage1", "bind")
+            .await
+            .unwrap();
     }
 }
 
