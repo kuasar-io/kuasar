@@ -342,39 +342,26 @@ pub async fn write_file_atomic<P: AsRef<Path>>(path: P, s: &str) -> Result<()> {
         .parent()
         .map(|x| x.join(format!(".{}", file.to_str().unwrap_or(""))))
         .ok_or_else(|| Error::InvalidArgument(String::from("failed to create tmp path")))?;
-    let tmp_path = tmp_path.to_str().ok_or_else(|| {
-        Error::InvalidArgument(format!("failed to get path: {}", tmp_path.display()))
-    })?;
-    let mut f = match OpenOptions::new()
+
+    // Using truncate(true) to handle existing stale files efficiently.
+    let mut f = OpenOptions::new()
         .write(true)
-        .create_new(true)
-        .open(tmp_path)
+        .create(true)
+        .truncate(true)
+        .open(&tmp_path)
         .await
-    {
-        Ok(file) => file,
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            // Atomic file writes may be retried after a previous attempt was interrupted,
-            // leaving the temporary file behind. Remove the stale temp file and retry once.
-            tokio::fs::remove_file(tmp_path)
-                .await
-                .map_err(|e| anyhow!("failed to remove stale temp path {}, {}", tmp_path, e))?;
-            OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(tmp_path)
-                .await
-                .map_err(|e| anyhow!("failed to open path {}, {}", tmp_path, e))?
-        }
-        Err(e) => {
-            return Err(anyhow!("failed to open path {}, {}", tmp_path, e).into());
-        }
-    };
-    f.write_all(s.as_bytes())
-        .await
-        .map_err(|e| anyhow!("failed to write string to path {}, {}", tmp_path, e))?;
+        .map_err(|e| anyhow!("failed to open path {}, {}", tmp_path.display(), e))?;
+
+    f.write_all(s.as_bytes()).await.map_err(|e| {
+        anyhow!(
+            "failed to write string to path {}, {}",
+            tmp_path.display(),
+            e
+        )
+    })?;
     f.sync_data()
         .await
-        .map_err(|e| anyhow!("failed to sync data to path {}, {}", tmp_path, e))?;
+        .map_err(|e| anyhow!("failed to sync data to path {}, {}", tmp_path.display(), e))?;
 
     tokio::fs::rename(tmp_path, path)
         .await
