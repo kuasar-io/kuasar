@@ -47,8 +47,9 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Cache Cargo dependencies
-        uses: actions/cache@v3
+      - name: Restore Cargo dependencies
+        id: cache-framework
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cargo/registry
@@ -60,6 +61,16 @@ jobs:
 
       - name: Build e2e test framework
         run: make -f  Makefile.e2e build-e2e
+
+      - name: Save Cargo dependencies
+        if: steps.cache-framework.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tests/e2e/target
+          key: ${{ steps.cache-framework.outputs.cache-primary-key }}
 
       - name: Run framework unit tests
         run: make -f  Makefile.e2e test-e2e-framework
@@ -85,8 +96,9 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Cache Cargo dependencies
-        uses: actions/cache@v3
+      - name: Restore Cargo dependencies
+        id: cache-integration
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cargo/registry
@@ -160,6 +172,18 @@ jobs:
       
       - name: Setup e2e environment
         run: make -f  Makefile.e2e setup-e2e-env-ci
+
+      - name: Save Cargo dependencies
+        if: steps.cache-integration.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tests/e2e/target
+            runc/target
+            shim/target
+          key: ${{ steps.cache-integration.outputs.cache-primary-key }}
 
       - name: Run runc e2e tests
         env:

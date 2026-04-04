@@ -1,0 +1,60 @@
+name: Run VMM E2E
+
+on:
+  workflow_call:
+    inputs:
+      hypervisor:
+        required: false
+        type: string
+        default: clh
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.hypervisor }}-run
+  cancel-in-progress: true
+
+jobs:
+  run-vmm-e2e:
+    name: run-vmm-e2e (${{ inputs.hypervisor }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: vmm-artifacts-${{ inputs.hypervisor }}
+          path: artifacts
+
+      - name: Install test dependencies
+        env:
+          HYPERVISOR: ${{ inputs.hypervisor }}
+        run: |
+          bash tests/integration/cri-containerd/gha-run.sh install-dependencies
+
+      - name: Install Kuasar artifacts
+        env:
+          HYPERVISOR: ${{ inputs.hypervisor }}
+          KUASAR_ARTIFACTS_DIR: ${{ github.workspace }}/artifacts
+        run: |
+          bash tests/integration/cri-containerd/gha-run.sh install-kuasar
+
+      - name: Run cri-containerd smoke test
+        env:
+          HYPERVISOR: ${{ inputs.hypervisor }}
+          ARTIFACTS_DIR: ${{ github.workspace }}/_artifacts/vmm-${{ inputs.hypervisor }}-cri-containerd
+        run: |
+          bash tests/integration/cri-containerd/gha-run.sh run
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vmm-e2e-${{ inputs.hypervisor }}-${{ github.run_number }}
+          path: _artifacts/
+          retention-days: 7

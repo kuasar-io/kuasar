@@ -1,0 +1,42 @@
+name: VMM CI
+
+on:
+  pull_request:
+    paths:
+      - 'vmm/**'
+      - 'tests/integration/cri-containerd/**'
+      - 'scripts/build/build-containerd.sh'
+      - '.github/workflows/build-vmm-artifacts.yml'
+      - '.github/workflows/run-vmm-e2e.yml'
+      - '.github/workflows/vmm-ci-on-push.yml'
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'vmm/**'
+      - 'tests/integration/cri-containerd/**'
+      - 'scripts/build/build-containerd.sh'
+      - '.github/workflows/build-vmm-artifacts.yml'
+      - '.github/workflows/run-vmm-e2e.yml'
+      - '.github/workflows/vmm-ci-on-push.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-vmm-artifacts:
+    uses: ./.github/workflows/build-vmm-artifacts.yml
+    with:
+      hypervisor: clh
+
+  run-vmm-e2e:
+    needs: build-vmm-artifacts
+    uses: ./.github/workflows/run-vmm-e2e.yml
+    with:
+      hypervisor: clh
