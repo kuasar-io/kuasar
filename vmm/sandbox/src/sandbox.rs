@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::{collections::HashMap, io::ErrorKind, path::Path, sync::Arc};
+use std::{collections::HashMap, io::ErrorKind, path::Path, sync::Arc, time::Instant};
 
 use anyhow::anyhow;
 use async_trait::async_trait;
@@ -33,7 +33,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::{
     fs::{copy, create_dir_all, remove_dir_all, OpenOptions},
     io::{AsyncReadExt, AsyncWriteExt},
-    sync::{Mutex, RwLock},
+    sync::{Mutex, RwLock, Semaphore},
 };
 use tracing::instrument;
 use ttrpc::context::with_timeout;
@@ -45,7 +45,10 @@ use vmm_common::{
 
 use crate::{
     cgroup::{SandboxCgroup, DEFAULT_CGROUP_PARENT_PATH},
-    client::{client_check, client_setup_sandbox, client_sync_clock, new_sandbox_client},
+    client::{
+        client_check, client_setup_sandbox, client_sync_clock, new_sandbox_client,
+        new_sandbox_client_fail_fast, DEFAULT_CLIENT_CHECK_TIMEOUT,
+    },
     container::KuasarContainer,
     network::{Network, NetworkConfig},
     utils::{get_dns_config, get_hostname, get_resources, get_sandbox_cgroup_parent_path},
@@ -87,6 +90,7 @@ where
 {
     #[instrument(skip_all)]
     pub async fn recover(&mut self, dir: &str) {
+        let start = Instant::now();
         let mut subs = match tokio::fs::read_dir(dir).await {
             Ok(subs) => subs,
             Err(e) => {
@@ -94,37 +98,78 @@ where
                 return;
             }
         };
+
+        let mut entries = Vec::new();
         while let Some(entry) = subs.next_entry().await.unwrap() {
+            entries.push(entry);
+        }
+
+        const RECOVERY_CONCURRENCY: usize = 32;
+        let semaphore = Arc::new(Semaphore::new(RECOVERY_CONCURRENCY));
+        let mut handles = Vec::with_capacity(entries.len());
+
+        for entry in entries {
             if let Ok(t) = entry.file_type().await {
                 if !t.is_dir() {
                     continue;
                 }
-                debug!("recovering sandbox {:?}", entry.file_name());
-                let path = Path::new(dir).join(entry.file_name());
-                match KuasarSandbox::recover(&path).await {
-                    Ok(sb) => {
-                        let status = sb.status.clone();
-                        let sb_mutex = Arc::new(Mutex::new(sb));
-                        // Only running sandbox should be monitored.
-                        if let SandboxStatus::Running(_) = status {
-                            let sb_clone = sb_mutex.clone();
-                            monitor(sb_clone);
+                let dir_path = dir.to_string();
+                let sandboxes = self.sandboxes.clone();
+                let permit = semaphore.clone().acquire_owned().await.unwrap();
+
+                let handle = tokio::spawn(async move {
+                    let _permit = permit;
+                    debug!("recovering sandbox {:?}", entry.file_name());
+                    let path = Path::new(&dir_path).join(entry.file_name());
+                    match KuasarSandbox::recover(&path).await {
+                        Ok(sb) => {
+                            let status = sb.status.clone();
+                            let sb_mutex = Arc::new(Mutex::new(sb));
+                            // Only running sandbox should be monitored.
+                            if let SandboxStatus::Running(_) = status {
+                                let sb_clone = sb_mutex.clone();
+                                monitor(sb_clone);
+                            }
+                            sandboxes
+                                .write()
+                                .await
+                                .insert(entry.file_name().to_str().unwrap().to_string(), sb_mutex);
+                            true
                         }
-                        self.sandboxes
-                            .write()
-                            .await
-                            .insert(entry.file_name().to_str().unwrap().to_string(), sb_mutex);
+                        Err(e) => {
+                            warn!("failed to recover sandbox {:?}, {:?}", entry.file_name(), e);
+                            cleanup_mounts(path.to_str().unwrap())
+                                .await
+                                .unwrap_or_default();
+                            remove_dir_all(&path).await.unwrap_or_default();
+                            false
+                        }
                     }
-                    Err(e) => {
-                        warn!("failed to recover sandbox {:?}, {:?}", entry.file_name(), e);
-                        cleanup_mounts(path.to_str().unwrap())
-                            .await
-                            .unwrap_or_default();
-                        remove_dir_all(&path).await.unwrap_or_default();
-                    }
+                });
+                handles.push(handle);
+            }
+        }
+
+        let total = handles.len();
+        let mut success = 0;
+        let mut fail = 0;
+        for handle in handles {
+            match handle.await {
+                Ok(true) => success += 1,
+                Ok(false) => fail += 1,
+                Err(e) => {
+                    error!("recovery task join error: {}", e);
+                    fail += 1;
                 }
             }
         }
+        info!(
+            "recover sandboxes finished, total: {}, success: {}, fail: {}, takes: {:.3}s",
+            total,
+            success,
+            fail,
+            start.elapsed().as_secs_f64()
+        );
     }
 }
 
@@ -439,6 +484,7 @@ where
 {
     #[instrument(skip_all)]
     async fn recover<P: AsRef<Path>>(base_dir: P) -> Result<Self> {
+        let start = Instant::now();
         let dump_path = base_dir.as_ref().join("sandbox.json");
         let mut dump_file = OpenOptions::new()
             .read(true)
@@ -461,7 +507,7 @@ where
                 }
                 return Err(e);
             };
-            if let Err(e) = sb.init_client().await {
+            if let Err(e) = sb.init_client_fail_fast().await {
                 if let Err(re) = sb.stop(true).await {
                     warn!("roll back in recover, init task client and stop: {}", re);
                     return Err(e);
@@ -475,6 +521,11 @@ where
         sb.sandbox_cgroups =
             SandboxCgroup::create_sandbox_cgroups(&sb.sandbox_cgroups.cgroup_parent_path, &sb.id)?;
 
+        info!(
+            "recover sandbox {} takes {}ms",
+            sb.id,
+            start.elapsed().as_millis()
+        );
         Ok(sb)
     }
 }
@@ -574,10 +625,36 @@ where
                 return Err(anyhow!("VM address is empty").into());
             }
             let client = new_sandbox_client(&addr).await?;
-            debug!("connected to task server {}", self.id);
-            client_check(&client).await?;
-            *client_guard = Some(client)
+            self.check_and_set_client(&mut client_guard, client).await?;
         }
+        Ok(())
+    }
+
+    /// Use fail-fast connect strategy during recovery: if the guest agent
+    /// socket returns a fatal error (e.g. broken pipe), bail out immediately
+    /// instead of retrying until timeout.
+    #[instrument(skip_all)]
+    async fn init_client_fail_fast(&mut self) -> Result<()> {
+        let mut client_guard = self.client.lock().await;
+        if client_guard.is_none() {
+            let addr = self.vm.socket_address();
+            if addr.is_empty() {
+                return Err(anyhow!("VM address is empty").into());
+            }
+            let client = new_sandbox_client_fail_fast(&addr).await?;
+            self.check_and_set_client(&mut client_guard, client).await?;
+        }
+        Ok(())
+    }
+
+    async fn check_and_set_client(
+        &self,
+        guard: &mut tokio::sync::MutexGuard<'_, Option<SandboxServiceClient>>,
+        client: SandboxServiceClient,
+    ) -> Result<()> {
+        debug!("connected to task server {}", self.id);
+        client_check(&client, DEFAULT_CLIENT_CHECK_TIMEOUT).await?;
+        **guard = Some(client);
         Ok(())
     }
 
@@ -900,6 +977,222 @@ fn monitor<V: VM + 'static>(sandbox_mutex: Arc<Mutex<KuasarSandbox<V>>>) {
 
 #[cfg(test)]
 mod tests {
+    mod recovery {
+        use std::{collections::HashMap, path::Path, sync::Arc};
+
+        use async_trait::async_trait;
+        use containerd_sandbox::{
+            data::SandboxData, error::Result, signal::ExitSignal, SandboxOption, SandboxStatus,
+        };
+        use serde::{Deserialize, Serialize};
+        use temp_dir::TempDir;
+        use tokio::sync::Mutex;
+        use vmm_common::storage::Storage;
+
+        use crate::{
+            cgroup::SandboxCgroup,
+            container::KuasarContainer,
+            device::{BusType, DeviceInfo},
+            sandbox::{KuasarSandbox, KuasarSandboxer, SandboxConfig},
+            vm::{Hooks, Pids, Recoverable, VMFactory, VcpuThreads, VM},
+        };
+
+        #[derive(Default, Serialize, Deserialize)]
+        struct MockVM {
+            fail_recover: bool,
+            socket_address: String,
+            stop_marker: String,
+        }
+
+        #[async_trait]
+        impl VM for MockVM {
+            async fn start(&mut self) -> Result<u32> {
+                Ok(0)
+            }
+
+            async fn stop(&mut self, force: bool) -> Result<()> {
+                let content = if force { "force" } else { "graceful" };
+                if !self.stop_marker.is_empty() {
+                    tokio::fs::write(&self.stop_marker, content)
+                        .await
+                        .map_err(containerd_sandbox::error::Error::IO)?;
+                }
+                Ok(())
+            }
+
+            async fn attach(&mut self, _device_info: DeviceInfo) -> Result<()> {
+                Ok(())
+            }
+
+            async fn hot_attach(&mut self, _device_info: DeviceInfo) -> Result<(BusType, String)> {
+                Ok((BusType::PCI, String::new()))
+            }
+
+            async fn hot_detach(&mut self, _id: &str) -> Result<()> {
+                Ok(())
+            }
+
+            async fn ping(&self) -> Result<()> {
+                Ok(())
+            }
+
+            fn socket_address(&self) -> String {
+                self.socket_address.clone()
+            }
+
+            async fn wait_channel(&self) -> Option<tokio::sync::watch::Receiver<(u32, i128)>> {
+                None
+            }
+
+            async fn vcpus(&self) -> Result<VcpuThreads> {
+                Ok(VcpuThreads {
+                    vcpus: HashMap::new(),
+                })
+            }
+
+            fn pids(&self) -> Pids {
+                Pids::default()
+            }
+        }
+
+        #[async_trait]
+        impl Recoverable for MockVM {
+            async fn recover(&mut self) -> Result<()> {
+                if self.fail_recover {
+                    return Err(containerd_sandbox::error::Error::InvalidArgument(
+                        "mock recover failure".to_string(),
+                    ));
+                }
+                Ok(())
+            }
+        }
+
+        struct MockFactory;
+
+        #[async_trait]
+        impl VMFactory for MockFactory {
+            type VM = MockVM;
+            type Config = ();
+
+            fn new(_: Self::Config) -> Self {
+                Self
+            }
+
+            async fn create_vm(&self, _: &str, _: &SandboxOption) -> Result<Self::VM> {
+                Ok(MockVM::default())
+            }
+        }
+
+        struct MockHooks;
+
+        #[async_trait]
+        impl Hooks<MockVM> for MockHooks {}
+
+        fn mock_sandbox(
+            base_dir: &str,
+            status: SandboxStatus,
+            vm: MockVM,
+        ) -> KuasarSandbox<MockVM> {
+            KuasarSandbox {
+                vm,
+                id: "test-sandbox".to_string(),
+                status,
+                base_dir: base_dir.to_string(),
+                data: SandboxData::default(),
+                containers: HashMap::<String, KuasarContainer>::new(),
+                storages: Vec::<Storage>::new(),
+                id_generator: 0,
+                network: None,
+                client: Arc::new(Mutex::new(None)),
+                exit_signal: Arc::new(ExitSignal::default()),
+                sandbox_cgroups: SandboxCgroup::default(),
+            }
+        }
+
+        async fn write_dump<P: AsRef<Path>>(dir: P, sandbox: &KuasarSandbox<MockVM>) {
+            let dump_path = dir.as_ref().join("sandbox.json");
+            let content = serde_json::to_vec(sandbox).unwrap();
+            tokio::fs::write(dump_path, content).await.unwrap();
+        }
+
+        #[tokio::test]
+        async fn test_recover_fast_fail_paths_force_stop_vm() {
+            let cases = vec![
+                (
+                    "recover-error",
+                    MockVM {
+                        fail_recover: true,
+                        socket_address: "vsock://ignored".to_string(),
+                        stop_marker: String::new(),
+                    },
+                ),
+                (
+                    "init-client-error",
+                    MockVM {
+                        fail_recover: false,
+                        socket_address: String::new(),
+                        stop_marker: String::new(),
+                    },
+                ),
+            ];
+
+            for (name, mut vm) in cases {
+                let temp_dir = TempDir::new().unwrap();
+                let stop_marker = temp_dir.path().join(format!("{name}.stop"));
+                vm.stop_marker = stop_marker.to_string_lossy().to_string();
+
+                let sandbox = mock_sandbox(
+                    temp_dir.path().to_str().unwrap(),
+                    SandboxStatus::Running(42),
+                    vm,
+                );
+                write_dump(temp_dir.path(), &sandbox).await;
+
+                let result = KuasarSandbox::<MockVM>::recover(temp_dir.path()).await;
+                assert!(result.is_err(), "{name} should fail fast");
+
+                let marker_content = tokio::fs::read_to_string(&stop_marker).await.unwrap();
+                assert_eq!(marker_content, "force", "{name} should force stop the VM");
+            }
+        }
+
+        #[tokio::test]
+        async fn test_sandboxer_recover_cleans_failed_sandbox_dir() {
+            let root = TempDir::new().unwrap();
+            let failed_dir = root.path().join("failed");
+            tokio::fs::create_dir_all(&failed_dir).await.unwrap();
+            let stop_marker = root.path().join("failed.stop");
+
+            let sandbox = mock_sandbox(
+                failed_dir.to_str().unwrap(),
+                SandboxStatus::Running(7),
+                MockVM {
+                    fail_recover: true,
+                    socket_address: "vsock://ignored".to_string(),
+                    stop_marker: stop_marker.to_string_lossy().to_string(),
+                },
+            );
+            write_dump(&failed_dir, &sandbox).await;
+
+            let mut sandboxer = KuasarSandboxer::<MockFactory, MockHooks>::new(
+                SandboxConfig::default(),
+                (),
+                MockHooks,
+            );
+            sandboxer.recover(root.path().to_str().unwrap()).await;
+
+            assert!(
+                tokio::fs::metadata(&failed_dir).await.is_err(),
+                "failed sandbox dir should be removed after fast failure"
+            );
+            assert_eq!(
+                tokio::fs::read_to_string(&stop_marker).await.unwrap(),
+                "force"
+            );
+            assert!(sandboxer.sandboxes.read().await.is_empty());
+        }
+    }
+
     mod dns {
         use crate::sandbox::parse_dnsoptions;
 

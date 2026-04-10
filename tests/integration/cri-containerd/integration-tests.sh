@@ -8,6 +8,13 @@ readonly script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly repo_root="$(cd "${script_dir}/../../.." && pwd -P)"
 readonly report_dir="$(mktemp -d -t kuasar-cri-containerd.XXXX)"
 
+if ! command -v sudo >/dev/null 2>&1; then
+    sudo() {
+        "$@"
+    }
+    export -f sudo
+fi
+
 export HYPERVISOR="${HYPERVISOR:-clh}"
 export RUNTIME_HANDLER="${RUNTIME_HANDLER:-kuasar-vmm}"
 export ARTIFACTS_DIR="${ARTIFACTS_DIR:-${repo_root}/_artifacts/vmm-${HYPERVISOR}-cri-containerd}"
@@ -33,6 +40,9 @@ readonly crictl_config_file="/etc/crictl.yaml"
 readonly kuasar_config_file="/var/lib/kuasar/config.toml"
 readonly vmm_socket="/run/vmm-sandboxer.sock"
 readonly tap_file="${ARTIFACTS_DIR}/results.tap"
+readonly recovery_startup_budget_secs="${RECOVERY_STARTUP_BUDGET_SECS:-10}"
+
+export BUSYBOX_IMAGE="${BUSYBOX_IMAGE:-docker.io/library/busybox:1.36.1}"
 
 pod_id=""
 container_id=""
@@ -40,6 +50,7 @@ test_failures=()
 error_reported=0
 extra_pod_ids=()
 tap_count=0
+recovery_elapsed_secs=0
 
 log() {
     printf '[cri-containerd] %s\n' "$*"
@@ -145,6 +156,100 @@ wait_for_container_state() {
     return 1
 }
 
+wait_for_pod_state() {
+    local target_pod_id="$1"
+    local expected_state="$2"
+    local retries="${3:-30}"
+    local delay="${4:-1}"
+    local state=""
+
+    for _ in $(seq 1 "${retries}"); do
+        state="$(sudo crictl inspectp "${target_pod_id}" 2>/dev/null | jq -r '.status.state // empty' || true)"
+        if [[ "${state}" == "${expected_state}" ]]; then
+            return 0
+        fi
+        sleep "${delay}"
+    done
+
+    log "pod ${target_pod_id} state did not reach ${expected_state}, last state: ${state}"
+    return 1
+}
+
+wait_for_pod_removed() {
+    local target_pod_id="$1"
+    local retries="${2:-30}"
+    local delay="${3:-1}"
+
+    for _ in $(seq 1 "${retries}"); do
+        if ! sudo crictl inspectp "${target_pod_id}" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep "${delay}"
+    done
+
+    return 1
+}
+
+wait_for_sandbox_dir_removed() {
+    local target_pod_id="$1"
+    local retries="${2:-30}"
+    local delay="${3:-1}"
+
+    for _ in $(seq 1 "${retries}"); do
+        if [[ ! -d "/run/kuasar-vmm/${target_pod_id}" ]]; then
+            return 0
+        fi
+        sleep "${delay}"
+    done
+
+    return 1
+}
+
+get_vm_pid() {
+    local p_id="$1"
+    local process_name
+
+    case "${HYPERVISOR}" in
+        clh)
+            process_name="cloud-hypervisor"
+            ;;
+        qemu)
+            process_name="qemu-system"
+            ;;
+        stratovirt)
+            process_name="stratovirt"
+            ;;
+        *)
+            process_name="${HYPERVISOR}"
+            ;;
+    esac
+
+    pgrep -f "${process_name}.*${p_id:0:12}" | grep -v "sandboxer" | head -1
+}
+
+resume_vm_if_alive() {
+    local vm_pid="$1"
+
+    if sudo kill -0 "${vm_pid}" >/dev/null 2>&1; then
+        sudo kill -CONT "${vm_pid}" || true
+    fi
+}
+
+wait_for_recovery_start() {
+    local target_pod_id="$1"
+    local retries="${2:-30}"
+    local delay="${3:-0.2}"
+
+    for _ in $(seq 1 "${retries}"); do
+        if [[ -f "${vmm_log}" ]] && grep -Fq "recovering sandbox \"${target_pod_id}\"" "${vmm_log}"; then
+            return 0
+        fi
+        sleep "${delay}"
+    done
+
+    return 1
+}
+
 create_container_config() {
     local container_config="$1"
     local name="${2:-kuasar-vmm-busybox}"
@@ -157,7 +262,7 @@ create_container_config() {
     "namespace": "default"
   },
   "image": {
-    "image": "docker.io/library/busybox:1.36.1"
+    "image": "${BUSYBOX_IMAGE}"
   },
   "command": [
     "/bin/sh",
@@ -253,14 +358,24 @@ EOF
 }
 
 start_containerd() {
+    if [[ -e "/run/containerd/containerd.sock" ]] && pgrep -x containerd >/dev/null; then
+        log "containerd is already running"
+        return
+    fi
+
     sudo rm -f /run/containerd/containerd.sock || true
     sudo mkdir -p /run/containerd
     sudo bash -c "ENABLE_CRI_SANDBOXES=1 /usr/local/bin/containerd --config /etc/containerd/config.toml > '${containerd_log}' 2>&1 & echo \$! > '${containerd_pid_file}'"
 
-    wait_for_file /run/containerd/containerd.sock 60 1 || die "containerd socket did not appear"
+    wait_for_file "/run/containerd/containerd.sock" 60 1 || die "containerd socket did not appear"
 }
 
 start_vmm_sandboxer() {
+    if [[ -e "${vmm_socket}" ]] && pgrep -x vmm-sandboxer >/dev/null; then
+        log "vmm-sandboxer is already running"
+        return
+    fi
+
     sudo rm -f "${vmm_socket}" || true
     sudo mkdir -p /run/kuasar-vmm
     # Pass the installed config path explicitly so CI does not rely on the
@@ -330,17 +445,14 @@ trap cleanup EXIT
 trap 'report_failure $?' ERR
 
 setup_sandbox() {
-    local pod_config="${report_dir}/podsandbox.json"
-    local container_config="${report_dir}/container.json"
-
     log "Setting up shared sandbox fixture"
-    create_podsandbox_config "${pod_config}"
-    create_container_config "${container_config}"
+    create_podsandbox_config "${report_dir}/podsandbox.json"
+    create_container_config "${report_dir}/container.json"
 
-    sudo crictl pull docker.io/library/busybox:1.36.1
+    sudo crictl pull "${BUSYBOX_IMAGE}"
 
-    pod_id="$(sudo crictl runp --runtime="${RUNTIME_HANDLER}" "${pod_config}")"
-    container_id="$(sudo crictl create "${pod_id}" "${container_config}" "${pod_config}")"
+    pod_id="$(sudo crictl runp --runtime="${RUNTIME_HANDLER}" "${report_dir}/podsandbox.json")"
+    container_id="$(sudo crictl create "${pod_id}" "${report_dir}/container.json" "${report_dir}/podsandbox.json")"
     sudo crictl start "${container_id}"
 
     wait_for_container_state 30 2 || die "container did not enter running state"
@@ -405,7 +517,7 @@ test_cri_pod_lifecycle() {
     extra_pod_ids=("${extra_pod_ids[@]/$p_id/}")
 }
 
-test_exec_smoke() {
+test_exec() {
     local exec_output
 
     set +e
@@ -448,7 +560,7 @@ test_kuasar_ctl_timeout() {
 test_kuasar_ctl_no_fd_leak() {
     local vmm_pid clh_pid
     vmm_pid=$(cat "${vmm_pid_file}")
-    clh_pid=$(pgrep cloud-hypervisor | head -1)
+    clh_pid=$(get_vm_pid "${pod_id}")
 
     # warmup: exclude initial connection setup
     sudo kuasar-ctl exec "${pod_id:0:12}" -- sh -c 'echo warmup' > /dev/null
@@ -510,9 +622,8 @@ test_vmm_killed_cleanup() {
     p_id="$(sudo crictl runp --runtime="${RUNTIME_HANDLER}" "${p_config}")"
     extra_pod_ids+=("${p_id}")
 
-    # Find the CLH process for *this* pod by matching its sandbox directory
-    # in the command line (e.g., /run/kuasar-vmm/<pod_id_prefix>/...).
-    clh_pid=$(pgrep -f "cloud-hypervisor.*${p_id:0:12}" || true)
+    # Find the CLH process for *this* pod specifically.
+    clh_pid=$(get_vm_pid "${p_id}")
     [[ -n "${clh_pid}" ]] || die "could not find cloud-hypervisor process for pod ${p_id}"
 
     log "Killing Cloud Hypervisor (PID: ${clh_pid}) for Pod ${p_id}"
@@ -532,6 +643,103 @@ test_vmm_killed_cleanup() {
     if pgrep -f "${p_id}" >/dev/null 2>&1; then
         die "processes for pod ${p_id} still lingering after VMM killed"
     fi
+}
+
+
+# Shared setup for recovery tests: create pod, find VM PID, suspend VM,
+# restart sandboxer, and record how long it takes to become available again.
+# Sets caller variables: p_id, vm_pid.
+setup_recovery_test() {
+    local test_name="$1"
+    local p_config="${report_dir}/${test_name}.json"
+    local recovery_start
+
+    create_podsandbox_config "${p_config}" "${test_name}" "${test_name}-uid"
+    p_id="$(sudo crictl runp --runtime="${RUNTIME_HANDLER}" "${p_config}")"
+    extra_pod_ids+=("${p_id}")
+
+    vm_pid=$(get_vm_pid "${p_id}")
+    [[ -n "${vm_pid}" ]] || die "could not find VM process for pod ${p_id}"
+
+    log "Suspending VM (PID: ${vm_pid})"
+    sudo kill -STOP "${vm_pid}"
+
+    log "Restarting vmm-sandboxer"
+    sudo kill "$(cat "${vmm_pid_file}")" || true
+    recovery_start=${SECONDS}
+    start_vmm_sandboxer
+    recovery_elapsed_secs=$((SECONDS - recovery_start))
+
+    wait_for_recovery_start "${p_id}" || die "sandboxer did not start recovery for pod ${p_id}"
+}
+
+test_recovery_slow_agent_success() {
+    local p_id
+    local vm_pid
+    local state
+
+    log "Testing Sandbox recovery with injected VMM stall (service recovery case)"
+    setup_recovery_test "recovery-slow-success"
+
+    # Safety: ensure VM is resumed even if we die mid-test.
+    trap 'resume_vm_if_alive "${vm_pid}"' RETURN
+
+    [[ ${recovery_elapsed_secs} -le ${recovery_startup_budget_secs} ]] || die \
+        "vmm-sandboxer recovery exceeded budget: ${recovery_elapsed_secs}s > ${recovery_startup_budget_secs}s"
+
+    log "Resuming VM (PID: ${vm_pid})"
+    resume_vm_if_alive "${vm_pid}"
+
+    log "Waiting for pod ${p_id} to settle into NOTREADY after fast-fail recovery"
+    wait_for_pod_state "${p_id}" "SANDBOX_NOTREADY" 30 1 || die "pod did not become NOTREADY after recovery stall"
+    state="$(sudo crictl inspectp "${p_id}" | jq -r '.status.state // empty')"
+    log "Pod settled in state ${state}; vmm-sandboxer recovered in ${recovery_elapsed_secs}s"
+
+    grep -Fq "failed to recover sandbox \"${p_id}\"" "${vmm_log}" || log "WARNING: could not find failure log for ${p_id}"
+    grep -Fq "recover sandboxes finished" "${vmm_log}" || log "WARNING: could not find recovery summary log"
+
+    # Cleanup
+    sudo crictl stopp "${p_id}" >/dev/null 2>&1 || true
+    sudo crictl rmp -f "${p_id}" >/dev/null 2>&1 || true
+    extra_pod_ids=("${extra_pod_ids[@]/$p_id/}")
+
+    trap - RETURN
+}
+
+test_recovery_slow_agent_timeout_fail() {
+    local p_id
+    local vm_pid
+
+    log "Testing Sandbox recovery with injected VMM stall (cleanup case)"
+    setup_recovery_test "recovery-slow-fail"
+
+    # Safety: ensure VM is resumed even if we die mid-test.
+    trap 'resume_vm_if_alive "${vm_pid}"' RETURN
+
+    [[ ${recovery_elapsed_secs} -le ${recovery_startup_budget_secs} ]] || die \
+        "vmm-sandboxer recovery exceeded budget: ${recovery_elapsed_secs}s > ${recovery_startup_budget_secs}s"
+
+    log "Resuming VM (PID: ${vm_pid})"
+    resume_vm_if_alive "${vm_pid}"
+
+    log "Verifying pod ${p_id} stays NOTREADY and sandbox runtime state is cleaned up"
+    wait_for_pod_state "${p_id}" "SANDBOX_NOTREADY" 30 1 || die "pod ${p_id} did not become NOTREADY after recovery timeout"
+    wait_for_sandbox_dir_removed "${p_id}" 10 1 || die "sandbox runtime dir for ${p_id} still exists after recovery timeout"
+
+    # Verify the sandboxer logged a timeout error for this pod.
+    grep -Fq "failed to recover sandbox \"${p_id}\"" "${vmm_log}" || log "WARNING: could not find failure log for ${p_id}"
+
+    # Verify no lingering VM process for this pod.
+    sleep 1
+    if get_vm_pid "${p_id}" >/dev/null 2>&1; then
+        log "WARNING: VM process for pod ${p_id} still exists after recovery cleanup"
+    fi
+
+    # Cleanup just in case
+    sudo crictl rmp -f "${p_id}" >/dev/null 2>&1 || true
+    extra_pod_ids=("${extra_pod_ids[@]/$p_id/}")
+
+    trap - RETURN
 }
 
 run_test_group() {
@@ -572,7 +780,7 @@ run_all_tests() {
     run_test_group "CRI Basic" \
         test_cri_pod_lifecycle \
         test_multi_container_pod \
-        test_exec_smoke
+        test_exec
 
     run_test_group "kuasar-ctl Functionality" \
         test_kuasar_ctl_exec \
@@ -583,6 +791,10 @@ run_all_tests() {
         test_kuasar_ctl_no_fd_leak \
         test_kuasar_ctl_no_proc_leak \
         test_vmm_killed_cleanup
+
+    run_test_group "Recovery Robustness" \
+        test_recovery_slow_agent_success \
+        test_recovery_slow_agent_timeout_fail
 
     if [[ ${#test_failures[@]} -ne 0 ]]; then
         echo "1..${tap_count}" >> "${tap_file}"
@@ -598,7 +810,9 @@ main() {
     write_cni_config
     start_containerd
     start_vmm_sandboxer
-    setup_sandbox
+    if [[ -z "${TEST_FILTER}" ]] || [[ "${TEST_FILTER}" != *"recovery"* ]]; then
+        setup_sandbox
+    fi
     run_all_tests
     collect_state
     log "CRI tests passed for ${HYPERVISOR}"

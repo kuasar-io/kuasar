@@ -94,24 +94,29 @@ load_vhost_mods() {
 }
 
 install_dependencies() {
+    local apt_packages=(
+        curl
+        jq
+        iptables
+        iproute2
+        util-linux
+        runc
+        virtiofsd
+    )
+
     log "Installing dependencies for ${HYPERVISOR}"
 
+    case "${HYPERVISOR}" in
+        qemu)
+            apt_packages+=(
+                qemu-system-x86
+                qemu-utils
+            )
+            ;;
+    esac
+
     sudo apt-get update
-    sudo apt-get install -y \
-        build-essential \
-        curl \
-        git \
-        jq \
-        pkg-config \
-        libseccomp-dev \
-        protobuf-compiler \
-        iptables \
-        qemu-system-common \
-        qemu-utils \
-        iproute2 \
-        util-linux \
-        runc \
-        virtiofsd
+    sudo apt-get install -y --no-install-recommends "${apt_packages[@]}"
 
     install_crictl "${CRICTL_VERSION}"
     install_cni_plugins "${CNI_PLUGINS_VERSION}"
