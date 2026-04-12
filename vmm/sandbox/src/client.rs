@@ -53,13 +53,21 @@ use vmm_common::api::{
 };
 
 const HVSOCK_RETRY_TIMEOUT_IN_MS: u64 = 10;
+const FAST_FAIL_CONNECT_TIMEOUT_IN_SECS: u64 = 3;
 // TODO: reduce to 10s
 const NEW_TTRPC_CLIENT_TIMEOUT: u64 = 45;
+pub(crate) const DEFAULT_CLIENT_CHECK_TIMEOUT: u64 = 45;
 const TIME_SYNC_PERIOD: u64 = 60;
 const TIME_DIFF_TOLERANCE_IN_MS: u64 = 10;
 
 pub(crate) async fn new_sandbox_client(address: &str) -> Result<SandboxServiceClient> {
     let client = new_ttrpc_client_with_timeout(address, NEW_TTRPC_CLIENT_TIMEOUT).await?;
+    Ok(SandboxServiceClient::new(client))
+}
+
+pub(crate) async fn new_sandbox_client_fail_fast(address: &str) -> Result<SandboxServiceClient> {
+    let client =
+        new_ttrpc_client_with_fast_fail(address, FAST_FAIL_CONNECT_TIMEOUT_IN_SECS).await?;
     Ok(SandboxServiceClient::new(client))
 }
 
@@ -87,6 +95,50 @@ async fn new_ttrpc_client_with_timeout(address: &str, t: u64) -> Result<Client> 
         .await
         .map_err(|_| anyhow!("{}s timeout connecting socket: {}", t, last_err))?;
     Ok(client)
+}
+
+async fn new_ttrpc_client_with_fast_fail(address: &str, t: u64) -> Result<Client> {
+    let mut last_err = Error::Other(anyhow!(""));
+
+    let fut = async {
+        loop {
+            match connect_to_socket(address).await {
+                Ok(fd) => {
+                    let client = Client::new(fd);
+                    return Ok(client);
+                }
+                Err(e) => {
+                    if is_fatal_error(&e) {
+                        return Err(e);
+                    }
+                    last_err = e;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    };
+
+    let client = timeout(Duration::from_secs(t), fut)
+        .await
+        .map_err(|_| anyhow!("{}s timeout connecting socket: {}", t, last_err))??;
+    Ok(client)
+}
+
+fn is_fatal_error(e: &Error) -> bool {
+    let is_fatal_io_error = |err: &std::io::Error| {
+        matches!(
+            err.kind(),
+            std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+        )
+    };
+    match e {
+        Error::IO(err) => is_fatal_io_error(err),
+        Error::Other(err) => err
+            .chain()
+            .filter_map(|source| source.downcast_ref::<std::io::Error>())
+            .any(is_fatal_io_error),
+        _ => false,
+    }
 }
 
 // Supported sock address formats are:
@@ -217,15 +269,14 @@ pub fn unix_sock(r#abstract: bool, socket_path: &str) -> Result<UnixAddr> {
     Ok(sockaddr_u)
 }
 
-pub(crate) async fn client_check(client: &SandboxServiceClient) -> Result<()> {
+pub(crate) async fn client_check(client: &SandboxServiceClient, t_secs: u64) -> Result<()> {
     // the initial timeout is 1, and will grow exponentially
     let retry_timeout = 1;
-    let ctx_timeout = 45;
 
     let res_fut = do_check_agent(client, retry_timeout);
-    timeout(Duration::from_secs(ctx_timeout), res_fut)
+    timeout(Duration::from_secs(t_secs), res_fut)
         .await
-        .map_err(|_| anyhow!("{}s timeout checking", ctx_timeout))?;
+        .map_err(|_| anyhow!("{}s timeout checking", t_secs))?;
     Ok(())
 }
 
@@ -358,7 +409,15 @@ pub(crate) async fn publish_event(envelope: Envelope) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use crate::client::{checked_compute_delta, new_ttrpc_client_with_timeout};
+    use std::io::ErrorKind;
+
+    use anyhow::anyhow;
+    use containerd_sandbox::error::Error;
+
+    use crate::client::{
+        checked_compute_delta, is_fatal_error, new_ttrpc_client_with_fast_fail,
+        new_ttrpc_client_with_timeout,
+    };
 
     #[tokio::test]
     async fn test_new_ttrpc_client_timeout() {
@@ -366,6 +425,41 @@ mod tests {
         assert!(new_ttrpc_client_with_timeout("hvsock://fake.sock:1024", 1)
             .await
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn test_new_ttrpc_client_fast_fail() {
+        let err = match new_ttrpc_client_with_fast_fail("hvsock://fake.sock:1024", 1).await {
+            Ok(_) => panic!("fast-fail path should return error"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string().contains("timeout")
+                || err.to_string().contains("failed to connect")
+                || err.to_string().contains("No such file"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_is_fatal_error_for_io_errors() {
+        let broken_pipe = Error::IO(std::io::Error::from(ErrorKind::BrokenPipe));
+        let connection_reset = Error::IO(std::io::Error::from(ErrorKind::ConnectionReset));
+        let not_found = Error::IO(std::io::Error::from(ErrorKind::NotFound));
+
+        assert!(is_fatal_error(&broken_pipe));
+        assert!(is_fatal_error(&connection_reset));
+        assert!(!is_fatal_error(&not_found));
+    }
+
+    #[test]
+    fn test_is_fatal_error_for_wrapped_io_errors() {
+        let wrapped_reset = Error::Other(anyhow!(std::io::Error::from(ErrorKind::ConnectionReset)));
+        let wrapped_permission =
+            Error::Other(anyhow!(std::io::Error::from(ErrorKind::PermissionDenied)));
+
+        assert!(is_fatal_error(&wrapped_reset));
+        assert!(!is_fatal_error(&wrapped_permission));
     }
 
     #[test]
