@@ -110,39 +110,46 @@ report_failure() {
 
 get_matching_pids() {
     local process_name="$1"
-
     pgrep -x "${process_name}" 2>/dev/null | sort || true
+}
+
+get_clh_pid_by_sandbox_id() {
+    local sandbox_id="$1"
+    pgrep -f "cloud-hypervisor.*${sandbox_id:0:12}" 2>/dev/null | head -1 || true
+}
+
+wait_for_condition() {
+    local retries="${1:-150}"
+    local delay="${2:-0.2}"
+    shift 2
+
+    for _ in $(seq 1 "${retries}"); do
+        if eval "$*"; then
+            return 0
+        fi
+        sleep "${delay}"
+    done
+
+    return 1
 }
 
 wait_for_file() {
     local target="$1"
-    local retries="${2:-30}"
-    local delay="${3:-1}"
+    wait_for_condition "${2:-150}" "${3:-0.2}" "test -e \"${target}\""
+}
 
-    for _ in $(seq 1 "${retries}"); do
-        if [[ -e "${target}" ]]; then
-            return 0
-        fi
-        sleep "${delay}"
-    done
+wait_for_pid_exit() {
+    local pid="$1"
+    wait_for_condition "${2:-150}" "${3:-0.2}" "! sudo kill -0 \"${pid}\" >/dev/null 2>&1"
+}
 
-    return 1
+wait_for_pid_stop() {
+    local pid="$1"
+    wait_for_condition "${2:-150}" "${3:-0.2}" "ps -o stat= -p \"${pid}\" 2>/dev/null | grep -Eq '^[Tt]'"
 }
 
 wait_for_container_state() {
-    local retries="${1:-30}"
-    local delay="${2:-2}"
-
-    for _ in $(seq 1 "${retries}"); do
-        local state
-        state="$(sudo crictl inspect "${container_id}" 2>/dev/null | jq -r '.status.state // empty' || true)"
-        if [[ "${state}" == "CONTAINER_RUNNING" ]]; then
-            return 0
-        fi
-        sleep "${delay}"
-    done
-
-    return 1
+    wait_for_condition "${1:-150}" "${2:-0.2}" "[[ \"\$(sudo crictl inspect \"\${container_id}\" 2>/dev/null | jq -r '.status.state // empty' || true)\" == \"CONTAINER_RUNNING\" ]]"
 }
 
 create_container_config() {
@@ -253,21 +260,40 @@ EOF
 }
 
 start_containerd() {
+    if sudo crictl info >/dev/null 2>&1; then
+        return 0
+    fi
+
+    sudo pkill -9 containerd || true
     sudo rm -f /run/containerd/containerd.sock || true
     sudo mkdir -p /run/containerd
     sudo bash -c "ENABLE_CRI_SANDBOXES=1 /usr/local/bin/containerd --config /etc/containerd/config.toml > '${containerd_log}' 2>&1 & echo \$! > '${containerd_pid_file}'"
 
-    wait_for_file /run/containerd/containerd.sock 60 1 || die "containerd socket did not appear"
+    wait_for_file /run/containerd/containerd.sock || die "containerd socket did not appear"
 }
 
 start_vmm_sandboxer() {
+    local retries="${1:-60}"
+
+    if [[ -S "${vmm_socket}" ]] && pkill -0 vmm-sandboxer 2>/dev/null; then
+        local pid
+        pid=$(pgrep -x vmm-sandboxer | head -n 1)
+        log "vmm-sandboxer is already running (PID: ${pid}), skipping start"
+        echo "${pid}" | sudo tee "${vmm_pid_file}" > /dev/null
+        return 0
+    fi
+
+    log "Starting vmm-sandboxer..."
+
+    sudo pkill -9 vmm-sandboxer || true
     sudo rm -f "${vmm_socket}" || true
     sudo mkdir -p /run/kuasar-vmm
     # Pass the installed config path explicitly so CI does not rely on the
     # sandboxer's default config resolution behavior.
-    sudo bash -c "/usr/local/bin/vmm-sandboxer --config ${kuasar_config_file} --listen ${vmm_socket} --dir /run/kuasar-vmm > '${vmm_log}' 2>&1 & echo \$! > '${vmm_pid_file}'"
+    sudo bash -c "/usr/local/bin/vmm-sandboxer --config ${kuasar_config_file} --listen ${vmm_socket} --dir /run/kuasar-vmm --log-level debug > '${vmm_log}' 2>&1 & echo \$! > '${vmm_pid_file}'"
 
-    wait_for_file "${vmm_socket}" 60 1 || die "vmm-sandboxer socket did not appear"
+    log "Waiting for vmm-sandboxer socket ${vmm_socket}..."
+    wait_for_file "${vmm_socket}" "${retries}" 1 || die "vmm-sandboxer socket did not appear"
 }
 
 collect_state() {
@@ -343,7 +369,7 @@ setup_sandbox() {
     container_id="$(sudo crictl create "${pod_id}" "${container_config}" "${pod_config}")"
     sudo crictl start "${container_id}"
 
-    wait_for_container_state 30 2 || die "container did not enter running state"
+    wait_for_container_state || die "container did not enter running state"
 
     log "Verifying Cloud Hypervisor instance"
     local clh_cmdline
@@ -405,7 +431,7 @@ test_cri_pod_lifecycle() {
     extra_pod_ids=("${extra_pod_ids[@]/$p_id/}")
 }
 
-test_exec_smoke() {
+test_exec() {
     local exec_output
 
     set +e
@@ -501,9 +527,7 @@ test_kuasar_ctl_no_proc_leak() {
 }
 
 test_vmm_killed_cleanup() {
-    local p_config="${report_dir}/kill-vmm-pod.json"
-    local p_id
-    local clh_pid
+    local p_config="${report_dir}/kill-vmm-pod.json" p_id clh_pid
 
     log "Testing VMM killed cleanup"
     create_podsandbox_config "${p_config}" "kill-vmm-pod" "kill-vmm-uid"
@@ -512,11 +536,12 @@ test_vmm_killed_cleanup() {
 
     # Find the CLH process for *this* pod by matching its sandbox directory
     # in the command line (e.g., /run/kuasar-vmm/<pod_id_prefix>/...).
-    clh_pid=$(pgrep -f "cloud-hypervisor.*${p_id:0:12}" || true)
+    clh_pid=$(get_clh_pid_by_sandbox_id "${p_id}")
     [[ -n "${clh_pid}" ]] || die "could not find cloud-hypervisor process for pod ${p_id}"
 
     log "Killing Cloud Hypervisor (PID: ${clh_pid}) for Pod ${p_id}"
     sudo kill -9 "${clh_pid}"
+    wait_for_pid_exit "${clh_pid}" || die "cloud-hypervisor ${clh_pid} did not exit"
 
     # Wait for vmm-sandboxer/containerd to realize the VMM is gone
     sleep 5
@@ -532,6 +557,62 @@ test_vmm_killed_cleanup() {
     if pgrep -f "${p_id}" >/dev/null 2>&1; then
         die "processes for pod ${p_id} still lingering after VMM killed"
     fi
+}
+
+test_vmm_stuck_recovery_cleanup() {
+    local pod_count=2 p_config old_vmm_pid restart_begin_s restart_elapsed_s i p_id clh_pid sandbox_dir
+    local -a p_ids=() clh_pids=() sandbox_dirs=()
+
+    log "Testing vmm-sandboxer stuck recovery with ${pod_count} frozen VMM pods"
+    for i in $(seq 1 "${pod_count}"); do
+        p_config="${report_dir}/kill-vmm-pod-${i}.json"
+        create_podsandbox_config "${p_config}" "kill-vmm-pod-${i}" "kill-vmm-uid-${i}"
+        p_id="$(sudo crictl runp --runtime="${RUNTIME_HANDLER}" "${p_config}")"
+        extra_pod_ids+=("${p_id}")
+        p_ids+=("${p_id}")
+        sandbox_dir="/run/kuasar-vmm/${p_id}"
+        sandbox_dirs+=("${sandbox_dir}")
+
+        # Find the CLH process for *this* pod by matching its sandbox directory
+        # in the command line (e.g., /run/kuasar-vmm/<pod_id_prefix>/...).
+        clh_pid=$(get_clh_pid_by_sandbox_id "${p_id}")
+        [[ -n "${clh_pid}" ]] || die "could not find cloud-hypervisor process for pod ${p_id}"
+        [[ -d "${sandbox_dir}" ]] || die "sandbox dir ${sandbox_dir} does not exist before restart"
+        clh_pids+=("${clh_pid}")
+    done
+
+    old_vmm_pid="$(cat "${vmm_pid_file}")"
+    log "Stopping vmm-sandboxer (PID: ${old_vmm_pid}) before injecting VMM fault"
+    sudo kill -9 "${old_vmm_pid}"
+    wait_for_pid_exit "${old_vmm_pid}" || die "vmm-sandboxer ${old_vmm_pid} did not exit"
+
+    for i in "${!clh_pids[@]}"; do
+        log "Freezing Cloud Hypervisor (PID: ${clh_pids[${i}]})"
+        sudo kill -STOP "${clh_pids[${i}]}"
+        wait_for_pid_stop "${clh_pids[${i}]}" || die "cloud-hypervisor ${clh_pids[${i}]} did not enter stopped state"
+    done
+
+    restart_begin_s="$(date +%s)"
+    start_vmm_sandboxer 15
+    restart_elapsed_s="$(( $(date +%s) - restart_begin_s ))"
+    [[ "${restart_elapsed_s}" -le 15 ]] || die "vmm-sandboxer restart exceeded 15s: ${restart_elapsed_s}s"
+
+    for i in "${!p_ids[@]}"; do
+        [[ ! -d "${sandbox_dirs[${i}]}" ]] || die "failed sandbox dir ${sandbox_dirs[${i}]} still exists after restart recovery"
+
+        sudo crictl stopp "${p_ids[${i}]}" >/dev/null 2>&1 || true
+        sudo crictl rmp -f "${p_ids[${i}]}" >/dev/null 2>&1 || true
+
+        if sudo crictl inspectp "${p_ids[${i}]}" >/dev/null 2>&1; then
+            die "pod ${p_ids[${i}]} still exists after cleanup"
+        fi
+
+        extra_pod_ids=("${extra_pod_ids[@]/${p_ids[${i}]}/}")
+
+        if pgrep -f "${p_ids[${i}]}" >/dev/null 2>&1; then
+            die "processes for pod ${p_ids[${i}]} still lingering after restart recovery"
+        fi
+    done
 }
 
 run_test_group() {
@@ -572,7 +653,7 @@ run_all_tests() {
     run_test_group "CRI Basic" \
         test_cri_pod_lifecycle \
         test_multi_container_pod \
-        test_exec_smoke
+        test_exec
 
     run_test_group "kuasar-ctl Functionality" \
         test_kuasar_ctl_exec \
@@ -581,8 +662,11 @@ run_all_tests() {
 
     run_test_group "kuasar-ctl Stability (Stress)" \
         test_kuasar_ctl_no_fd_leak \
-        test_kuasar_ctl_no_proc_leak \
-        test_vmm_killed_cleanup
+        test_kuasar_ctl_no_proc_leak
+
+    run_test_group "Sandbox Recovery & Cleanup" \
+        test_vmm_killed_cleanup \
+        test_vmm_stuck_recovery_cleanup
 
     if [[ ${#test_failures[@]} -ne 0 ]]; then
         echo "1..${tap_count}" >> "${tap_file}"
