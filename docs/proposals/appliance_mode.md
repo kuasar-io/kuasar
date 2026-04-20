@@ -52,7 +52,6 @@
   - [Milestones](#milestones)
   - [Code Changes Overview](#code-changes-overview)
 - [Alternatives Considered](#alternatives-considered)
-- [References](#references)
 
 ---
 
@@ -222,14 +221,16 @@ We propose refactoring Kuasar's internal architecture into three layers, introdu
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Process startup determines the combination.** Four valid configurations:
+**Process startup determines the combination.** Six valid configurations:
 
 | VMM | Runtime Mode | Adapter | Primary Use Case |
 |-----|-------------|---------|------------------|
 | Cloud Hypervisor | Standard | K8s Adapter | K8s pod isolation (existing) |
 | Cloud Hypervisor | Appliance | Direct Adapter | AI Agent sandbox (rich VMM features) |
+| Cloud Hypervisor | Appliance | K8s Adapter | Minimal K8s integration for appliance workloads (no Exec/Attach) |
 | Firecracker | Standard | K8s Adapter | K8s pod isolation (lightweight) |
 | Firecracker | Appliance | Direct Adapter | Serverless / FaaS (minimal latency) |
+| Firecracker | Appliance | K8s Adapter | Minimal K8s integration for appliance workloads (no Exec/Attach) |
 
 ### Architecture: Three-Layer Engine Design
 
@@ -317,6 +318,7 @@ In appliance mode, guest-host communication uses a minimal JSON Lines protocol o
 | Message | Semantics | Required Fields |
 |---------|-----------|----------------|
 | `SHUTDOWN` | Graceful termination request | `deadline_ms` |
+| `DRAIN` | Request the application to drain in-flight requests before pause | `deadline_ms` |
 | `CONFIG` | One-time configuration injection | config payload |
 | `PING` | Connectivity probe | — |
 
@@ -329,7 +331,7 @@ Example READY message:
 
 **K8s Adapter** provides full containerd compatibility:
 - Implements `Sandboxer` trait: `create`/`start`/`stop`/`shutdown`/`sandbox` methods map to engine sandbox operations.
-- Implements Task API: In standard mode, delegates to engine → `VmmTaskRuntime` → ttrpc → `vmm-task` (real operations). In appliance mode, `Create`/`Start` are no-ops, `Exec` returns `UNIMPLEMENTED`, `Kill` maps to `SHUTDOWN`.
+- Implements Task API: In standard mode, delegates to engine → `VmmTaskRuntime` → ttrpc → `vmm-task` (real operations). In appliance mode, Task API `Create`/`Start` calls (i.e., container/process semantics) are no-ops; `Exec` returns `UNIMPLEMENTED`; `Kill` maps to `SHUTDOWN`. Note: this does **not** apply to Sandboxer `create`/`start`, which still create and start the VM.
 - Publishes containerd events (`TaskStart`, `TaskExit`, etc.).
 
 **Direct Adapter** provides a native, minimal gRPC API with no Task/Container concepts. Designed for platforms that manage sandbox lifecycle directly (e.g., AI agent orchestrators, custom FaaS platforms).
@@ -421,10 +423,14 @@ trait Vmm: Send + Sync {
     /// Wait for the VM process to exit, return exit info.
     async fn wait_exit(&self) -> Result<ExitInfo>;
 
-    /// Add a block device. Must be called before boot/restore.
+    /// Add a block device for initial VM configuration.
+    /// Must be called before boot/restore. Calling on a running VM returns
+    /// Error::InvalidState. Hot-plug is not currently in scope.
     fn add_disk(&mut self, disk: DiskConfig) -> Result<()>;
 
-    /// Add a network device. Must be called before boot/restore.
+    /// Add a network device for initial VM configuration.
+    /// Must be called before boot/restore. Calling on a running VM returns
+    /// Error::InvalidState. Hot-plug is not currently in scope.
     fn add_network(&mut self, net: NetworkConfig) -> Result<()>;
 
     /// Return the vsock path for host-guest communication.
@@ -441,6 +447,8 @@ struct VmmCapabilities {
     hot_plug_mem: bool,
     pmem_dax: bool,
     diff_snapshot: bool,
+    runtime_snapshot: bool,
+    vfio: bool,
     resize: bool,
 }
 ```
@@ -565,7 +573,7 @@ impl<V: Vmm, R: GuestRuntime> SandboxEngine<V, R> {
             StartMode::Boot => {
                 sandbox.vmm.boot().await?;
             }
-            _ => unreachable!("Auto resolved above"),
+            _ => return Err(anyhow!("unexpected start mode: {:?}", effective_mode).into()),
         }
 
         // 4. Wait for readiness (via GuestRuntime trait — mode-agnostic)
@@ -630,7 +638,7 @@ struct PauseResult {
     paused_at: Timestamp,
     snapshot_ref: Option<String>,       // e.g. "snapshot://rt-sb-123-1709308800"
     snapshot_type: String,              // "runtime"
-    chunk_upload_status: Option<String>, // "completed" | "failed" | "skipped"
+    chunk_upload_status: Option<String>, // "completed" | "partial" | "failed" | "skipped"
     chunks_total: u64,
     chunks_uploaded: u64,
     chunks_deduped: u64,
@@ -673,7 +681,12 @@ struct SnapshotResult {
 async fn pause_sandbox(&mut self, id: &str, opts: PauseOptions) -> Result<PauseResult> {
     let sandbox = self.sandboxes.get_mut(id)?;
 
-    // 1. Drain: best-effort wait for in-flight requests
+    // 1. Drain: send DRAIN message to guest via Appliance Protocol,
+    //    then best-effort wait for the guest application to finish
+    //    in-flight requests. The guest is responsible for L7 traffic
+    //    draining; Kuasar only provides the signal and the timeout.
+    //    If the guest does not support DRAIN, the timeout expires and
+    //    force-pause proceeds (the .ok() below ignores the timeout error).
     if opts.drain_timeout_ms > 0 {
         tokio::time::timeout(
             Duration::from_millis(opts.drain_timeout_ms),
@@ -867,7 +880,7 @@ enum PauseMode {
 message PauseSandboxResponse {
     string sandbox_id = 1;
     optional string snapshot_ref = 2;       // runtime snapshot reference (if snapshot mode)
-    string chunk_upload_status = 3;         // "completed" | "partial" | "failed" | "skipped"
+    optional string chunk_upload_status = 3;  // "completed" | "partial" | "failed" | "skipped"
     uint64 chunks_total = 4;
     uint64 chunks_uploaded = 5;
     uint64 chunks_deduped = 6;
@@ -911,6 +924,8 @@ The Direct Adapter exposes no Task/Container concepts and provides richer respon
 **Transport**: vsock (Linux) or hvsock (Hyper-V). Guest listens on a configurable port (default: 1024).
 
 **Encoding**: JSON Lines (one JSON object per line). Chosen for simplicity and debuggability; can be upgraded to a binary protocol later without changing semantics.
+
+**Security model**: In appliance mode, the guest runs a single application process (PID1 is the application or an init script that launches it). There is no multi-tenant or multi-process concern inside the guest — only PID1/init has access to the vsock port. This trust model is consistent with Kata Containers' `kata-agent` model, where the guest agent is trusted. If future use cases introduce multiple guest processes, a nonce-based handshake can be added to the protocol without breaking backward compatibility.
 
 **Guest readiness contract**:
 - PID1 (or an init script) sets up the application environment and starts the application.
@@ -1022,7 +1037,7 @@ Each event includes: `sandbox_id`, `timestamp`, `duration_ms` (where applicable)
 
 ### Boot Mode Selection: Benchmark-Informed Heuristics
 
-Snapshot restore is **not always faster** than cold boot. Benchmarks on CH v50.0 (`/bench/cold_boot_vs_snapshot_restore.md`) reveal a critical crossover:
+Snapshot restore is **not always faster** than cold boot. Benchmarks on CH v50.0 reveal a critical crossover:
 
 | Workload | Cold Boot | Snapshot Restore | Faster Mode |
 |----------|-----------|-----------------|-------------|
@@ -1058,8 +1073,6 @@ For `UserPauseResume` / `BMSMigration` / `NodeDrain`, the heuristic does not app
 **Kuasar's role**: Kuasar itself does **not** auto-select the optimal mode. The caller specifies `StartMode` and `LifecyclePhase` in the request. When `StartMode::Auto` is used for `FirstLaunch`, Kuasar attempts restore if a compatible template exists and falls back to boot otherwise. For non-FirstLaunch phases, `StartMode::Auto` always resolves to `SnapshotRestore` using the runtime snapshot.
 
 **Future optimization**: Once CH implements `mmap(MAP_PRIVATE)` for `memory-ranges` (demand-paged lazy restore), snapshot restore is expected to drop to ~50 ms for lightweight workloads (only faulting in used pages). At that point, the decision rule simplifies to: **always use SnapshotRestore when a compatible snapshot is available**.
-
-See [`/docs/design/boot_mode_selection_strategy.md`](/docs/design/boot_mode_selection_strategy.md) for the full two-dimensional decision matrix and detailed analysis.
 
 ### Artifact-to-Start-Mode Mapping
 
@@ -1224,7 +1237,7 @@ The engine gracefully handles capability differences via `VmmCapabilities`. Feat
 
 ### CH v50.0 Implementation Constraints
 
-The following CH v50.0 behaviors have been identified through benchmarking ([`/bench/snapshot_restore_slim_vs_fat.md`](/bench/snapshot_restore_slim_vs_fat.md), [`/bench/snapshot_restore_256m_vs_4g.md`](/bench/snapshot_restore_256m_vs_4g.md)) and directly affect the `CloudHypervisorVmm` implementation:
+The following CH v50.0 behaviors have been identified through benchmarking and directly affect the `CloudHypervisorVmm` implementation:
 
 #### Constraint 1: `--kernel` flag silently disables `--restore`
 
@@ -1278,7 +1291,7 @@ CH v50.0 does not correctly restore VMs created with `--memory-zone file=<path>`
 
 #### Constraint 4: Snapshot serial path must be writable
 
-The snapshot's `config.json` records the serial output file path used during snapshot creation. On restore, CH opens this path for writing. The restore host must ensure the directory exists and is writable, or rewrite the path in `config.json` before restore.
+The snapshot's `config.json` records the serial output file path used during snapshot creation. On restore, CH opens this path for writing. To ensure snapshot portability across nodes, `kuasar-builder` uses a well-known relative path (e.g., `serial.log` within the snapshot directory) during snapshot creation. At restore time, `CloudHypervisorVmm::restore()` automatically rewrites the serial path in `config.json` to point to the local runtime directory (e.g., `/run/kuasar/sandboxes/<id>/serial.log`) before invoking CH. This ensures restore works regardless of the original build environment's directory layout.
 
 ---
 
@@ -1444,25 +1457,3 @@ Include chunked image loading, multi-tier caching, and FUSE block agent directly
 Instead of Kuasar performing the chunk-ify + upload, have the external content system (artifactd/Miracle) watch for snapshot files and chunk-ify them externally.
 
 **Rejected**: The chunk-ify trigger is inherently tied to the `pause_sandbox` lifecycle — only the engine knows *when* a VM is paused and *which* files constitute the runtime snapshot. If the content system had to detect and chunk-ify snapshots, it would need to understand VM lifecycle (which sandbox is pausing, when the snapshot file is fully written), violating the separation of concerns. Instead, Kuasar performs the chunking and HTTP uploads; the content system handles storage, dedup, distribution, and cross-node availability. The upload is optional and degradation-safe — if artifactd is unavailable, the snapshot file remains intact on local disk.
-
----
-
-## References
-
-1. **Kuasar Project**: https://github.com/kuasar-io/kuasar
-2. **Cloud Hypervisor**: https://github.com/cloud-hypervisor/cloud-hypervisor
-3. **Firecracker**: https://github.com/firecracker-microvm/firecracker
-4. **On-demand Container Loading in AWS Lambda** (USENIX ATC '23): Marc Brooker et al. — content-addressed lazy loading for serverless containers.
-5. **Modal.com Fast Container Loading**: https://modal.com/blog/serverless-containers — FUSE-based lazy loading for AI workloads.
-6. **Nydus Image Service** (CNCF): https://nydus.dev — lazy container image loading, precedent for separating content delivery from container runtime.
-7. **Kata Containers Architecture**: https://github.com/kata-containers/kata-containers/tree/main/docs/design/architecture — guest agent (`kata-agent`) + ttrpc model that appliance mode simplifies.
-8. **TrENV** (SOSP '24): Repurposable sandbox pool and memory templates for fast VM startup.
-9. **Cold Boot vs Snapshot Restore Benchmark**: [`/bench/cold_boot_vs_snapshot_restore.md`](/bench/cold_boot_vs_snapshot_restore.md) — measured crossover point between cold boot and snapshot restore on CH v50.0.
-10. **Snapshot Restore Slim vs Fat Benchmark**: [`/bench/snapshot_restore_slim_vs_fat.md`](/bench/snapshot_restore_slim_vs_fat.md) — corrected restore measurements proving CH reads entire memory-ranges file synchronously; identified the `--kernel` + `--restore` bug.
-11. **Build Pipeline Subsystem Design**: [`/docs/design/build_pipeline_subsystem_design.md`](/docs/design/build_pipeline_subsystem_design.md) — Image Product, Snapshot Product, and Runtime Snapshot Chunker specifications.
-12. **Boot Mode Selection Strategy**: [`/docs/design/boot_mode_selection_strategy.md`](/docs/design/boot_mode_selection_strategy.md) — two-dimensional decision heuristics (`f(workload, lifecycle_phase)`) for cold boot vs snapshot restore.
-13. **Memory Subsystem Design (CH)**: [`/docs/design/memory_subsystem_design_ch.md`](/docs/design/memory_subsystem_design_ch.md) — capability levels L1–L5 for memory restore optimization.
-14. **artifactd Subsystem Design**: [`/docs/design/artifactd_subsystem_design.md`](/docs/design/artifactd_subsystem_design.md) — bidirectional chunk pipeline (read path + runtime snapshot upload path).
-15. **Artifact Formats**: [`/docs/specs/artifact_formats.md`](/docs/specs/artifact_formats.md) — runtime snapshot metadata (`runtime_snapshot.meta.json`) and chunk storage layout.
-16. **Interface Summary**: [`/docs/specs/interface_summary.md`](/docs/specs/interface_summary.md) — cross-document contract index including PauseSandbox/ResumeSandbox APIs and runtime snapshot events.
-17. **Kuasar + Miracle Project Split**: [`/docs/design/project_split_kuasar_miracle.md`](/docs/design/project_split_kuasar_miracle.md) — runtime snapshot lifecycle integration between Kuasar (engine) and Miracle (content delivery).
