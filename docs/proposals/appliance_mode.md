@@ -361,7 +361,7 @@ Phase 2 (Snapshot Build — optional, consumes Phase 1 output):
 
 Phase 1 output alone is sufficient for **cold boot mode** — Kuasar can boot a VM directly from `rootfs.ext4` without any snapshot. When `--emit-chunks` is enabled, cold boot can also use lazy disk loading via the external block-agent FUSE backend.
 
-**Phase 2: Snapshot Build** produces the **Snapshot Product**:
+**Phase 2: Snapshot Build** produces the **Snapshot Artifact**:
 1. **Base disk chunking**: Convert `rootfs.ext4` → qcow2 base, then chunk the qcow2 into `base-disk/` (blockmap + manifest + chunkstore).
 2. **VM boot**: Start VM using the selected VMM (CH or FC) with the chunked base disk (via block-agent) or local rootfs.ext4.
 3. **Wait READY**: Wait for the application to initialize and report readiness via the appliance protocol.
@@ -1080,11 +1080,11 @@ Each `StartMode` requires specific artifacts from kuasar-builder. The following 
 
 | Start Mode | Required Artifacts | Disk Setup | Memory Setup |
 |---|---|---|---|
-| `Boot` | `rootfs.ext4` + kernel + initrd (Image Product Phase 1) | `rootfs.ext4` passed as virtio-blk disk | Standard `--memory size=NM` |
-| `Boot` + lazy disk | `blockmap/manifest/chunkstore` + kernel + initrd (Image Product Phase 1 with `--emit-chunks`) | block-agent FUSE mount → virtio-blk | Standard `--memory size=NM` |
-| `RestoreEager` | CH snapshot bundle + `overlay.qcow2` (Snapshot Product Phase 2) | Disk config from snapshot's `config.json`; only overlay needs host-side preparation | Memory from `memory-ranges` file (CH reads it synchronously) |
-| `RestoreEager` + lazy disk | CH snapshot bundle + `base-disk/` chunkstore + `memory-disk/` chunkstore (Snapshot Product Phase 2 with block-agent) | block-agent mounts base via FUSE; overlay.qcow2 layered on top; snapshot `config.json` rewritten to point at FUSE path | Memory via block-agent FUSE mount of `memory-disk/` chunks (memory-zone file-backed) |
-| `Auto` | Both Image Product and Snapshot Product available | Engine tries restore path first; falls back to boot path on template incompatibility or absence | Per resolved mode |
+| `Boot` | `rootfs.ext4` + kernel + initrd (Image Artifact Phase 1) | `rootfs.ext4` passed as virtio-blk disk | Standard `--memory size=NM` |
+| `Boot` + lazy disk | `blockmap/manifest/chunkstore` + kernel + initrd (Image Artifact Phase 1 with `--emit-chunks`) | block-agent FUSE mount → virtio-blk | Standard `--memory size=NM` |
+| `RestoreEager` | CH snapshot bundle + `overlay.qcow2` (Snapshot Artifact Phase 2) | Disk config from snapshot's `config.json`; only overlay needs host-side preparation | Memory from `memory-ranges` file (CH reads it synchronously) |
+| `RestoreEager` + lazy disk | CH snapshot bundle + `base-disk/` chunkstore + `memory-disk/` chunkstore (Snapshot Artifact Phase 2 with block-agent) | block-agent mounts base via FUSE; overlay.qcow2 layered on top; snapshot `config.json` rewritten to point at FUSE path | Memory via block-agent FUSE mount of `memory-disk/` chunks (memory-zone file-backed) |
+| `Auto` | Both Image Artifact and Snapshot Artifact available | Engine tries restore path first; falls back to boot path on template incompatibility or absence | Per resolved mode |
 
 **Key implementation detail for restore mode**: In `RestoreEager`, the VMM's `restore()` implementation must **not** pass `--kernel`, `--memory`, `--cpus`, or `--disk` CLI flags — CH reads all configuration from the snapshot's `config.json`. Only `--restore source_url=file://<path>` and `--api-socket` should be passed. See [CH v50.0 Implementation Constraints](#ch-v500-implementation-constraints).
 
