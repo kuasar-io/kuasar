@@ -14,11 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+use anyhow::anyhow;
 use containerd_sandbox::SandboxOption;
 
 use crate::{
     cloud_hypervisor::{
-        config::CloudHypervisorVMConfig,
+        config::{CloudHypervisorVMConfig, ContainerStorageBackend},
         devices::{console::Console, fs::Fs, pmem::Pmem, rng::Rng, vsock::Vsock},
         CloudHypervisorVM,
     },
@@ -28,6 +29,60 @@ use crate::{
 
 pub struct CloudHypervisorVMFactory {
     vm_config: CloudHypervisorVMConfig,
+}
+
+#[cfg(test)]
+mod tests {
+    use containerd_sandbox::{data::SandboxData, SandboxOption};
+
+    use super::CloudHypervisorVMFactory;
+    use crate::{
+        cloud_hypervisor::config::{CloudHypervisorVMConfig, ContainerStorageBackend},
+        vm::VMFactory,
+    };
+
+    #[tokio::test]
+    async fn test_create_vm_virtiofs_with_empty_virtiofsd_path_fails() {
+        let mut config = CloudHypervisorVMConfig::default();
+        config.container_storage_backend = ContainerStorageBackend::Virtiofs;
+        config.virtiofsd.path = String::new();
+
+        let factory = CloudHypervisorVMFactory::new(config);
+        let s = SandboxOption {
+            base_dir: "/tmp/test-sandbox".to_string(),
+            sandbox: SandboxData::default(),
+        };
+
+        let err = factory.create_vm("test-id", &s).await.err().unwrap();
+        assert!(
+            err.to_string().contains("virtiofsd.path is not configured"),
+            "expected virtiofsd.path error, got: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn test_create_vm_virtio_blk_with_empty_virtiofsd_path_passes_validation() {
+        let mut config = CloudHypervisorVMConfig::default();
+        config.container_storage_backend = ContainerStorageBackend::VirtioBlk;
+        config.virtiofsd.path = String::new();
+        config.common.image_path = String::new();
+
+        let factory = CloudHypervisorVMFactory::new(config);
+        let s = SandboxOption {
+            base_dir: "/tmp/test-sandbox".to_string(),
+            sandbox: SandboxData::default(),
+        };
+
+        let result = factory.create_vm("test-id", &s).await;
+        if let Err(ref e) = result {
+            assert!(
+                !e.to_string().contains("virtiofsd"),
+                "virtio-blk mode must not fail virtiofsd path check, got: {}",
+                e
+            );
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -44,6 +99,15 @@ impl VMFactory for CloudHypervisorVMFactory {
         id: &str,
         s: &SandboxOption,
     ) -> containerd_sandbox::error::Result<Self::VM> {
+        if self.vm_config.container_storage_backend == ContainerStorageBackend::Virtiofs
+            && self.vm_config.virtiofsd.path.is_empty()
+        {
+            return Err(anyhow!(
+                "container_storage_backend is virtiofs but virtiofsd.path is not configured"
+            )
+            .into());
+        }
+
         let netns = get_netns(&s.sandbox);
         let mut vm = CloudHypervisorVM::new(id, &netns, &s.base_dir, &self.vm_config);
         // add image as a disk

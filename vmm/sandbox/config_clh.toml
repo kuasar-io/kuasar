@@ -14,10 +14,30 @@ hugepages = false
 entropy_source = "/dev/urandom"
 debug = false
 
+# container_storage_backend controls how container layers are presented to the guest VM.
+#
+#   "virtiofs"    (default)  — container layers are shared via virtiofsd + virtio-fs.
+#                             virtiofsd must be installed at [hypervisor.virtiofsd].path.
+#
+#   "virtio-blk"  (optional) — overlay mounts are packaged into disk images and
+#                             hot-attached as virtio-blk PCI devices.
+#
+container_storage_backend = "virtiofs"
+
+[hypervisor.virtio_blk]
+allow_bind_snapshot = false
+default_fstype = "ext4"
+block_image_size_overhead_percent = 20
+small_dir_max_files = 50
+small_dir_max_bytes = 10485760
+overlay_image_fallback_size_mb = 64
+bind_image_fallback_size_mb = 8
+
 [hypervisor.task]
 debug = false
 enable_tracing = false
 
+# virtiofsd configuration — only used when container_storage_backend = "virtiofs"
 [hypervisor.virtiofsd]
 path = "/usr/local/bin/virtiofsd"
 log_level = "info"

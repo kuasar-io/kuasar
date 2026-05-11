@@ -31,6 +31,14 @@ use crate::{
 
 const VIRTIO_FS: &str = "virtio-fs";
 const VIRTIO_9P: &str = "virtio-9p";
+pub const VIRTIO_BLK: &str = "virtio-blk";
+pub const VIRTIOFS: &str = "virtiofs";
+
+pub const DEFAULT_BLOCK_IMAGE_SIZE_OVERHEAD_PERCENT: u32 = 20;
+pub const DEFAULT_SMALL_DIR_MAX_FILES: usize = 50;
+pub const DEFAULT_SMALL_DIR_MAX_BYTES: u64 = 10 * 1024 * 1024;
+pub const DEFAULT_OVERLAY_IMAGE_FALLBACK_SIZE_MB: u64 = 64;
+pub const DEFAULT_BIND_IMAGE_FALLBACK_SIZE_MB: u64 = 8;
 
 #[async_trait]
 pub trait VMFactory {
@@ -71,6 +79,27 @@ pub trait VM: Serialize + Sync + Send {
     async fn wait_channel(&self) -> Option<Receiver<(u32, i128)>>;
     async fn vcpus(&self) -> Result<VcpuThreads>;
     fn pids(&self) -> Pids;
+    fn container_storage_backend(&self) -> &str {
+        VIRTIOFS
+    }
+    fn allow_bind_snapshot(&self) -> bool {
+        false
+    }
+    fn block_image_size_overhead_percent(&self) -> u32 {
+        DEFAULT_BLOCK_IMAGE_SIZE_OVERHEAD_PERCENT
+    }
+    fn small_dir_max_files(&self) -> usize {
+        DEFAULT_SMALL_DIR_MAX_FILES
+    }
+    fn small_dir_max_bytes(&self) -> u64 {
+        DEFAULT_SMALL_DIR_MAX_BYTES
+    }
+    fn overlay_image_fallback_size_mb(&self) -> u64 {
+        DEFAULT_OVERLAY_IMAGE_FALLBACK_SIZE_MB
+    }
+    fn bind_image_fallback_size_mb(&self) -> u64 {
+        DEFAULT_BIND_IMAGE_FALLBACK_SIZE_MB
+    }
 }
 
 #[macro_export]

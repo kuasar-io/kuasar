@@ -39,8 +39,8 @@ use tracing::instrument;
 use ttrpc::context::with_timeout;
 use vmm_common::{
     api::{empty::Empty, sandbox::SetupSandboxRequest, sandbox_ttrpc::SandboxServiceClient},
-    storage::Storage,
-    ETC_HOSTS, ETC_RESOLV, HOSTNAME_FILENAME, HOSTS_FILENAME, RESOLV_FILENAME, SHARED_DIR_SUFFIX,
+    ETC_HOSTS, ETC_RESOLV, HOSTNAME_FILENAME, HOSTS_FILENAME, KUASAR_STATE_DIR, RESOLV_FILENAME,
+    SHARED_DIR_SUFFIX,
 };
 
 use crate::{
@@ -51,8 +51,12 @@ use crate::{
     },
     container::KuasarContainer,
     network::{Network, NetworkConfig},
+    storage::{
+        device_graph::DeviceGraph,
+        guest_file::{shell_quote, GuestFileInjector},
+    },
     utils::{get_dns_config, get_hostname, get_resources, get_sandbox_cgroup_parent_path},
-    vm::{Hooks, Recoverable, VMFactory, VM},
+    vm::{Hooks, Recoverable, VMFactory, VIRTIO_BLK, VM},
 };
 
 pub const KUASAR_GUEST_SHARE_DIR: &str = "/run/kuasar/storage/containers/";
@@ -185,7 +189,7 @@ pub struct KuasarSandbox<V: VM> {
     pub(crate) base_dir: String,
     pub(crate) data: SandboxData,
     pub(crate) containers: HashMap<String, KuasarContainer>,
-    pub(crate) storages: Vec<Storage>,
+    pub(crate) storages: DeviceGraph,
     pub(crate) id_generator: u32,
     pub(crate) network: Option<Network>,
     #[serde(skip, default)]
@@ -194,6 +198,12 @@ pub struct KuasarSandbox<V: VM> {
     pub(crate) exit_signal: Arc<ExitSignal>,
     #[serde(default)]
     pub(crate) sandbox_cgroups: SandboxCgroup,
+    /// Container IDs that were running when a snapshot was taken and have since been
+    /// removed from the guest, but whose storage entries may still be present in the
+    /// restored sandbox.  Sharing storage with an orphan is refused to prevent
+    /// cross-container data leaks after restore.
+    #[serde(default)]
+    pub(crate) orphan_container_ids: Vec<String>,
 }
 
 #[async_trait]
@@ -237,12 +247,13 @@ where
             base_dir: s.base_dir,
             data: s.sandbox.clone(),
             containers: Default::default(),
-            storages: vec![],
+            storages: DeviceGraph::default(),
             id_generator: 0,
             network: None,
             client: Arc::new(Mutex::new(None)),
             exit_signal: Arc::new(ExitSignal::default()),
             sandbox_cgroups,
+            orphan_container_ids: vec![],
         };
 
         // setup sandbox files: hosts, hostname and resolv.conf for guest
@@ -550,6 +561,18 @@ where
             return Err(e);
         }
 
+        // In virtio-blk mode there is no virtiofs to share sandbox config files.
+        // Push them into the guest before setup_sandbox() which reads the hostname.
+        if self.vm.container_storage_backend() == VIRTIO_BLK {
+            if let Err(e) = self.push_sandbox_files().await {
+                if let Err(re) = self.vm.stop(true).await {
+                    warn!("roll back in push sandbox files: {}", re);
+                    return Err(e);
+                }
+                return Err(e);
+            }
+        }
+
         if let Err(e) = self.setup_sandbox().await {
             if let Err(re) = self.vm.stop(true).await {
                 error!("roll back in setup sandbox client: {}", re);
@@ -757,6 +780,80 @@ where
     #[instrument(skip_all)]
     pub fn get_sandbox_shared_path(&self) -> String {
         format!("{}/{}", self.base_dir, SHARED_DIR_SUFFIX)
+    }
+
+    // Push sandbox config files (hostname, resolv.conf, hosts) directly into the guest.
+    // Used in virtio-blk mode where there is no virtiofs shared directory.
+    // The three file pushes are issued concurrently to reduce sandbox start latency.
+    #[instrument(skip_all)]
+    async fn push_sandbox_files(&self) -> Result<()> {
+        let shared_path = self.get_sandbox_shared_path();
+        let client_guard = self.client.lock().await;
+        let client = client_guard.as_ref().ok_or_else(|| {
+            anyhow!("TTRPC client not initialized when pushing sandbox files in virtio-blk mode")
+        })?;
+        let injector = GuestFileInjector::new(client);
+
+        // Read all config files from host shared dir; log a warning for any missing file
+        // so that a misconfigured or not-yet-populated shared dir is observable.
+        let hostname_content =
+            tokio::fs::read(format!("{}/{}", shared_path, HOSTNAME_FILENAME)).await;
+        if let Err(ref e) = hostname_content {
+            warn!("virtio-blk: could not read {}: {}", HOSTNAME_FILENAME, e);
+        }
+        let hostname_content = hostname_content.ok();
+
+        let resolv_content = tokio::fs::read(format!("{}/{}", shared_path, RESOLV_FILENAME)).await;
+        if let Err(ref e) = resolv_content {
+            warn!("virtio-blk: could not read {}: {}", RESOLV_FILENAME, e);
+        }
+        let resolv_content = resolv_content.ok();
+
+        let hosts_content = tokio::fs::read(format!("{}/{}", shared_path, HOSTS_FILENAME)).await;
+        if let Err(ref e) = hosts_content {
+            warn!("virtio-blk: could not read {}: {}", HOSTS_FILENAME, e);
+        }
+        let hosts_content = hosts_content.ok();
+
+        let hostname_dest = format!("{}/{}", KUASAR_STATE_DIR, HOSTNAME_FILENAME);
+        let resolv_dest = format!("{}/{}", KUASAR_STATE_DIR, RESOLV_FILENAME);
+        let hosts_dest = format!("{}/{}", KUASAR_STATE_DIR, HOSTS_FILENAME);
+
+        // Issue all pushes concurrently to reduce sandbox start latency.
+        let push_hostname = async {
+            if let Some(content) = hostname_content {
+                injector.push_file(&hostname_dest, content, 0o644).await?;
+            }
+            Ok::<(), containerd_sandbox::error::Error>(())
+        };
+
+        let push_resolv = async {
+            if let Some(content) = resolv_content {
+                injector.push_file(&resolv_dest, content, 0o644).await?;
+                injector
+                    .exec(&format!(
+                        "mount --bind {} {}",
+                        shell_quote(&resolv_dest),
+                        shell_quote(ETC_RESOLV)
+                    ))
+                    .await?;
+            }
+            Ok::<(), containerd_sandbox::error::Error>(())
+        };
+
+        let push_hosts = async {
+            if let Some(content) = hosts_content {
+                injector.push_file(&hosts_dest, content, 0o644).await?;
+            }
+            Ok::<(), containerd_sandbox::error::Error>(())
+        };
+
+        let (r1, r2, r3) = tokio::join!(push_hostname, push_resolv, push_hosts);
+        r1?;
+        r2?;
+        r3?;
+
+        Ok(())
     }
 
     #[instrument(skip_all)]
@@ -991,13 +1088,13 @@ mod tests {
         use serde::{Deserialize, Serialize};
         use temp_dir::TempDir;
         use tokio::sync::Mutex;
-        use vmm_common::storage::Storage;
 
         use crate::{
             cgroup::SandboxCgroup,
             container::KuasarContainer,
             device::{BusType, DeviceInfo},
             sandbox::{KuasarSandbox, KuasarSandboxer, SandboxConfig},
+            storage::device_graph::DeviceGraph,
             vm::{Hooks, Pids, Recoverable, VMFactory, VcpuThreads, VM},
         };
 
@@ -1104,12 +1201,13 @@ mod tests {
                 base_dir: base_dir.to_string(),
                 data: SandboxData::default(),
                 containers: HashMap::<String, KuasarContainer>::new(),
-                storages: Vec::<Storage>::new(),
+                storages: DeviceGraph::default(),
                 id_generator: 0,
                 network: None,
                 client: Arc::new(Mutex::new(None)),
                 exit_signal: Arc::new(ExitSignal::default()),
                 sandbox_cgroups: SandboxCgroup::default(),
+                orphan_container_ids: vec![],
             }
         }
 

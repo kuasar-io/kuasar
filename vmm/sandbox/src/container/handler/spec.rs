@@ -30,7 +30,11 @@ use vmm_common::{
 };
 
 use crate::{
-    container::handler::Handler, sandbox::KuasarSandbox, utils::write_file_atomic, vm::VM,
+    container::handler::Handler,
+    sandbox::KuasarSandbox,
+    storage::guest_file::{join_guest_component, GuestFileInjector},
+    utils::write_file_atomic,
+    vm::{VIRTIO_BLK, VM},
 };
 
 const CONFIG_FILE_NAME: &str = "config.json";
@@ -91,6 +95,31 @@ where
             .map_err(|e| anyhow!("failed to parse spec in sandbox, {}", e))?;
         let config_path = format!("{}/{}", container.data.bundle, CONFIG_FILE_NAME);
         write_file_atomic(config_path, &spec_str).await?;
+
+        // In virtio-blk mode there is no shared filesystem between host and guest.
+        // Push config.json directly into the VM via exec_vm_process.
+        if sandbox.vm.container_storage_backend() == VIRTIO_BLK {
+            let client_guard = sandbox.client.lock().await;
+            let client = client_guard.as_ref().ok_or_else(|| {
+                anyhow!(
+                    "TTRPC client not initialized when pushing config.json for container {}",
+                    self.container_id
+                )
+            })?;
+            let bundle_guest = join_guest_component(KUASAR_STATE_DIR, &self.container_id)?;
+            let config_guest = format!("{}/{}", bundle_guest, CONFIG_FILE_NAME);
+            let injector = GuestFileInjector::new(client);
+            injector.ensure_dir(&bundle_guest).await.map_err(|e| {
+                anyhow!("mkdir bundle dir in guest for {}: {}", self.container_id, e)
+            })?;
+            injector
+                .push_file(&config_guest, spec_str.into_bytes(), 0o644)
+                .await
+                .map_err(|e| {
+                    anyhow!("push config.json to guest for {}: {}", self.container_id, e)
+                })?;
+        }
+
         Ok(())
     }
 

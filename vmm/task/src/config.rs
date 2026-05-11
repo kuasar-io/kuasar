@@ -18,6 +18,7 @@ use containerd_shim::{io_error, Error, Result};
 use tokio::fs::read_to_string;
 
 const SHAREFS_TYPE: &str = "task.sharefs_type";
+const CONTAINER_STORAGE_BACKEND: &str = "task.container_storage_backend";
 const LOG_LEVEL: &str = "task.log_level";
 const TASK_DEBUG: &str = "task.debug";
 const ENABLE_TRACING: &str = "task.enable_tracing";
@@ -42,6 +43,7 @@ macro_rules! parse_cmdline {
 #[derive(Debug)]
 pub struct TaskConfig {
     pub(crate) sharefs_type: String,
+    pub(crate) container_storage_backend: String,
     pub(crate) log_level: String,
     pub(crate) debug: bool,
     pub(crate) enable_tracing: bool,
@@ -52,6 +54,7 @@ impl Default for TaskConfig {
     fn default() -> Self {
         TaskConfig {
             sharefs_type: "9p".to_string(),
+            container_storage_backend: String::new(),
             log_level: "info".to_string(),
             debug: false,
             enable_tracing: false,
@@ -62,19 +65,48 @@ impl Default for TaskConfig {
 
 impl TaskConfig {
     pub async fn new() -> Result<Self> {
-        let mut config = TaskConfig::default();
         let cmdline = read_to_string("/proc/cmdline")
             .await
             .map_err(io_error!(e, "failed to open /proc/cmdline"))?;
+        Self::from_cmdline(&cmdline)
+    }
+
+    fn from_cmdline(cmdline: &str) -> Result<Self> {
+        let mut config = TaskConfig::default();
         let params: Vec<&str> = cmdline.split_ascii_whitespace().collect();
         for p in params {
             let param: Vec<&str> = p.split('=').collect();
             parse_cmdline!(param, SHAREFS_TYPE, config.sharefs_type, String::from);
+            parse_cmdline!(
+                param,
+                CONTAINER_STORAGE_BACKEND,
+                config.container_storage_backend,
+                String::from
+            );
             parse_cmdline!(param, LOG_LEVEL, config.log_level, String::from);
             parse_cmdline!(param, TASK_DEBUG, config.debug);
             parse_cmdline!(param, ENABLE_TRACING, config.enable_tracing);
             parse_cmdline!(param, DEBUG_SHELL, config.debug_shell, String::from);
         }
+        if config.container_storage_backend.is_empty() {
+            config.container_storage_backend = config.sharefs_type.clone();
+        }
         Ok(config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_cmdline_accepts_container_storage_backend() {
+        let config = TaskConfig::from_cmdline(
+            "console=hvc0 task.sharefs_type=none task.container_storage_backend=virtio-blk",
+        )
+        .unwrap();
+
+        assert_eq!(config.sharefs_type, "none");
+        assert_eq!(config.container_storage_backend, "virtio-blk");
     }
 }

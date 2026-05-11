@@ -35,7 +35,10 @@ use vmm_common::SHARED_DIR_SUFFIX;
 use crate::{
     cloud_hypervisor::{
         client::ChClient,
-        config::{CloudHypervisorConfig, CloudHypervisorVMConfig, VirtiofsdConfig},
+        config::{
+            CloudHypervisorConfig, CloudHypervisorVMConfig, ContainerStorageBackend,
+            VirtioBlkConfig, VirtiofsdConfig,
+        },
         devices::{
             block::Disk, vfio::VfioDevice, virtio_net::VirtioNetDevice, CloudHypervisorDevice,
         },
@@ -64,6 +67,10 @@ pub struct CloudHypervisorVM {
     base_dir: String,
     agent_socket: String,
     virtiofsd_config: VirtiofsdConfig,
+    #[serde(default)]
+    container_storage_backend: ContainerStorageBackend,
+    #[serde(default)]
+    virtio_blk_config: VirtioBlkConfig,
     #[serde(skip)]
     wait_chan: Option<Receiver<(u32, i128)>>,
     #[serde(skip)]
@@ -82,8 +89,10 @@ impl CloudHypervisorVM {
         }
 
         let mut virtiofsd_config = vm_config.virtiofsd.clone();
-        virtiofsd_config.socket_path = format!("{}/virtiofs.sock", base_dir);
-        virtiofsd_config.shared_dir = format!("{}/{}", base_dir, SHARED_DIR_SUFFIX);
+        if vm_config.container_storage_backend == ContainerStorageBackend::Virtiofs {
+            virtiofsd_config.socket_path = format!("{}/virtiofs.sock", base_dir);
+            virtiofsd_config.shared_dir = format!("{}/{}", base_dir, SHARED_DIR_SUFFIX);
+        }
         Self {
             id: id.to_string(),
             config,
@@ -92,6 +101,8 @@ impl CloudHypervisorVM {
             base_dir: base_dir.to_string(),
             agent_socket: "".to_string(),
             virtiofsd_config,
+            container_storage_backend: vm_config.container_storage_backend.clone(),
+            virtio_blk_config: vm_config.virtio_blk.clone(),
             wait_chan: None,
             client: None,
             fds: vec![],
@@ -161,9 +172,10 @@ impl VM for CloudHypervisorVM {
     #[instrument(skip_all)]
     async fn start(&mut self) -> Result<u32> {
         create_dir_all(&self.base_dir).await?;
-        let virtiofsd_pid = self.start_virtiofsd().await?;
-        // TODO: add child virtiofsd process
-        self.pids.affiliated_pids.push(virtiofsd_pid);
+        if self.container_storage_backend == ContainerStorageBackend::Virtiofs {
+            let virtiofsd_pid = self.start_virtiofsd().await?;
+            self.pids.affiliated_pids.push(virtiofsd_pid);
+        }
         let mut params = self.config.to_cmdline_params("--");
         for d in self.devices.iter() {
             params.extend(d.to_cmdline_params("--"));
@@ -339,6 +351,34 @@ impl VM for CloudHypervisorVM {
     #[instrument(skip_all)]
     fn pids(&self) -> Pids {
         self.pids.clone()
+    }
+
+    fn container_storage_backend(&self) -> &str {
+        self.container_storage_backend.as_str()
+    }
+
+    fn allow_bind_snapshot(&self) -> bool {
+        self.virtio_blk_config.allow_bind_snapshot
+    }
+
+    fn block_image_size_overhead_percent(&self) -> u32 {
+        self.virtio_blk_config.block_image_size_overhead_percent
+    }
+
+    fn small_dir_max_files(&self) -> usize {
+        self.virtio_blk_config.small_dir_max_files
+    }
+
+    fn small_dir_max_bytes(&self) -> u64 {
+        self.virtio_blk_config.small_dir_max_bytes
+    }
+
+    fn overlay_image_fallback_size_mb(&self) -> u64 {
+        self.virtio_blk_config.overlay_image_fallback_size_mb
+    }
+
+    fn bind_image_fallback_size_mb(&self) -> u64 {
+        self.virtio_blk_config.bind_image_fallback_size_mb
     }
 }
 
