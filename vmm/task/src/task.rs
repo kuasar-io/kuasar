@@ -50,7 +50,10 @@ type RealContainer = YoukiContainer;
 pub(crate) async fn create_task_service(
     tx: Sender<(String, Box<dyn MessageDyn>)>,
 ) -> anyhow::Result<TaskService<Factory, RealContainer>> {
-    let sandbox = Arc::new(Mutex::new(SandboxResources::new().await));
+    let sandbox =
+        Arc::new(Mutex::new(SandboxResources::new().await.map_err(|e| {
+            anyhow::anyhow!("failed to create sandbox resources: {}", e)
+        })?));
     let task = TaskService {
         factory: Factory::new(sandbox),
         containers: Arc::new(Default::default()),

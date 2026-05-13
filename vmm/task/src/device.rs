@@ -14,11 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::{collections::HashMap, fs::read_link, os::unix::prelude::FromRawFd, sync::Arc};
+use std::{collections::HashMap, os::unix::prelude::FromRawFd, sync::Arc};
 
 use containerd_shim::{other, Error, Result};
-use lazy_static::lazy_static;
-use log::debug;
+use log::{debug, warn};
 use netlink_sys::{protocols, SocketAddr, TokioSocket};
 use tokio::sync::{
     mpsc::{channel, Receiver, Sender},
@@ -34,15 +33,7 @@ pub const U_EVENT_SEQ_NUM: &str = "SEQNUM";
 pub const U_EVENT_DEV_NAME: &str = "DEVNAME";
 pub const U_EVENT_INTERFACE: &str = "INTERFACE";
 
-lazy_static! {
-    static ref DEVICE_CONVERTORS: Vec<DeviceConverter> = {
-        let converters = vec![
-            convert_to_scsi_device as DeviceConverter,
-            convert_to_blk_device as DeviceConverter,
-        ];
-        converters
-    };
-}
+const DEVICE_CONVERTORS: [DeviceConverter; 2] = [convert_to_scsi_device, convert_to_blk_device];
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Uevent {
@@ -91,10 +82,12 @@ impl DeviceMonitor {
     pub async fn subscribe(&self, matcher: impl DeviceMatcher) -> DeviceSubscription {
         let mut internal = self.internal.lock().await;
 
-        let (tx, rx) = channel(1);
+        let (tx, rx) = channel(32);
         for device in internal.devices.values() {
             if matcher.is_match(device) {
-                let _ = tx.send(device.clone()).await;
+                if let Err(e) = tx.try_send(device.clone()) {
+                    warn!("failed to send existing device to subscriber: {}", e);
+                }
             }
         }
         internal.id_generator += 1;
@@ -117,152 +110,232 @@ impl DeviceMonitor {
         ss.remove(&id);
     }
 
-    pub async fn start(&self) {
+    pub async fn start(&self) -> Result<()> {
         let internal = self.internal.clone();
-        // init scsi device, some device may already exist before task start
-        self.init_scsi_devices().await;
-        self.init_blk_devices().await;
-        tokio::spawn(async move {
-            let mut socket = unsafe {
-                let fd = libc::socket(
-                    libc::AF_NETLINK,
-                    libc::SOCK_DGRAM | libc::SOCK_CLOEXEC,
-                    protocols::NETLINK_KOBJECT_UEVENT as libc::c_int,
-                );
-                TokioSocket::from_raw_fd(fd)
-            };
 
-            socket.bind(&SocketAddr::new(0, 1)).unwrap();
+        let mut socket = unsafe {
+            let fd = libc::socket(
+                libc::AF_NETLINK,
+                libc::SOCK_DGRAM | libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK,
+                protocols::NETLINK_KOBJECT_UEVENT as libc::c_int,
+            );
+            if fd < 0 {
+                return Err(other!(
+                    "failed to create netlink socket: {}",
+                    std::io::Error::last_os_error()
+                ));
+            }
+            TokioSocket::from_raw_fd(fd)
+        };
+
+        socket
+            .bind(&SocketAddr::new(0, 1))
+            .map_err(|e| other!("failed to bind netlink socket: {}", e))?;
+
+        tokio::spawn(async move {
             loop {
-                let result = socket.recv_from_full().await;
-                match result {
-                    Err(e) => {
-                        debug!("failed to receive uevent {}", e);
-                    }
+                match socket.recv_from_full().await {
                     Ok((buf, addr)) => {
                         if addr.port_number() != 0 {
                             continue;
                         }
-                        if let Ok(text) = String::from_utf8(buf) {
-                            let event = Uevent::new(&text);
-                            let mut intern = internal.lock().await;
-                            intern.handle_event(event).await;
-                        } else {
-                            debug!("uevent is not utf8");
+                        let msg = String::from_utf8_lossy(&buf);
+                        let event = Uevent::new(&msg);
+                        let mut intern = internal.lock().await;
+                        intern.handle_event(event);
+                    }
+                    Err(e) => {
+                        debug!("failed to receive uevent: {}", e);
+                        // Exit on fatal errors like EBADF
+                        if let Some(os_err) = e.raw_os_error() {
+                            if os_err == libc::EBADF {
+                                break;
+                            }
                         }
+                        // Avoid busy loop/log spam on persistent transient errors
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                     }
                 }
             }
         });
-    }
 
-    async fn init_scsi_devices(&self) {
-        let mut scsi_dir_entries = if let Ok(e) = tokio::fs::read_dir(SYSFS_SCSI_DEVICE_PATH).await
-        {
-            e
-        } else {
-            debug!("no scsi driver installed");
-            return;
-        };
-        while let Some(entry) = scsi_dir_entries.next_entry().await.unwrap() {
-            // should be a symlink of the name with "0:0:0:X"
-            let scsi_index = entry.file_name().to_str().unwrap().to_string();
-            if scsi_index.starts_with("0:") {
-                let device_key = format!("{}/{}", scsi_index, SCSI_BLOCK_SUFFIX);
-                let dev_name_parent =
-                    format!("{}/{}/device/block", SYSFS_SCSI_DEVICE_PATH, scsi_index);
-                let mut dev_name_entries = tokio::fs::read_dir(&dev_name_parent).await.unwrap();
-                let dev_name_entry = dev_name_entries.next_entry().await.unwrap().unwrap();
-                let dev_name = dev_name_entry.file_name().to_str().unwrap().to_string();
-                let device = Device {
-                    path: format!("{}/{}", SYSTEM_DEV_PATH, dev_name),
-                    addr: scsi_index.strip_prefix("0:0:").unwrap().to_string(),
-                    r#type: DeviceType::Scsi,
-                };
-                debug!("scan add device {:?} of devpath {}", device, device_key);
-                self.internal
-                    .lock()
-                    .await
-                    .add_device(device_key.to_string(), device)
-                    .await;
-            }
+        // Initial scanning after listener is bound to avoid missing uevents
+        if let Err(e) = self.init_scsi_devices().await {
+            debug!("failed to init scsi devices: {}", e);
         }
+        if let Err(e) = self.init_blk_devices().await {
+            debug!("failed to init blk devices: {}", e);
+        }
+        Ok(())
     }
 
-    async fn init_blk_devices(&self) {
-        let mut pci_dir_entries = tokio::fs::read_dir(SYSFS_BLK_DEVICE_PATH).await.unwrap();
-        while let Some(entry) = pci_dir_entries.next_entry().await.unwrap() {
-            // should be a symlink of the name with "0:0:0:X"
-            let dev_name = entry.file_name().to_str().unwrap().to_string();
-            let metadata = entry.metadata().await.unwrap();
-            // only handle virtio-block devices
-            // vda -> ../../devices/pci0000:00/0000:00:02.0/virtio1/block/vda/
-            // vda1 -> ../../devices/pci0000:00/0000:00:02.0/virtio1/block/vda/vda1/
-            // vda2 -> ../../devices/pci0000:00/0000:00:02.0/virtio1/block/vda/vda2/
-            // vda3 -> ../../devices/pci0000:00/0000:00:02.0/virtio1/block/vda/vda3/
-            // vdb -> ../../devices/pci0000:00/0000:00:07.0/virtio6/block/vdb/
-            if dev_name.starts_with("vd") && metadata.is_symlink() {
-                let real_path = read_link(entry.path()).unwrap();
-                let real_path = real_path.to_str().unwrap();
-                let real_path_parts: Vec<&str> = real_path.split('/').collect();
-                for part in real_path_parts {
-                    if part.starts_with("0000:") {
-                        let device = Device {
-                            path: format!("{}/{}", SYSTEM_DEV_PATH, dev_name),
-                            addr: part.to_string(),
-                            r#type: DeviceType::Blk,
-                        };
-                        debug!("scan add device {:?} of devpath {}", device, part);
-                        self.internal
-                            .lock()
-                            .await
-                            .add_device(part.to_string(), device)
-                            .await;
+    async fn init_scsi_devices(&self) -> Result<()> {
+        let mut scsi_dir_entries =
+            tokio::fs::read_dir(SYSFS_SCSI_DEVICE_PATH)
+                .await
+                .map_err(|e| {
+                    other!(
+                        "failed to read scsi devices dir {}: {}",
+                        SYSFS_SCSI_DEVICE_PATH,
+                        e
+                    )
+                })?;
+        let mut scsi_devices = Vec::new();
+        loop {
+            match scsi_dir_entries.next_entry().await {
+                Ok(Some(scsi_entry)) => {
+                    let scsi_name = scsi_entry.file_name();
+                    let scsi_name_str = scsi_name.to_str().unwrap_or_default();
+                    if !scsi_name_str.starts_with(SCSI_DEVICE_PREFIX) {
+                        continue;
                     }
+
+                    let scsi_block_path =
+                        format!("{}/{}/device/block", SYSFS_SCSI_DEVICE_PATH, scsi_name_str);
+                    let mut scsi_block_entries = match tokio::fs::read_dir(&scsi_block_path).await {
+                        Ok(entries) => entries,
+                        Err(e) => {
+                            debug!(
+                                "failed to read scsi block devices dir {}: {}",
+                                scsi_block_path, e
+                            );
+                            continue;
+                        }
+                    };
+                    loop {
+                        match scsi_block_entries.next_entry().await {
+                            Ok(Some(dev_name_entry)) => {
+                                let dev_name = dev_name_entry.file_name();
+                                let dev_name_str = dev_name.to_str().unwrap_or_default();
+                                let devpath =
+                                    match canonical_sysfs_devpath(&dev_name_entry.path()).await {
+                                        Ok(path) => path,
+                                        Err(e) => {
+                                            debug!(
+                                                "failed to get canonical devpath for {}: {}",
+                                                dev_name_str, e
+                                            );
+                                            continue;
+                                        }
+                                    };
+
+                                let addr = scsi_name_str.strip_prefix(SCSI_DEVICE_PREFIX).unwrap();
+                                scsi_devices.push((
+                                    devpath,
+                                    Device {
+                                        path: format!("/dev/{}", dev_name_str),
+                                        addr: addr.to_string(),
+                                        r#type: DeviceType::Scsi,
+                                    },
+                                ));
+                            }
+                            Ok(None) => break,
+                            Err(e) => {
+                                debug!(
+                                    "failed to read next entry in scsi block devices dir: {}",
+                                    e
+                                );
+                                break;
+                            }
+                        }
+                    }
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    debug!("failed to read next entry in scsi devices dir: {}", e);
+                    break;
                 }
             }
         }
+        let mut internal = self.internal.lock().await;
+        for (devpath, dev) in scsi_devices {
+            internal.add_device(devpath, dev);
+        }
+        Ok(())
+    }
+
+    async fn init_blk_devices(&self) -> Result<()> {
+        let mut blk_dir_entries = tokio::fs::read_dir(SYSFS_BLOCK_PATH).await.map_err(|e| {
+            other!(
+                "failed to read block devices dir {}: {}",
+                SYSFS_BLOCK_PATH,
+                e
+            )
+        })?;
+        let mut blk_devices = Vec::new();
+        loop {
+            match blk_dir_entries.next_entry().await {
+                Ok(Some(entry)) => {
+                    let dev_name = entry.file_name();
+                    let dev_name_str = dev_name.to_str().unwrap_or_default();
+                    if !dev_name_str.starts_with(VIRTIO_BLK_PREFIX) {
+                        continue;
+                    }
+
+                    let devpath = match canonical_sysfs_devpath(&entry.path()).await {
+                        Ok(path) => path,
+                        Err(e) => {
+                            debug!(
+                                "failed to get canonical devpath for {}: {}",
+                                dev_name_str, e
+                            );
+                            continue;
+                        }
+                    };
+
+                    if let Some(dev) = convert_blk_device(&devpath, dev_name_str) {
+                        blk_devices.push((devpath, dev));
+                    }
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    debug!("failed to read next entry in block devices dir: {}", e);
+                    break;
+                }
+            }
+        }
+        let mut internal = self.internal.lock().await;
+        for (devpath, dev) in blk_devices {
+            internal.add_device(devpath, dev);
+        }
+        Ok(())
     }
 }
 
 impl DeviceMonitorInternal {
-    pub async fn handle_event(&mut self, event: Uevent) {
-        match &*event.action {
+    pub fn handle_event(&mut self, event: Uevent) {
+        if event.devpath.is_empty() {
+            warn!("ignoring uevent with empty devpath: {:?}", event);
+            return;
+        }
+        match event.action.as_str() {
             U_EVENT_ACTION_ADD => {
                 debug!("received add uevent {:?}", event);
-                self.handle_add_event(event).await
+                for converter in DEVICE_CONVERTORS.iter() {
+                    if let Some(device) = converter(&event) {
+                        debug!("add device {:?} of devpath {}", device, event.devpath);
+                        self.add_device(event.devpath.clone(), device);
+                        return;
+                    }
+                }
             }
             U_EVENT_ACTION_REMOVE => {
                 debug!("received remove uevent {:?}", event);
-                self.handle_remove_event(event).await
+                self.devices.remove(&event.devpath);
             }
             _ => {}
         }
     }
 
-    async fn handle_add_event(&mut self, event: Uevent) {
-        for converter in DEVICE_CONVERTORS.iter() {
-            if let Some(device) = converter(&event) {
-                debug!("add device {:?} of devpath {}", device, event.devpath);
-                self.add_device(event.devpath.clone(), device).await;
-                return;
-            }
-        }
-    }
-
-    async fn add_device(&mut self, device_key: String, device: Device) {
+    fn add_device(&mut self, device_key: String, device: Device) {
         self.devices.insert(device_key, device.clone());
-        let ss = &mut self.subscribers;
-        for s in ss.values() {
+        for s in self.subscribers.values() {
             if s.matcher.is_match(&device) {
-                let _ = s.tx.send(device).await;
-                break;
+                if let Err(e) = s.tx.try_send(device.clone()) {
+                    warn!("failed to send device to subscriber: {}", e);
+                }
             }
         }
-    }
-
-    async fn handle_remove_event(&mut self, event: Uevent) {
-        self.devices.remove(&event.devpath);
     }
 }
 
@@ -274,15 +347,14 @@ impl Uevent {
 
         msg_iter.next();
         for arg in msg_iter {
-            let key_val: Vec<&str> = arg.splitn(2, '=').collect();
-            if key_val.len() == 2 {
-                match key_val[0] {
-                    U_EVENT_ACTION => event.action = String::from(key_val[1]),
-                    U_EVENT_DEV_NAME => event.devname = String::from(key_val[1]),
-                    U_EVENT_SUB_SYSTEM => event.subsystem = String::from(key_val[1]),
-                    U_EVENT_DEV_PATH => event.devpath = String::from(key_val[1]),
-                    U_EVENT_SEQ_NUM => event.seqnum = String::from(key_val[1]),
-                    U_EVENT_INTERFACE => event.interface = String::from(key_val[1]),
+            if let Some((key, value)) = arg.split_once('=') {
+                match key {
+                    U_EVENT_ACTION => event.action = value.to_string(),
+                    U_EVENT_DEV_NAME => event.devname = value.to_string(),
+                    U_EVENT_SUB_SYSTEM => event.subsystem = value.to_string(),
+                    U_EVENT_DEV_PATH => event.devpath = value.to_string(),
+                    U_EVENT_SEQ_NUM => event.seqnum = value.to_string(),
+                    U_EVENT_INTERFACE => event.interface = value.to_string(),
                     _ => (),
                 }
             }
@@ -291,12 +363,13 @@ impl Uevent {
     }
 }
 
-pub const SCSI_BLOCK_SUFFIX: &str = "block";
 pub const SYSFS_SCSI_HOST_PATH: &str = "/sys/class/scsi_host";
 pub const SYSFS_SCSI_DEVICE_PATH: &str = "/sys/class/scsi_device";
-pub const SYSFS_BLK_DEVICE_PATH: &str = "/sys/class/block";
+pub const SYSFS_BLOCK_PATH: &str = "/sys/class/block";
 pub const SYSFS_PCI_BUS_RESCAN_FILE: &str = "/sys/bus/pci/rescan";
 pub const SYSTEM_DEV_PATH: &str = "/dev";
+pub const SCSI_DEVICE_PREFIX: &str = "0:0:";
+pub const VIRTIO_BLK_PREFIX: &str = "vd";
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum DeviceType {
@@ -314,23 +387,71 @@ pub struct Device {
 pub async fn rescan_pci_bus() -> Result<()> {
     tokio::fs::write(SYSFS_PCI_BUS_RESCAN_FILE, "1")
         .await
-        .unwrap_or_default();
+        .map_err(|e| other!("failed to rescan pci bus: {}", e))?;
     Ok(())
+}
+
+fn is_pci_bdf(part: &str) -> bool {
+    let parts: Vec<&str> = part.split([':', '.']).collect();
+    if parts.len() != 3 && parts.len() != 4 {
+        return false;
+    }
+    parts
+        .iter()
+        .all(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_hexdigit()))
+}
+
+async fn canonical_sysfs_devpath(path: &std::path::Path) -> Result<String> {
+    let abs_path = tokio::fs::canonicalize(path)
+        .await
+        .map_err(|e| other!("failed to canonicalize sysfs devpath {:?}: {}", path, e))?;
+    let abs_path_str = abs_path
+        .to_str()
+        .ok_or_else(|| other!("non-unicode path"))?;
+    if let Some(stripped) = abs_path_str.strip_prefix("/sys") {
+        Ok(stripped.to_string())
+    } else {
+        Err(other!("sysfs path {:?} does not start with /sys", abs_path))
+    }
+}
+
+fn convert_blk_device(devpath: &str, devname: &str) -> Option<Device> {
+    if devpath.is_empty() || devname.is_empty() {
+        return None;
+    }
+    let parts: Vec<&str> = devpath.split('/').collect();
+    let len = parts.len();
+    if len >= 4
+        && parts[len - 3].starts_with("virtio")
+        && parts[len - 2] == "block"
+        && parts[len - 1] == devname
+    {
+        let direct_bdf = parts[len - 4];
+        if is_pci_bdf(direct_bdf) {
+            let mut addr = direct_bdf.to_string();
+            if len >= 5 && is_pci_bdf(parts[len - 5]) {
+                addr = parts[len - 5].to_string();
+            }
+            return Some(Device {
+                path: format!("{}/{}", SYSTEM_DEV_PATH, devname),
+                addr,
+                r#type: DeviceType::Blk,
+            });
+        }
+    }
+    None
 }
 
 pub fn convert_to_scsi_device(event: &Uevent) -> Option<Device> {
     let path_parts: Vec<_> = event.devpath.split('/').collect();
     let length = path_parts.len();
-    if path_parts.len() > 3
+    if length > 3
         && event.subsystem == "block"
         && path_parts[length - 3].starts_with("0:0:")
         && path_parts[length - 2] == "block"
         && !event.devname.is_empty()
     {
-        let scsi_addr = path_parts[length - 3]
-            .strip_prefix("0:0:")
-            .unwrap()
-            .to_string();
+        let scsi_addr = path_parts[length - 3].strip_prefix("0:0:")?.to_string();
         Some(Device {
             path: format!("{}/{}", SYSTEM_DEV_PATH, &event.devname),
             addr: scsi_addr,
@@ -342,27 +463,10 @@ pub fn convert_to_scsi_device(event: &Uevent) -> Option<Device> {
 }
 
 pub fn convert_to_blk_device(event: &Uevent) -> Option<Device> {
-    let path_parts: Vec<_> = event.devpath.split('/').collect();
-    let length = path_parts.len();
-    if path_parts.len() > 4
-        && event.subsystem == "block"
-        && path_parts[length - 4].starts_with("0000:")
-        && path_parts[length - 3].starts_with("virtio")
-        && path_parts[length - 2] == "block"
-        && !event.devname.is_empty()
-    {
-        let mut pci_addr = path_parts[length - 4].to_string();
-        if path_parts.len() > 5 && path_parts[length - 5].to_string().starts_with("0000:") {
-            pci_addr = path_parts[length - 5].to_string();
-        }
-        Some(Device {
-            path: format!("{}/{}", SYSTEM_DEV_PATH, &event.devname),
-            addr: pci_addr,
-            r#type: DeviceType::Blk,
-        })
-    } else {
-        None
+    if event.subsystem != "block" {
+        return None;
     }
+    convert_blk_device(&event.devpath, &event.devname)
 }
 
 pub async fn scan_scsi_bus(scsi_addr: &str) -> containerd_shim::Result<()> {
@@ -377,7 +481,15 @@ pub async fn scan_scsi_bus(scsi_addr: &str) -> containerd_shim::Result<()> {
     // Scan scsi host passing in the channel, SCSI id and LUN.
     // Channel is always 0 because we have only one SCSI controller.
     let scan_data = format!("0 {} {}", tokens[0], tokens[1]);
-    let mut entries = tokio::fs::read_dir(SYSFS_SCSI_HOST_PATH).await.unwrap();
+    let mut entries = tokio::fs::read_dir(SYSFS_SCSI_HOST_PATH)
+        .await
+        .map_err(|e| {
+            other!(
+                "failed to read scsi host dir {}: {}",
+                SYSFS_SCSI_HOST_PATH,
+                e
+            )
+        })?;
     while let Ok(Some(entry)) = entries.next_entry().await {
         let host = entry.file_name();
         let host_str = host.to_str().ok_or_else(|| {
@@ -387,8 +499,123 @@ pub async fn scan_scsi_bus(scsi_addr: &str) -> containerd_shim::Result<()> {
             )
         })?;
         let scan_path = format!("{}/{}/{}", SYSFS_SCSI_HOST_PATH, host_str, "scan");
-        tokio::fs::write(&scan_path, &scan_data).await.unwrap();
+        tokio::fs::write(&scan_path, &scan_data)
+            .await
+            .map_err(|e| other!("failed to write scan data to {}: {}", scan_path, e))?;
     }
 
     Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_uevent_new() {
+        let msg = "add@/devices/pci0000:00/0000:00:02.0/virtio1/block/vda\0\
+                   ACTION=add\0\
+                   DEVPATH=/devices/pci0000:00/0000:00:02.0/virtio1/block/vda\0\
+                   SUBSYSTEM=block\0\
+                   DEVNAME=vda\0\
+                   SEQNUM=1234\0";
+        let event = Uevent::new(msg);
+        assert_eq!(event.action, "add");
+        assert_eq!(
+            event.devpath,
+            "/devices/pci0000:00/0000:00:02.0/virtio1/block/vda"
+        );
+        assert_eq!(event.subsystem, "block");
+        assert_eq!(event.devname, "vda");
+        assert_eq!(event.seqnum, "1234");
+    }
+
+    #[test]
+    fn test_convert_to_scsi_device() {
+        let mut event = Uevent::default();
+        event.subsystem = "block".to_string();
+        event.devname = "sda".to_string();
+        event.devpath =
+            "/devices/pci0000:00/0000:00:03.0/virtio2/host0/target0:0:1/0:0:1:0/block/sda"
+                .to_string();
+
+        let device = convert_to_scsi_device(&event).unwrap();
+        assert_eq!(device.addr, "1:0");
+        assert_eq!(device.path, "/dev/sda");
+        assert_eq!(device.r#type, DeviceType::Scsi);
+
+        // Test non-matching path
+        event.devpath = "/devices/pci0000:00/0000:00:03.0/virtio2/block/vdb".to_string();
+        assert!(convert_to_scsi_device(&event).is_none());
+    }
+
+    #[test]
+    fn test_is_pci_bdf() {
+        assert!(is_pci_bdf("0000:00:02.0"));
+        assert!(is_pci_bdf("0000:01:00.0"));
+        assert!(!is_pci_bdf("virtio1"));
+        assert!(!is_pci_bdf("pci0000:00"));
+        assert!(!is_pci_bdf(""));
+    }
+
+    #[test]
+    fn test_convert_blk_device() {
+        let cases = vec![
+            (
+                "Standard direct PCI attachment",
+                "/devices/pci0000:00/0000:00:02.0/virtio1/block/vda",
+                "vda",
+                Some("0000:00:02.0"),
+            ),
+            (
+                "Nested PCI bridge (e.g. root port)",
+                "/devices/pci0000:00/0000:00:02.0/0000:01:00.0/virtio6/block/vdb",
+                "vdb",
+                Some("0000:00:02.0"),
+            ),
+            (
+                "Partition device (ignored)",
+                "/devices/pci0000:00/0000:00:02.0/virtio1/block/vda/vda1",
+                "vda1",
+                None,
+            ),
+            (
+                "Mismatched device name",
+                "/devices/pci0000:00/0000:00:02.0/virtio1/block/vda",
+                "vdb",
+                None,
+            ),
+            (
+                "Non-PCI device (e.g. virtio-mmio)",
+                "/devices/platform/virtio-mmio.0/virtio1/block/vda",
+                "vda",
+                None,
+            ),
+        ];
+
+        for (name, devpath, devname, expected_addr) in cases {
+            let res = convert_blk_device(devpath, devname);
+            if let Some(addr) = expected_addr {
+                assert!(
+                    res.is_some(),
+                    "Test case '{}' failed: expected Some device for {}",
+                    name,
+                    devpath
+                );
+                assert_eq!(
+                    res.unwrap().addr,
+                    addr,
+                    "Test case '{}' failed: mismatched addr for {}",
+                    name,
+                    devpath
+                );
+            } else {
+                assert!(
+                    res.is_none(),
+                    "Test case '{}' failed: expected None for {}",
+                    name,
+                    devpath
+                );
+            }
+        }
+    }
 }
