@@ -8,7 +8,7 @@ Base commit:
 Patch:
 filebackend-MMAP_and_external-UFFD_feature.patch
 
-Path: <cloud-hypervisor-repo>/vmm/cloud-hypervisor_TwoNewFeatures_patch/filebackend-MMAP_and_external-UFFD_feature.patch
+Path: <path-to-kuasar-repo>/vmm/cloud-hypervisor_TwoNewFeatures_patch/filebackend-MMAP_and_external-UFFD_feature.patch
 
 Build:
 cargo build --release

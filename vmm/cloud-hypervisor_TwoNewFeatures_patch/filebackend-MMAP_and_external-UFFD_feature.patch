@@ -155,11 +155,11 @@ index 8259b716f..6c6363ccf 100644
  # feature list below
 diff --git a/cloud-hypervisor/examples/external_uffd_handler.rs b/cloud-hypervisor/examples/external_uffd_handler.rs
 new file mode 100644
-index 000000000..89673c982
+index 000000000..b9210a0b0
 --- /dev/null
 +++ b/cloud-hypervisor/examples/external_uffd_handler.rs
 @@ -0,0 +1,1974 @@
-+// Copyright © 2026 HUAWEI Corporation
++// Copyright 2026 The Kuasar Author
 +//
 +// SPDX-License-Identifier: Apache-2.0
 +//
@@ -2135,11 +2135,13 @@ index 000000000..89673c982
 +
 diff --git a/cloud-hypervisor/examples/external_uffd_handler.rs.milestone.73ms b/cloud-hypervisor/examples/external_uffd_handler.rs.milestone.73ms
 new file mode 100644
-index 000000000..12b3d9a7a
+index 000000000..1c401456e
 --- /dev/null
 +++ b/cloud-hypervisor/examples/external_uffd_handler.rs.milestone.73ms
-@@ -0,0 +1,2388 @@
-+// change #26 - for external UFFD
+@@ -0,0 +1,2390 @@
++// Copyright 2026 The Kuasar Authors
++//
++// SPDX-License-Identifier: Apache-2.0
 +//
 +//use serde::Deserialize;
 +use std::path::Path;
@@ -4529,11 +4531,14 @@ index 000000000..12b3d9a7a
 +
 diff --git a/cloud-hypervisor/examples/run_hot_5x.sh b/cloud-hypervisor/examples/run_hot_5x.sh
 new file mode 100644
-index 000000000..20659fbb0
+index 000000000..0a5811c0a
 --- /dev/null
 +++ b/cloud-hypervisor/examples/run_hot_5x.sh
-@@ -0,0 +1,80 @@
+@@ -0,0 +1,83 @@
 +#!/usr/bin/env bash
++##
++## Copyright 2026 The Kuasar Authors
++##
 +set -euo pipefail
 +
 +
@@ -4613,12 +4618,17 @@ index 000000000..20659fbb0
 +
 +echo "=== DONE ==="
 +echo "Review logs in: $LOG_DIR"
-\ No newline at end of file
 diff --git a/cloud-hypervisor/src/bin/ch-remote.rs b/cloud-hypervisor/src/bin/ch-remote.rs
-index 6939eaa38..7bc82dedc 100644
+index 6939eaa38..446a8a2d0 100644
 --- a/cloud-hypervisor/src/bin/ch-remote.rs
 +++ b/cloud-hypervisor/src/bin/ch-remote.rs
-@@ -25,6 +25,7 @@ use vmm::vm_config::{
+@@ -1,3 +1,5 @@
++// Copyright 2026 The Kuasar Authors
++//
+ // Copyright © 2020 Intel Corporation
+ //
+ // SPDX-License-Identifier: Apache-2.0
+@@ -25,6 +27,7 @@ use vmm::vm_config::{
      DeviceConfig, DiskConfig, FsConfig, GenericVhostUserConfig, NetConfig, PmemConfig,
      UserDeviceConfig, VdpaConfig, VsockConfig,
  };
@@ -4626,7 +4636,7 @@ index 6939eaa38..7bc82dedc 100644
  #[cfg(feature = "dbus_api")]
  use zbus::{proxy, zvariant::Optional};
  
-@@ -534,6 +535,7 @@ fn rest_api_do_command(matches: &ArgMatches, socket: &mut UnixStream) -> ApiResu
+@@ -534,6 +537,7 @@ fn rest_api_do_command(matches: &ArgMatches, socket: &mut UnixStream) -> ApiResu
                      .unwrap()
                      .get_one::<String>("receive_migration_config")
                      .unwrap(),
@@ -4634,7 +4644,7 @@ index 6939eaa38..7bc82dedc 100644
              );
              simple_api_command(
                  socket,
-@@ -945,9 +947,20 @@ fn coredump_config(destination_url: &str) -> String {
+@@ -945,9 +949,20 @@ fn coredump_config(destination_url: &str) -> String {
      serde_json::to_string(&coredump_config).unwrap()
  }
  
@@ -4656,7 +4666,7 @@ index 6939eaa38..7bc82dedc 100644
      };
  
      serde_json::to_string(&receive_migration_data).unwrap()
-@@ -1176,6 +1189,23 @@ fn main() {
+@@ -1176,6 +1191,23 @@ fn main() {
  
      let matches = app.get_matches();
  
@@ -4680,7 +4690,7 @@ index 6939eaa38..7bc82dedc 100644
      let mut target_api = match (
          matches.get_one::<String>("api-socket"),
          #[cfg(feature = "dbus_api")]
-@@ -1183,14 +1213,17 @@ fn main() {
+@@ -1183,14 +1215,17 @@ fn main() {
          #[cfg(feature = "dbus_api")]
          matches.get_one::<String>("dbus-object-path"),
      ) {
@@ -4707,10 +4717,16 @@ index 6939eaa38..7bc82dedc 100644
          (Some(api_sock), None, None) => TargetApi::HttpApi(
              UnixStream::connect(api_sock).unwrap_or_else(|e| {
 diff --git a/cloud-hypervisor/src/main.rs b/cloud-hypervisor/src/main.rs
-index 996671182..2fa6fca7b 100644
+index 996671182..433bf3eb7 100644
 --- a/cloud-hypervisor/src/main.rs
 +++ b/cloud-hypervisor/src/main.rs
-@@ -996,6 +996,7 @@ mod unit_tests {
+@@ -1,3 +1,5 @@
++// Copyright 2026 The Kuasar Authors
++//
+ // Copyright © 2019 Intel Corporation
+ //
+ // SPDX-License-Identifier: Apache-2.0
+@@ -996,6 +998,7 @@ mod unit_tests {
                  prefault: false,
                  zones: None,
                  thp: true,
@@ -4731,10 +4747,16 @@ index ab0278e6d..1c3633a6b 100644
  [lints]
  workspace = true
 diff --git a/vmm/src/api/mod.rs b/vmm/src/api/mod.rs
-index 17ba0011b..290670a97 100644
+index 17ba0011b..e7c9b7683 100644
 --- a/vmm/src/api/mod.rs
 +++ b/vmm/src/api/mod.rs
-@@ -55,6 +55,9 @@ use crate::vm_config::{
+@@ -1,3 +1,5 @@
++// Copyright 2026 The Kuasar Authors
++//
+ // Copyright © 2019 Intel Corporation
+ // Copyright 2024 Alyssa Ross <hi@alyssa.is>
+ //
+@@ -55,6 +57,9 @@ use crate::vm_config::{
      UserDeviceConfig, VdpaConfig, VmConfig, VsockConfig,
  };
  
@@ -4744,7 +4766,7 @@ index 17ba0011b..290670a97 100644
  /// API errors are sent back from the VMM API server through the ApiResponse.
  #[derive(Error, Debug)]
  pub enum ApiError {
-@@ -260,10 +263,15 @@ pub struct VmCoredumpData {
+@@ -260,10 +265,15 @@ pub struct VmCoredumpData {
      pub destination_url: String,
  }
  
@@ -4784,10 +4806,16 @@ index e8d3350db..69be785c7 100644
  
      RestoreConfig:
 diff --git a/vmm/src/config.rs b/vmm/src/config.rs
-index 93ec6c891..9609ee828 100644
+index 93ec6c891..6937e5d3f 100644
 --- a/vmm/src/config.rs
 +++ b/vmm/src/config.rs
-@@ -1035,6 +1035,8 @@ impl MemoryConfig {
+@@ -1,3 +1,5 @@
++// Copyright 2026 The Kuasar Authors
++//
+ // Copyright © 2019 Intel Corporation
+ //
+ // SPDX-License-Identifier: Apache-2.0
+@@ -1035,6 +1037,8 @@ impl MemoryConfig {
              prefault,
              zones,
              thp,
@@ -4796,7 +4824,7 @@ index 93ec6c891..9609ee828 100644
          })
      }
  
-@@ -2567,6 +2569,8 @@ where
+@@ -2567,6 +2571,8 @@ where
      }
  }
  
@@ -4805,7 +4833,7 @@ index 93ec6c891..9609ee828 100644
  #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, Default)]
  pub enum MemoryRestoreMode {
      /// Restore by eagerly copying the snapshot into guest RAM before resume.
-@@ -2574,14 +2578,20 @@ pub enum MemoryRestoreMode {
+@@ -2574,14 +2580,20 @@ pub enum MemoryRestoreMode {
      Copy,
      /// Restore lazily by faulting snapshot pages into guest RAM on demand.
      OnDemand,
@@ -4826,7 +4854,7 @@ index 93ec6c891..9609ee828 100644
  impl FromStr for MemoryRestoreMode {
      type Err = MemoryRestoreModeParseError;
  
-@@ -2589,6 +2599,8 @@ impl FromStr for MemoryRestoreMode {
+@@ -2589,6 +2601,8 @@ impl FromStr for MemoryRestoreMode {
          match s.to_lowercase().as_str() {
              "copy" => Ok(Self::Copy),
              "ondemand" => Ok(Self::OnDemand),
@@ -4835,7 +4863,7 @@ index 93ec6c891..9609ee828 100644
              _ => Err(MemoryRestoreModeParseError::InvalidValue(s.to_owned())),
          }
      }
-@@ -4834,6 +4846,8 @@ id=\"{id}\",pci_segment={pci_segment},queue_sizes={queue_sizes}"
+@@ -4834,6 +4848,8 @@ id=\"{id}\",pci_segment={pci_segment},queue_sizes={queue_sizes}"
                  prefault: false,
                  zones: None,
                  thp: true,
@@ -4846,11 +4874,14 @@ index 93ec6c891..9609ee828 100644
                  kernel: Some(PathBuf::from("/path/to/kernel")),
 diff --git a/vmm/src/external_uffd.rs b/vmm/src/external_uffd.rs
 new file mode 100644
-index 000000000..d58931f11
+index 000000000..e24f86a85
 --- /dev/null
 +++ b/vmm/src/external_uffd.rs
-@@ -0,0 +1,616 @@
-+// Change #13 - for external UFFD
+@@ -0,0 +1,619 @@
++// Copyright 2026 The Kuasar Authors
++// 
++// SPDX-License-Identifier: Apache-2.0
++//
 +// 1. Imports（放最顶部）
 +use serde::{Deserialize, Serialize};
 +use std::io;
@@ -5466,19 +5497,22 @@ index 000000000..d58931f11
 +        pf_address: msg.pf_address,
 +    })
 +}
-\ No newline at end of file
 diff --git a/vmm/src/lib.rs b/vmm/src/lib.rs
-index cb72d69d9..91aff1c42 100644
+index cb72d69d9..fc4cd094f 100644
 --- a/vmm/src/lib.rs
 +++ b/vmm/src/lib.rs
-@@ -93,6 +93,12 @@ mod userfaultfd;
+@@ -1,3 +1,5 @@
++// Copyright 2026 The Kuasar Authors
++//
+ // Copyright © 2019 Intel Corporation
+ //
+ // SPDX-License-Identifier: Apache-2.0
+@@ -93,6 +95,10 @@ mod userfaultfd;
  pub mod vm;
  pub mod vm_config;
  
-+// Change #16 - for external UFFD
++// Change - For External UFFD (lazy loading) restore
 +pub mod external_uffd;
-+
-+// Change #16 - for external UFFD
 +pub mod snapshot_manifest;
 +
  type GuestMemoryMmap = vm_memory::GuestMemoryMmap<AtomicBitmap>;
@@ -5548,10 +5582,16 @@ index cb72d69d9..91aff1c42 100644
              payload: Some(PayloadConfig {
                  kernel: Some(PathBuf::from("/path/to/kernel")),
 diff --git a/vmm/src/memory_manager.rs b/vmm/src/memory_manager.rs
-index ba0313b29..6661330bd 100644
+index ba0313b29..b2bdcd2b9 100644
 --- a/vmm/src/memory_manager.rs
 +++ b/vmm/src/memory_manager.rs
-@@ -57,6 +57,35 @@ use crate::migration::url_to_path;
+@@ -1,3 +1,5 @@
++// Copyright 2026 The Kuasar Authors
++//
+ // Copyright © 2019 Intel Corporation
+ //
+ // SPDX-License-Identifier: Apache-2.0
+@@ -57,6 +59,35 @@ use crate::migration::url_to_path;
  use crate::vm_config::{HotplugMethod, MemoryConfig, MemoryZoneConfig};
  use crate::{GuestMemoryMmap, GuestRegionMmap, MEMORY_MANAGER_SNAPSHOT_ID, uffd};
  
@@ -5587,7 +5627,7 @@ index ba0313b29..6661330bd 100644
  struct UffdHandler {
      stop_event: EventFd,
      result_rx: Receiver<Result<(), io::Error>>,
-@@ -69,6 +98,7 @@ struct UffdRange {
+@@ -69,6 +100,7 @@ struct UffdRange {
      file_offset: u64,
      page_size: u64,
  }
@@ -5595,7 +5635,7 @@ index ba0313b29..6661330bd 100644
  
  pub const MEMORY_MANAGER_ACPI_SIZE: usize = 0x18;
  
-@@ -76,6 +106,12 @@ const DEFAULT_MEMORY_ZONE: &str = "mem0";
+@@ -76,6 +108,12 @@ const DEFAULT_MEMORY_ZONE: &str = "mem0";
  
  const SNAPSHOT_FILENAME: &str = "memory-ranges";
  
@@ -5608,7 +5648,7 @@ index ba0313b29..6661330bd 100644
  #[cfg(target_arch = "x86_64")]
  const X86_64_IRQ_BASE: u32 = 5;
  
-@@ -91,6 +127,43 @@ const PLATFORM_DEVICE_AREA_SIZE: u64 = 1 << 20;
+@@ -91,6 +129,43 @@ const PLATFORM_DEVICE_AREA_SIZE: u64 = 1 << 20;
  
  const MAX_PREFAULT_THREAD_COUNT: usize = 16;
  
@@ -5652,7 +5692,7 @@ index ba0313b29..6661330bd 100644
  #[derive(Clone, Default, Serialize, Deserialize)]
  struct HotPlugState {
      base: u64,
-@@ -179,6 +252,7 @@ impl MemoryZone {
+@@ -179,6 +254,7 @@ impl MemoryZone {
  
  pub type MemoryZones = HashMap<String, MemoryZone>;
  
@@ -5660,7 +5700,7 @@ index ba0313b29..6661330bd 100644
  #[derive(Clone, Serialize, Deserialize)]
  struct GuestRamMapping {
      slot: u32,
-@@ -230,7 +304,9 @@ pub struct MemoryManager {
+@@ -230,7 +306,9 @@ pub struct MemoryManager {
      // This is useful for getting the dirty pages as we need to know the
      // slots that the mapping is created in.
      guest_ram_mappings: Vec<GuestRamMapping>,
@@ -5671,7 +5711,7 @@ index ba0313b29..6661330bd 100644
  
      pub acpi_address: Option<GuestAddress>,
      #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
-@@ -392,6 +468,77 @@ pub enum Error {
+@@ -392,6 +470,77 @@ pub enum Error {
      /// Memory size is misaligned with default page size or its hugepage size
      #[error("Memory size is misaligned with default page size or its hugepage size")]
      MisalignedMemorySize,
@@ -5749,7 +5789,7 @@ index ba0313b29..6661330bd 100644
  }
  
  impl From<UffdError> for Error {
-@@ -966,11 +1113,12 @@ impl MemoryManager {
+@@ -966,11 +1115,12 @@ impl MemoryManager {
              return Err(UffdError::HandlerFailed(e).into());
          }
  
@@ -5764,7 +5804,7 @@ index ba0313b29..6661330bd 100644
  
          info!("UFFD restore: demand-paged restore enabled");
  
-@@ -988,17 +1136,27 @@ impl MemoryManager {
+@@ -988,17 +1138,27 @@ impl MemoryManager {
          features
      }
  
@@ -5801,7 +5841,7 @@ index ba0313b29..6661330bd 100644
              }
          }
      }
-@@ -1174,6 +1332,158 @@ impl MemoryManager {
+@@ -1174,6 +1334,158 @@ impl MemoryManager {
          }
      }
  
@@ -5960,7 +6000,7 @@ index ba0313b29..6661330bd 100644
      fn validate_memory_config(
          config: &MemoryConfig,
          user_provided_zones: bool,
-@@ -1641,7 +1951,7 @@ impl MemoryManager {
+@@ -1641,7 +1953,7 @@ impl MemoryManager {
              snapshot_memory_ranges: MemoryRangeTable::default(),
              memory_zones,
              guest_ram_mappings: Vec::new(),
@@ -5969,7 +6009,7 @@ index ba0313b29..6661330bd 100644
              acpi_address,
              log_dirty: dynamic, // Cannot log dirty pages on a TD
              arch_mem_regions,
-@@ -1655,6 +1965,7 @@ impl MemoryManager {
+@@ -1655,6 +1967,7 @@ impl MemoryManager {
          Ok(Arc::new(Mutex::new(memory_manager)))
      }
  
@@ -5977,7 +6017,7 @@ index ba0313b29..6661330bd 100644
      #[allow(clippy::too_many_arguments)]
      pub fn new_from_snapshot(
          snapshot: &Snapshot,
-@@ -1666,40 +1977,594 @@ impl MemoryManager {
+@@ -1666,40 +1979,594 @@ impl MemoryManager {
          phys_bits: u8,
          exit_evt: &EventFd,
      ) -> Result<Arc<Mutex<MemoryManager>>, Error> {
@@ -6029,13 +6069,13 @@ index ba0313b29..6661330bd 100644
 +                    phys_bits,
 +                )
 +            }
-+
+ 
+-            if memory_restore_mode == MemoryRestoreMode::OnDemand {
 +            // Change - For external UFFD (lazy loading) restore
 +            MemoryRestoreMode::ExternalUffd => {
 +                let mut memory_file_path = url_to_path(source_url).map_err(Error::Restore)?;
 +                memory_file_path.push(String::from(SNAPSHOT_FILENAME));
- 
--            if memory_restore_mode == MemoryRestoreMode::OnDemand {
++
 +                let mem_snapshot: MemoryManagerSnapshotData =
 +                    snapshot.to_state().map_err(Error::Restore)?;
 +
@@ -6145,7 +6185,7 @@ index ba0313b29..6661330bd 100644
 +            }
 +            if r.size == 0 || r.size % page_size != 0 {
 +                return Err(Error::SnapshotImageUnalignedSize);
-             }
++            }
 +            if r.file_offset % page_size != 0 {
 +                return Err(Error::SnapshotImageUnalignedOffset);
 +            }
@@ -6182,8 +6222,7 @@ index ba0313b29..6661330bd 100644
 +
 +            let guest_region = GuestRegionMmap::new(mmap_region, GuestAddress(r.gpa))
 +                .map_err(Error::GuestMemory)?;
- 
--            Ok(mm)
++
 +            guest_regions.push(Arc::new(guest_region));
 +
 +            debug!(
@@ -6221,9 +6260,10 @@ index ba0313b29..6661330bd 100644
 +                MemoryImageRegionKind::HugeTlb => {
 +                    return Err(Error::FileBackendWithHugepagesUnsupported);
 +                }
-+            }
+             }
 +        }
-+
+ 
+-            Ok(mm)
 +        Ok(())
 +    }
 +    
@@ -6357,7 +6397,7 @@ index ba0313b29..6661330bd 100644
 +            if region.start_addr().raw_value() != m.gpa {
 +                return Err(Error::RestoredRegionSizeMismatch);
 +            }
-+        }
+         }
 +
 +        Ok(())
 +    }
@@ -6439,7 +6479,7 @@ index ba0313b29..6661330bd 100644
 +                &guard.guest_ram_mappings,
 +                guard.log_dirty,
 +            )?;
-         }
++        }
 +
 +        Ok(mm)
 +    }
@@ -6593,7 +6633,7 @@ index ba0313b29..6661330bd 100644
      }
  
      fn memfd_create(name: &ffi::CStr, flags: u32) -> Result<RawFd, io::Error> {
-@@ -2463,10 +3328,27 @@ impl MemoryManager {
+@@ -2463,10 +3330,27 @@ impl MemoryManager {
          Ok(table)
      }
  
@@ -6623,7 +6663,7 @@ index ba0313b29..6661330bd 100644
              start_of_device_area: self.start_of_device_area.0,
              boot_ram: self.boot_ram,
              current_ram: self.current_ram,
-@@ -2475,7 +3357,50 @@ impl MemoryManager {
+@@ -2475,7 +3359,50 @@ impl MemoryManager {
              next_memory_slot: self.next_memory_slot.load(Ordering::SeqCst),
              selected_slot: self.selected_slot,
              next_hotplug_slot: self.next_hotplug_slot,
@@ -6674,7 +6714,7 @@ index ba0313b29..6661330bd 100644
      }
  
      pub fn memory_slot_fds(&self) -> HashMap<u32, RawFd> {
-@@ -2962,10 +3887,16 @@ impl Drop for MemoryManager {
+@@ -2962,10 +3889,16 @@ impl Drop for MemoryManager {
      }
  }
  
@@ -6691,7 +6731,7 @@ index ba0313b29..6661330bd 100644
      start_of_device_area: u64,
      boot_ram: u64,
      current_ram: u64,
-@@ -2976,26 +3907,73 @@ pub struct MemoryManagerSnapshotData {
+@@ -2976,26 +3909,73 @@ pub struct MemoryManagerSnapshotData {
      next_hotplug_slot: usize,
  }
  
@@ -6774,7 +6814,7 @@ index ba0313b29..6661330bd 100644
          )?))
      }
  }
-@@ -3010,6 +3988,11 @@ impl Transportable for MemoryManager {
+@@ -3010,6 +3990,11 @@ impl Transportable for MemoryManager {
              return Ok(());
          }
  
@@ -6786,7 +6826,7 @@ index ba0313b29..6661330bd 100644
          let mut memory_file_path = url_to_path(destination_url)?;
          memory_file_path.push(String::from(SNAPSHOT_FILENAME));
  
-@@ -3018,11 +4001,9 @@ impl Transportable for MemoryManager {
+@@ -3018,11 +4003,9 @@ impl Transportable for MemoryManager {
              .read(true)
              .write(true)
              .create_new(true)
@@ -6799,7 +6839,7 @@ index ba0313b29..6661330bd 100644
          for range in self.snapshot_memory_ranges.regions() {
              let mut offset: u64 = 0;
              // Here we are manually handling the retry in case we can't read
-@@ -3045,6 +4026,44 @@ impl Transportable for MemoryManager {
+@@ -3045,6 +4028,44 @@ impl Transportable for MemoryManager {
                  }
              }
          }
@@ -6846,11 +6886,11 @@ index ba0313b29..6661330bd 100644
  }
 diff --git a/vmm/src/snapshot_manifest.rs b/vmm/src/snapshot_manifest.rs
 new file mode 100644
-index 000000000..dda7f4f87
+index 000000000..55be7350a
 --- /dev/null
 +++ b/vmm/src/snapshot_manifest.rs
 @@ -0,0 +1,33 @@
-+// Copyright © 2026 HUAWEI Corporation
++// Copyright 2026 The Kuasar Authors
 +//
 +// SPDX-License-Identifier: Apache-2.0
 +
@@ -6883,12 +6923,17 @@ index 000000000..dda7f4f87
 +        file_offset: u64,
 +    },
 +}
-\ No newline at end of file
 diff --git a/vmm/src/uffd.rs b/vmm/src/uffd.rs
-index eb73f4659..89ba0f2c5 100644
+index eb73f4659..cb2b8cd54 100644
 --- a/vmm/src/uffd.rs
 +++ b/vmm/src/uffd.rs
-@@ -47,7 +47,7 @@ pub(crate) struct UffdioCopy {
+@@ -1,3 +1,5 @@
++// Copyright 2026 The Kuasar Authors
++//
+ // Copyright © 2026 Cloud Hypervisor Authors
+ //
+ // SPDX-License-Identifier: Apache-2.0
+@@ -47,7 +49,7 @@ pub(crate) struct UffdioCopy {
  /// union is flattened into its pagefault fields here. The trailing
  /// 8 bytes (`arg.pagefault.feat` + padding) are unused.
  #[repr(C)]
@@ -6897,7 +6942,7 @@ index eb73f4659..89ba0f2c5 100644
      pub event: u8,
      _reserved1: u8,
      _reserved2: u16,
-@@ -61,8 +61,11 @@ const _: () = assert!(std::mem::size_of::<UffdMsg>() == 32);
+@@ -61,8 +63,11 @@ const _: () = assert!(std::mem::size_of::<UffdMsg>() == 32);
  
  /// Create a userfaultfd file descriptor and perform the API handshake.
  pub(crate) fn create(required_features: u64) -> Result<OwnedFd, std::io::Error> {
@@ -6909,7 +6954,7 @@ index eb73f4659..89ba0f2c5 100644
      if fd < 0 {
          return Err(std::io::Error::last_os_error());
      }
-@@ -74,6 +77,7 @@ pub(crate) fn create(required_features: u64) -> Result<OwnedFd, std::io::Error>
+@@ -74,6 +79,7 @@ pub(crate) fn create(required_features: u64) -> Result<OwnedFd, std::io::Error>
          features: required_features,
          ioctls: 0,
      };
@@ -6917,7 +6962,7 @@ index eb73f4659..89ba0f2c5 100644
      // SAFETY: `api` is a valid, correctly-sized struct for this ioctl.
      let ret = unsafe {
          libc::ioctl(
-@@ -82,15 +86,29 @@ pub(crate) fn create(required_features: u64) -> Result<OwnedFd, std::io::Error>
+@@ -82,15 +88,29 @@ pub(crate) fn create(required_features: u64) -> Result<OwnedFd, std::io::Error>
              &mut api,
          )
      };
@@ -6948,10 +6993,16 @@ index eb73f4659..89ba0f2c5 100644
          range_start: addr,
          range_len: len,
 diff --git a/vmm/src/vm.rs b/vmm/src/vm.rs
-index 710847fab..c51d2c2fa 100644
+index 710847fab..4b0683c25 100644
 --- a/vmm/src/vm.rs
 +++ b/vmm/src/vm.rs
-@@ -545,6 +545,7 @@ impl Vm {
+@@ -1,3 +1,5 @@
++// Copyright 2026 The Kuasar Authors
++//
+ // Copyright © 2020, Oracle and/or its affiliates.
+ //
+ // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+@@ -545,6 +547,7 @@ impl Vm {
          console_resize_pipe: Option<Arc<File>>,
          original_termios: Arc<Mutex<Option<termios>>>,
          snapshot: Option<&Snapshot>,
@@ -6959,7 +7010,7 @@ index 710847fab..c51d2c2fa 100644
      ) -> Result<Self> {
          trace_scoped!("Vm::new_from_memory_manager");
  
-@@ -626,6 +627,7 @@ impl Vm {
+@@ -626,6 +629,7 @@ impl Vm {
              console_resize_pipe.as_ref(),
              &original_termios,
              snapshot,
@@ -6967,7 +7018,7 @@ index 710847fab..c51d2c2fa 100644
          )?;
  
          // Load kernel and initramfs files
-@@ -843,7 +845,13 @@ impl Vm {
+@@ -843,7 +847,13 @@ impl Vm {
          console_resize_pipe: Option<&Arc<File>>,
          original_termios: &Arc<Mutex<Option<termios>>>,
          snapshot: Option<&Snapshot>,
@@ -6981,7 +7032,7 @@ index 710847fab..c51d2c2fa 100644
          #[cfg(feature = "mshv")]
          let is_mshv = matches!(
              hypervisor.hypervisor_type(),
-@@ -891,13 +899,20 @@ impl Vm {
+@@ -891,13 +901,20 @@ impl Vm {
                  original_termios,
              )?;
          }
@@ -7008,7 +7059,7 @@ index 710847fab..c51d2c2fa 100644
  
          // Add UEFI flash for aarch64
          #[cfg(target_arch = "aarch64")]
-@@ -1265,7 +1280,7 @@ impl Vm {
+@@ -1265,7 +1282,7 @@ impl Vm {
          snapshot: Option<&Snapshot>,
          source_url: Option<&str>,
          prefault: Option<bool>,
@@ -7017,7 +7068,7 @@ index 710847fab..c51d2c2fa 100644
      ) -> Result<Self> {
          trace_scoped!("Vm::new");
  
-@@ -1338,6 +1353,7 @@ impl Vm {
+@@ -1338,6 +1355,7 @@ impl Vm {
              console_resize_pipe,
              original_termios,
              snapshot,
@@ -7025,7 +7076,7 @@ index 710847fab..c51d2c2fa 100644
          )
      }
  
-@@ -2954,8 +2970,10 @@ impl Vm {
+@@ -2954,8 +2972,10 @@ impl Vm {
          unimplemented!()
      }
  
@@ -7039,10 +7090,16 @@ index 710847fab..c51d2c2fa 100644
  
      #[cfg(feature = "guest_debug")]
 diff --git a/vmm/src/vm_config.rs b/vmm/src/vm_config.rs
-index d453ead2d..a5d596066 100644
+index d453ead2d..a515a6237 100644
 --- a/vmm/src/vm_config.rs
 +++ b/vmm/src/vm_config.rs
-@@ -220,6 +220,8 @@ pub struct MemoryConfig {
+@@ -1,3 +1,5 @@
++// Copyright 2026 The Kuasar Authors
++//
+ // Copyright © 2022 Intel Corporation
+ //
+ // SPDX-License-Identifier: Apache-2.0
+@@ -220,6 +222,8 @@ pub struct MemoryConfig {
      pub zones: Option<Vec<MemoryZoneConfig>>,
      #[serde(default = "default_memoryconfig_thp")]
      pub thp: bool,
@@ -7051,7 +7108,7 @@ index d453ead2d..a5d596066 100644
  }
  
  pub const DEFAULT_MEMORY_MB: u64 = 512;
-@@ -238,6 +240,7 @@ impl Default for MemoryConfig {
+@@ -238,6 +242,7 @@ impl Default for MemoryConfig {
              prefault: false,
              zones: None,
              thp: true,
