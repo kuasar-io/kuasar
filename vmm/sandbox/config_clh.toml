@@ -2,6 +2,70 @@
 log_level = "info"
 enable_tracing = false
 
+[sandbox.snapshot]
+# Restore sandboxes from pre-warmed Environment snapshots instead of cold-booting.
+enable_environment_restore = true
+
+# Restore sandboxes from WarmFork templates (virtio-blk only).
+# Requires end-to-end validation in your environment before enabling in production.
+enable_warmfork_restore = true
+
+# Restore stateful continuation snapshots by pod UID and generation (virtio-blk only).
+enable_continuation_restore = false
+
+# Maximum concurrent VM restores across all template kinds.
+max_concurrent_restores = 4
+
+# Fall back to a fresh VM boot when no template is available or restore fails.
+# Set to false to hard-fail on template miss (useful for strict latency budgets).
+fallback_to_fresh_boot = true
+
+# Memory restore strategy (case-insensitive).
+#   "copy"         — copy all guest memory pages into anonymous memory before
+#                    resuming the VM. Snapshot files can be released after restore.
+#   "ondemand"     — map pages on-demand via userfaultfd; snapshot files stay
+#                    pinned until sandbox stop.
+#   "filebackend"  — snapshot memory file is the backing store; stays pinned until
+#                    sandbox stop.
+#   "externaluffd" — delegate page faults to an external userfaultfd handler process.
+default_memory_restore_mode = "ondemand"
+
+# Template pool — enables pre-warmed VM snapshots when this section is present.
+[template_pool]
+# Directory where template snapshots are persisted across restarts.
+store_dir = "/var/lib/kuasar/pool"
+
+# Background GC interval in seconds for pool-level GC and continuation GC.
+gc_interval_secs = 3600
+
+# GC watermark: when total pool-resident templates reach this
+# count, the oldest idle templates are evicted to make room.
+gc_watermark = 50
+
+# Environment template pool (bare VM snapshot pool) — VMs booted with no containers,
+# used as the base for direct environment restore and as the foundation for WarmFork.
+[template_pool.environment]
+# Keep at least this many templates per TemplateKey.
+# Setting this enables the background refill task.
+min_per_key = 1
+
+# Evict oldest templates when per-key count exceeds this value.
+max_per_key = 5
+
+# Background maintenance check interval in seconds.
+maintenance_interval_secs = 60
+
+# WarmFork template pool — VM snapshots with a ready-waiting container process.
+[template_pool.warmfork]
+# Evict oldest templates when per-key count exceeds this value.
+max_per_key = 5
+
+# Disk image duplication strategy on restore.
+#   "shared"    — reflink COW copy; requires XFS/btrfs with reflink support.
+#                 Multiple sandboxes can restore from the same template.
+#   "exclusive" — symlink; single sandbox ownership, template removed after use.
+lease_mode = "exclusive"
+
 [hypervisor]
 path = "/usr/local/bin/cloud-hypervisor"
 vcpus = 1
@@ -22,7 +86,7 @@ debug = false
 #   "virtio-blk"  (optional) — overlay mounts are packaged into disk images and
 #                             hot-attached as virtio-blk PCI devices.
 #
-container_storage_backend = "virtiofs"
+container_storage_backend = "virtio-blk"
 
 [hypervisor.virtio_blk]
 allow_bind_snapshot = false

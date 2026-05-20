@@ -56,6 +56,15 @@ impl VMFactory for QemuVMFactory {
         }
     }
 
+    fn with_resources(&self, vcpus: u32, memory_mb: u32) -> Self {
+        let mut config = self.default_config.clone();
+        config.common.vcpus = vcpus;
+        config.common.memory_in_mb = memory_mb;
+        Self {
+            default_config: config,
+        }
+    }
+
     async fn create_vm(
         &self,
         id: &str,

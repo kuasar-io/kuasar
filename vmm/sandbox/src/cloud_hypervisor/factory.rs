@@ -24,7 +24,7 @@ use crate::{
         CloudHypervisorVM,
     },
     utils::get_netns,
-    vm::VMFactory,
+    vm::{VMFactory, CONSOLE_LOG_FILENAME, TASK_VSOCK_FILENAME},
 };
 
 pub struct CloudHypervisorVMFactory {
@@ -94,6 +94,37 @@ impl VMFactory for CloudHypervisorVMFactory {
         Self { vm_config: config }
     }
 
+    fn image_path(&self) -> &str {
+        &self.vm_config.common.image_path
+    }
+
+    fn kernel_path(&self) -> &str {
+        &self.vm_config.common.kernel_path
+    }
+
+    fn vcpus(&self) -> u32 {
+        self.vm_config.common.vcpus
+    }
+
+    fn memory_mb(&self) -> u32 {
+        self.vm_config.common.memory_in_mb
+    }
+
+    fn kernel_params(&self) -> &str {
+        &self.vm_config.common.kernel_params
+    }
+
+    fn storage_backend(&self) -> &str {
+        self.vm_config.container_storage_backend.as_str()
+    }
+
+    fn with_resources(&self, vcpus: u32, memory_mb: u32) -> Self {
+        let mut config = self.vm_config.clone();
+        config.common.vcpus = vcpus;
+        config.common.memory_in_mb = memory_mb;
+        Self { vm_config: config }
+    }
+
     async fn create_vm(
         &self,
         id: &str,
@@ -125,14 +156,14 @@ impl VMFactory for CloudHypervisorVMFactory {
         // add vsock device
         // set guest cid
         // cid seems not important for cloud hypervisor
-        let guest_socket_path = format!("{}/task.vsock", s.base_dir);
+        let guest_socket_path = format!("{}/{}", s.base_dir, TASK_VSOCK_FILENAME);
         let vsock = Vsock::new(3, &guest_socket_path, "vsock");
         vm.add_device(vsock);
         vm.agent_socket = format!("hvsock://{}:1024", guest_socket_path);
 
         // add console device
         // TODO add log path parameter
-        let console_path = format!("/tmp/{}-task.log", id);
+        let console_path = format!("/tmp/{}-{}", id, CONSOLE_LOG_FILENAME);
         let console = Console::new(&console_path, "console");
         vm.add_device(console);
 

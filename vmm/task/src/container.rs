@@ -40,7 +40,7 @@ use containerd_shim::{
     util::read_spec,
     ExitSignal,
 };
-use log::debug;
+use log::{debug, info};
 use nix::{sys::signalfd::signal::kill, unistd::Pid};
 use oci_spec::runtime::{LinuxResources, Process, Spec};
 use runc::{options::GlobalOpts, Runc, Spawner};
@@ -82,6 +82,8 @@ pub struct KuasarExecFactory {
     bundle: String,
     io_uid: u32,
     io_gid: u32,
+    /// For adopted containers: the orphan's runc container ID used for exec operations.
+    adopted_runc_id: Option<String>,
 }
 
 pub struct KuasarExecLifecycle {
@@ -99,6 +101,11 @@ pub struct KuasarInitLifecycle {
     opts: Options,
     bundle: String,
     exit_signal: Arc<ExitSignal>,
+    /// When this container was adopted from a Resume-mode orphan, this holds the
+    /// original runc container ID (the orphan's ID).  All runc operations (kill,
+    /// delete, ps) use this ID instead of the new containerd-assigned ID.
+    /// `None` for normally-created containers.
+    adopted_runc_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -151,6 +158,60 @@ impl ContainerFactory<KuasarContainer> for KuasarFactory {
 
         let id = req.id();
 
+        // Resume mode: check if this container should be adopted from a running orphan.
+        // adopt_container() pre-registered the orphan's PID; use it directly instead
+        // of spawning a new runc process (which would run alongside the orphan).
+        if let Some(adoption) = self.sandbox.lock().await.take_adoption(id) {
+            info!(
+                "create {}: adopting orphan runc_id='{}' pid={}",
+                id, adoption.orphan_runc_id, adoption.orphan_pid
+            );
+
+            // Verify the orphan process is still alive before completing adoption.
+            // If it has exited since snapshot time, returning a RUNNING container with
+            // a dead PID would allow a new container to co-run alongside ghost state.
+            let proc_alive = std::path::Path::new("/proc")
+                .join(adoption.orphan_pid.to_string())
+                .exists();
+            if !proc_alive {
+                return Err(other!(
+                    "create {}: Resume adoption failed — orphan pid {} (runc_id '{}') \
+                     is no longer alive; sandbox must be restarted in Clone mode or \
+                     recreated from a fresh snapshot",
+                    id,
+                    adoption.orphan_pid,
+                    adoption.orphan_runc_id
+                ));
+            }
+
+            let orphan_runc_id = adoption.orphan_runc_id;
+            let mut init = InitProcess::new(
+                id,
+                Stdio::default(),
+                KuasarInitLifecycle::new_adopted(
+                    runc.clone(),
+                    opts.clone(),
+                    &bundle,
+                    orphan_runc_id.clone(),
+                ),
+            );
+            init.pid = adoption.orphan_pid;
+            init.state = Status::RUNNING;
+            return Ok(KuasarContainer {
+                id: id.to_string(),
+                bundle: bundle.to_string(),
+                init,
+                process_factory: KuasarExecFactory {
+                    runtime: runc,
+                    bundle: bundle.to_string(),
+                    io_uid: opts.io_uid,
+                    io_gid: opts.io_gid,
+                    adopted_runc_id: Some(orphan_runc_id),
+                },
+                processes: Default::default(),
+            });
+        }
+
         let stdio = match read_io(&bundle, req.id(), None).await {
             Ok(io) => Stdio::new(&io.stdin, &io.stdout, &io.stderr, io.terminal),
             Err(_) => Stdio::new(req.stdin(), req.stdout(), req.stderr(), req.terminal()),
@@ -176,6 +237,7 @@ impl ContainerFactory<KuasarContainer> for KuasarFactory {
                 bundle: bundle.to_string(),
                 io_uid: opts.io_uid,
                 io_gid: opts.io_gid,
+                adopted_runc_id: None,
             },
             processes: Default::default(),
         };
@@ -255,7 +317,17 @@ pub async fn runtime_error(bundle: &str, r_err: runc::error::Error, msg: &str) -
         ),
         Ok(rt_msg) => {
             if rt_msg.is_empty() {
-                other!("{}: empty msg in log file: {}", msg, r_err)
+                // runc failed before writing to its log file; surface stderr if available.
+                let stderr = if let runc::error::Error::CommandFailed { stderr, .. } = &r_err {
+                    stderr.trim().to_string()
+                } else {
+                    String::new()
+                };
+                if stderr.is_empty() {
+                    other!("{}: empty msg in log file: {}", msg, r_err)
+                } else {
+                    other!("{}: {}", msg, stderr)
+                }
             } else {
                 other!("{}: {}", msg, rt_msg)
             }
@@ -333,7 +405,11 @@ impl ProcessFactory<ExecProcess> for KuasarExecFactory {
             lifecycle: Arc::from(KuasarExecLifecycle {
                 runtime: self.runtime.clone(),
                 bundle: self.bundle.to_string(),
-                container_id: req.id.to_string(),
+                // Adopted containers: exec must target the orphan's runc container ID.
+                container_id: self
+                    .adopted_runc_id
+                    .clone()
+                    .unwrap_or_else(|| req.id.to_string()),
                 io_uid: self.io_uid,
                 io_gid: self.io_gid,
                 spec: p,
@@ -348,6 +424,11 @@ impl ProcessFactory<ExecProcess> for KuasarExecFactory {
 impl ProcessLifecycle<InitProcess> for KuasarInitLifecycle {
     #[instrument(skip_all)]
     async fn start(&self, p: &mut InitProcess) -> containerd_shim::Result<()> {
+        // Adopted orphans are already running; skip runc start.
+        if self.adopted_runc_id.is_some() {
+            p.state = Status::RUNNING;
+            return Ok(());
+        }
         if let Err(e) = self.runtime.start(p.id.as_str()).await {
             return Err(runtime_error(&p.lifecycle.bundle, e, "OCI runtime start failed").await);
         }
@@ -362,13 +443,11 @@ impl ProcessLifecycle<InitProcess> for KuasarInitLifecycle {
         signal: u32,
         all: bool,
     ) -> containerd_shim::Result<()> {
+        // Use orphan's original runc ID if this container was adopted.
+        let runc_id = self.adopted_runc_id.as_deref().unwrap_or(p.id.as_str());
         if let Err(r_err) = self
             .runtime
-            .kill(
-                p.id.as_str(),
-                signal,
-                Some(&runc::options::KillOpts { all }),
-            )
+            .kill(runc_id, signal, Some(&runc::options::KillOpts { all }))
             .await
         {
             let e = runtime_error(&p.lifecycle.bundle, r_err, "OCI runtime kill failed").await;
@@ -380,12 +459,10 @@ impl ProcessLifecycle<InitProcess> for KuasarInitLifecycle {
 
     #[instrument(skip_all)]
     async fn delete(&self, p: &mut InitProcess) -> containerd_shim::Result<()> {
+        let runc_id = self.adopted_runc_id.as_deref().unwrap_or(p.id.as_str());
         if let Err(e) = self
             .runtime
-            .delete(
-                p.id.as_str(),
-                Some(&runc::options::DeleteOpts { force: true }),
-            )
+            .delete(runc_id, Some(&runc::options::DeleteOpts { force: true }))
             .await
         {
             if !e.to_string().to_lowercase().contains("does not exist") {
@@ -436,9 +513,10 @@ impl ProcessLifecycle<InitProcess> for KuasarInitLifecycle {
 
     #[instrument(skip_all)]
     async fn ps(&self, p: &InitProcess) -> Result<Vec<ProcessInfo>> {
+        let runc_id = self.adopted_runc_id.as_deref().unwrap_or(p.id.as_str());
         let pids = self
             .runtime
-            .ps(&p.id)
+            .ps(runc_id)
             .await
             .map_err(other_error!(e, "failed to execute runc ps"))?;
         Ok(pids
@@ -464,7 +542,16 @@ impl KuasarInitLifecycle {
             opts,
             bundle: bundle.to_string(),
             exit_signal: Default::default(),
+            adopted_runc_id: None,
         }
+    }
+
+    /// Build a lifecycle for a container adopted from a Resume-mode orphan.
+    /// All runc operations will use `orphan_runc_id` as the container ID.
+    pub fn new_adopted(runtime: Runc, opts: Options, bundle: &str, orphan_runc_id: String) -> Self {
+        let mut lc = Self::new(runtime, opts, bundle);
+        lc.adopted_runc_id = Some(orphan_runc_id);
+        lc
     }
 }
 
@@ -654,11 +741,18 @@ impl Spawner for ShimExecutor {
                     monitor.wait(pid as i32)
                 ))
             } else {
-                Ok((
-                    "".to_string(),
-                    "".to_string(),
-                    monitor.wait(pid as i32).await,
-                ))
+                // Still capture stderr so runc failures that occur before the
+                // JSON log file is written (e.g. missing rootfs, bad config.json)
+                // surface in the CommandFailed error instead of being silently lost.
+                let stderr_stream = child
+                    .stderr
+                    .take()
+                    .map(ChildStderr::from_std)
+                    .transpose()
+                    .map_err(|e| runc::error::Error::Other(Box::new(e)))?;
+                let (stderr, exit_code) =
+                    tokio::join!(read_std(stderr_stream), monitor.wait(pid as i32));
+                Ok(("".to_string(), stderr, exit_code))
             }
         }
         .await;

@@ -41,9 +41,20 @@ use crate::{
     CLONE_FLAG_TABLE,
 };
 
+/// State saved for an orphan container that will be adopted once containerd calls Create.
+pub struct AdoptionInfo {
+    /// PID of the orphan's init process (still running in the VM).
+    pub orphan_pid: i32,
+    /// The runc container ID of the orphan (used for runc kill/delete/ps).
+    pub orphan_runc_id: String,
+}
+
 pub struct SandboxResources {
     storages: Vec<Storage>,
     device_monitor: DeviceMonitor,
+    /// Pending orphan adoptions: new_container_id → orphan info.
+    /// Populated by `adopt_container` RPC; consumed by `KuasarFactory::create`.
+    pending_adoptions: std::collections::HashMap<String, AdoptionInfo>,
 }
 
 impl SandboxResources {
@@ -53,7 +64,24 @@ impl SandboxResources {
         Self {
             storages: vec![],
             device_monitor,
+            pending_adoptions: std::collections::HashMap::new(),
         }
+    }
+
+    /// Register that `new_id` should be adopted from orphan `orphan_runc_id` (with pid `orphan_pid`).
+    pub fn register_adoption(&mut self, new_id: &str, orphan_pid: i32, orphan_runc_id: String) {
+        self.pending_adoptions.insert(
+            new_id.to_string(),
+            AdoptionInfo {
+                orphan_pid,
+                orphan_runc_id,
+            },
+        );
+    }
+
+    /// Consume and return the pending adoption for `container_id`, if any.
+    pub fn take_adoption(&mut self, container_id: &str) -> Option<AdoptionInfo> {
+        self.pending_adoptions.remove(container_id)
     }
 
     pub async fn add_storages(&mut self, container_id: &str, storages: Vec<Storage>) -> Result<()> {
@@ -73,7 +101,14 @@ impl SandboxResources {
 
     pub async fn add_storage(&mut self, container_id: &str, mut storage: Storage) -> Result<()> {
         for s in &mut self.storages {
-            if s.host_source == storage.host_source && s.r#type == storage.r#type {
+            // Dedup: same underlying source, type, AND mount destination — truly the same storage.
+            // mount_point must also match: in blk mode every container gets its own .img and its
+            // own mount_point even when sharing the same host overlay source, so deduping solely
+            // on host_source+type would suppress the mount for the new container's path.
+            if s.host_source == storage.host_source
+                && s.r#type == storage.r#type
+                && s.mount_point == storage.mount_point
+            {
                 s.refer(container_id);
                 return Ok(());
             }
@@ -131,11 +166,8 @@ impl SandboxResources {
     }
 
     async fn handle_blk_storage(&mut self, storage: &mut Storage) -> Result<()> {
-        // Retrieve the device path from pci address.
         let device = self.get_device(&storage.source, DeviceType::Blk).await?;
-        let path = device.path.to_string();
-        storage.source = path;
-
+        storage.source = device.path.to_string();
         mount_storage(storage).await?;
         Ok(())
     }
@@ -169,11 +201,85 @@ async fn mount_storage(storage: &Storage) -> Result<()> {
             ))?;
     }
 
-    debug!("mounting storage {:?}", storage);
     let fstype = storage.fstype.as_str().none_if(|x| x.is_empty());
     let source = storage.source.as_str().none_if(|x| x.is_empty());
+    debug!(
+        "mount_storage: fstype={} src={} mp={}",
+        storage.fstype, storage.source, storage.mount_point
+    );
     mount(fstype, source, &storage.options, &storage.mount_point).map_err(other_error!(e, ""))?;
+    verify_storage_mount(storage).await?;
     Ok(())
+}
+
+async fn verify_storage_mount(storage: &Storage) -> Result<()> {
+    let mounts = tokio::fs::read_to_string("/proc/mounts")
+        .await
+        .map_err(other_error!(e, "read /proc/mounts"))?;
+    let mount = find_mount_record(&mounts, &storage.mount_point)
+        .ok_or_else(|| other!("mount point {} not found after mount", storage.mount_point))?;
+
+    // "bind" mounts appear in /proc/mounts with the source filesystem type (e.g. ext4),
+    // not "bind", so fstype verification must be skipped for them.
+    // "overlay" is always recorded as "overlay" in /proc/mounts and is verified normally.
+    if !storage.fstype.is_empty() && storage.fstype != "bind" && mount.fstype != storage.fstype {
+        return Err(other!(
+            "mount point {} has fstype {}, expected {}",
+            storage.mount_point,
+            mount.fstype,
+            storage.fstype
+        ));
+    }
+
+    let expect_ro = storage.options.iter().any(|o| o == "ro");
+    if expect_ro && !mount.has_option("ro") {
+        return Err(other!(
+            "mount point {} is not readonly after mount",
+            storage.mount_point
+        ));
+    }
+    if !expect_ro && !mount.has_option("rw") {
+        return Err(other!(
+            "mount point {} is not read-write after mount",
+            storage.mount_point
+        ));
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct MountRecord {
+    fstype: String,
+    options: Vec<String>,
+}
+
+impl MountRecord {
+    fn has_option(&self, option: &str) -> bool {
+        self.options.iter().any(|o| o == option)
+    }
+}
+
+fn find_mount_record(mounts: &str, mount_point: &str) -> Option<MountRecord> {
+    mounts.lines().rev().find_map(|line| {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.len() < 4 || unescape_proc_mount_field(fields[1]) != mount_point {
+            return None;
+        }
+        Some(MountRecord {
+            fstype: fields[2].to_string(),
+            options: fields[3].split(',').map(str::to_string).collect(),
+        })
+    })
+}
+
+fn unescape_proc_mount_field(value: &str) -> String {
+    value
+        .replace("\\040", " ")
+        .replace("\\011", "\t")
+        .replace("\\012", "\n")
+        .replace("\\043", "#")
+        .replace("\\134", "\\")
 }
 
 async fn unmount_storage(storage: &Storage) -> Result<()> {
@@ -189,6 +295,34 @@ async fn unmount_storage(storage: &Storage) -> Result<()> {
             .map_err(other_error!(e, ""))?
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod mount_tests {
+    use super::*;
+
+    #[test]
+    fn find_mount_record_matches_last_mountpoint_entry() {
+        let mounts = "\
+/dev/vda /run/kuasar/storage/a ext4 rw,relatime 0 0
+/dev/vdb /run/kuasar/storage/a xfs ro,relatime 0 0
+";
+        let record = find_mount_record(mounts, "/run/kuasar/storage/a").unwrap();
+
+        assert_eq!(
+            record,
+            MountRecord {
+                fstype: "xfs".to_string(),
+                options: vec!["ro".to_string(), "relatime".to_string()],
+            }
+        );
+    }
+
+    #[test]
+    fn find_mount_record_unescapes_proc_mount_paths() {
+        let mounts = "/dev/vda /run/kuasar/storage/space\\040dir ext4 rw 0 0";
+        assert!(find_mount_record(mounts, "/run/kuasar/storage/space dir").is_some());
+    }
 }
 
 async fn ensure_destination_file_exists(path: &Path) -> Result<()> {
@@ -344,9 +478,20 @@ async fn setup_persistent_ns(ns_types: Vec<String>) -> Result<()> {
     mkdir(SANDBOX_NS_PATH, 0o711).await?;
 
     let mut clone_type = CloneFlags::empty();
+    let mut ns_to_setup = Vec::new();
 
     for ns_type in &ns_types {
         let sandbox_ns_path = format!("{}/{}", SANDBOX_NS_PATH, ns_type);
+        // If the path already exists OR stat() itself returns EPERM (bind mount present
+        // but namespace inaccessible after restore), the mount is live — skip re-creating.
+        match tokio::fs::metadata(&sandbox_ns_path).await {
+            Ok(_) => continue,
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => continue,
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                return Err(other!("stat namespace path {}: {}", sandbox_ns_path, e));
+            }
+            Err(_) => {}
+        }
         File::create(&sandbox_ns_path).await.map_err(io_error!(
             e,
             "failed to create: {}",
@@ -356,9 +501,12 @@ async fn setup_persistent_ns(ns_types: Vec<String>) -> Result<()> {
         clone_type |= *CLONE_FLAG_TABLE
             .get(ns_type)
             .ok_or(other!("bad ns type {}", ns_type))?;
+        ns_to_setup.push(ns_type.clone());
     }
 
-    fork_sandbox(ns_types, clone_type)?;
+    if !ns_to_setup.is_empty() {
+        fork_sandbox(ns_to_setup, clone_type)?;
+    }
 
     Ok(())
 }

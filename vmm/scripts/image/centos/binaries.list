@@ -50,5 +50,6 @@
 /usr/bin/netstat /bin
 /usr/sbin/ip /sbin
 /usr/sbin/busybox /bin
+/usr/bin/sync /bin
 /usr/bin/ldd /bin
 # End of file, do not delete

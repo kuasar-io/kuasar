@@ -169,7 +169,7 @@ fn find_reusable_storage_index(
         .position(|storage| storage_matches_mount(storage, mount, is_rootfs_mount))
 }
 
-fn find_orphan_for_mount(
+pub(crate) fn find_orphan_for_mount(
     storages: &[Storage],
     orphan_container_ids: &[String],
     mount: &Mount,

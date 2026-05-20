@@ -14,7 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::{collections::HashMap, io::ErrorKind, os::unix::fs::PermissionsExt, path::Path};
+use std::{
+    collections::HashMap, io::ErrorKind, os::unix::fs::PermissionsExt, path::Path, time::Duration,
+};
 
 use anyhow::anyhow;
 use containerd_sandbox::{
@@ -24,8 +26,10 @@ use containerd_sandbox::{
 use containerd_shim::mount::mount_rootfs;
 use log::{debug, warn};
 use nix::libc::MNT_DETACH;
+use ttrpc::context::with_timeout;
 pub use utils::*;
 use vmm_common::{
+    api::sandbox::AdoptContainerRequest,
     mount::{bind_mount, unmount, MNT_NOFOLLOW},
     storage::{Storage, DRIVEREPHEMERALTYPE},
     KUASAR_STATE_DIR,
@@ -40,7 +44,7 @@ use crate::{
             BlockArtifact, BlockFs, BlockPrepareRequest, BlockProvider, LocalBlockProvider,
         },
         guest_file::{
-            count_dir_contents, join_guest_component, GuestFileInjector, DRIVER_GUEST_FILE,
+            join_guest_component, scan_dir, GuestFileInjector, ScannedDir, DRIVER_GUEST_FILE,
         },
         mount::{get_mount_info, is_bind, is_bind_shm, is_overlay},
     },
@@ -64,22 +68,42 @@ where
         m: &Mount,
         is_rootfs_mount: bool,
     ) -> Result<()> {
-        if let Some(idx) = self.storages.find_reusable_index(m, is_rootfs_mount) {
-            // Refuse to share storage with a container that belonged to a prior sandbox
-            // incarnation.  After snapshot restore, orphan containers are no longer running
-            // in the guest; letting a new container reuse their storage could leak data.
-            if let Some(orphan_id) = self.storages[idx]
-                .ref_container
-                .keys()
-                .find(|id| self.orphan_container_ids.contains(*id))
-                .cloned()
-            {
-                return Err(Error::InvalidArgument(format!(
-                    "refusing to co-run container {} with orphan container {} on storage {}",
-                    container_id, orphan_id, self.storages[idx].id
-                )));
+        // Orphan detection: find if a reusable storage exists and whether it is
+        // referenced by an orphan container from a prior WarmFork restore.  We do
+        // this with an immutable scan first to avoid borrow conflicts with the
+        // mutable storage ref below.
+        let orphan_match: Option<(String, String)> = if !self.orphan_container_ids.is_empty() {
+            self.find_orphan_for_mount(m, is_rootfs_mount)
+        } else {
+            None
+        };
+
+        if let Some((orphan_id, _storage_id)) = orphan_match {
+            match self.call_adopt_container(&orphan_id, container_id).await {
+                Ok(()) => {
+                    // Adoption succeeded: transfer storage ownership and remove from orphan list.
+                    if let Some(storage) = self.find_reusable_storage(m, is_rootfs_mount) {
+                        storage.defer(&orphan_id);
+                        storage.refer(container_id);
+                    }
+                    self.orphan_container_ids.retain(|id| *id != orphan_id);
+                    return Ok(());
+                }
+                Err(e) => {
+                    return Err(anyhow!(
+                        "attach_storage: adopt_container '{}' -> '{}' failed ({}); \
+                         refusing to co-run restored orphan with a new container",
+                        orphan_id,
+                        container_id,
+                        e
+                    )
+                    .into());
+                }
             }
-            self.storages[idx].refer(container_id);
+        }
+
+        if let Some(storage) = self.find_reusable_storage(m, is_rootfs_mount) {
+            storage.refer(container_id);
             return Ok(());
         }
 
@@ -128,6 +152,25 @@ where
         Ok(())
     }
 
+    /// Call the in-guest SandboxService's AdoptContainer RPC so the task service
+    /// renames the orphan container (`old_id`) to `new_id`.  This must be called
+    /// before containerd sends `Create(new_id)` to avoid spawning a duplicate process.
+    async fn call_adopt_container(&self, old_id: &str, new_id: &str) -> Result<()> {
+        let client_guard = self.client.lock().await;
+        let client = client_guard
+            .as_ref()
+            .ok_or_else(|| anyhow!("call_adopt_container: no sandbox client available"))?;
+        let mut req = AdoptContainerRequest::new();
+        req.old_id = old_id.to_string();
+        req.new_id = new_id.to_string();
+        let timeout_ns = Duration::from_secs(10).as_nanos() as i64;
+        client
+            .adopt_container(with_timeout(timeout_ns), &req)
+            .await
+            .map_err(|e| anyhow!("AdoptContainer RPC failed: {}", e))?;
+        Ok(())
+    }
+
     pub async fn deference_storage(&mut self, container_id: &str, m: &Mount) -> Result<()> {
         if let Some(s) = self
             .storages
@@ -140,7 +183,15 @@ where
         Ok(())
     }
 
-    #[allow(dead_code)]
+    fn find_orphan_for_mount(&self, m: &Mount, is_rootfs_mount: bool) -> Option<(String, String)> {
+        device_graph::find_orphan_for_mount(
+            &self.storages,
+            &self.orphan_container_ids,
+            m,
+            is_rootfs_mount,
+        )
+    }
+
     fn find_reusable_storage(&mut self, m: &Mount, is_rootfs_mount: bool) -> Option<&mut Storage> {
         let index = self.storages.find_reusable_index(m, is_rootfs_mount)?;
         self.storages.get_mut(index)
@@ -440,7 +491,11 @@ where
         }
 
         // Steps 2-4: create block image and copy overlay content into it.
+        // Shared mode + reflink_supported uses XFS with reflink=1 for COW efficiency.
+        // Shared mode without reflink or Exclusive mode uses ext4 (default).
         let img_path = format!("{}/{}.img", self.base_dir, storage_id);
+        let use_xfs = self.lease_mode == Some(crate::sandbox::TemplateLeaseMode::Shared)
+            && self.reflink_supported == Some(true);
         let provider = LocalBlockProvider;
         let lower_dirs = extract_lower_dirs(&m.options);
         let source_identity = lower_dirs.clone().map(|lower| format!("overlay:{}", lower));
@@ -449,7 +504,7 @@ where
             .prepare(BlockPrepareRequest {
                 src_dir: overlay_dir.clone(),
                 img_path: img_path.clone(),
-                fstype: BlockFs::Ext4,
+                fstype: if use_xfs { BlockFs::Xfs } else { BlockFs::Ext4 },
                 fallback_size_mb: self.vm.overlay_image_fallback_size_mb(),
                 overhead_percent: self.vm.block_image_size_overhead_percent(),
                 source_identity,
@@ -569,10 +624,10 @@ where
             storage.refer(container_id);
             self.storages.push(storage);
         } else if meta.is_dir() {
-            // Directory: check size to choose between file injection and ext4 block device
-            let (file_count, total_bytes) = count_dir_contents(&source).await?;
-            if file_count <= self.vm.small_dir_max_files()
-                && total_bytes <= self.vm.small_dir_max_bytes()
+            // Directory: scan once to get stats and pre-collect entries for injection.
+            let scan = scan_dir(&source).await?;
+            if scan.file_count <= self.vm.small_dir_max_files()
+                && scan.total_bytes <= self.vm.small_dir_max_bytes()
             {
                 if is_rootfs_mount {
                     return Err(Error::InvalidArgument(format!(
@@ -582,8 +637,15 @@ where
                 }
                 // Small directory: inject each file via TTRPC (avoids creating an 8MB+ block device)
                 let dest_dir_in_guest = join_guest_component(KUASAR_STATE_DIR, storage_id)?;
-                self.inject_small_dir(storage_id, container_id, &source, &dest_dir_in_guest, m)
-                    .await?;
+                self.inject_small_dir(
+                    storage_id,
+                    container_id,
+                    &source,
+                    scan,
+                    &dest_dir_in_guest,
+                    m,
+                )
+                .await?;
             } else {
                 if !self.vm.allow_bind_snapshot() {
                     return Err(Error::InvalidArgument(format!(
@@ -592,13 +654,16 @@ where
                     )));
                 }
                 // Large directory (HostPath volumes etc.): block image hot-attached as virtio-blk.
+                // Shared mode + reflink_supported uses XFS with reflink=1; otherwise uses ext4.
                 let img_path = format!("{}/{}.img", self.base_dir, storage_id);
+                let use_xfs = self.lease_mode == Some(crate::sandbox::TemplateLeaseMode::Shared)
+                    && self.reflink_supported == Some(true);
                 let provider = LocalBlockProvider;
                 let artifact = provider
                     .prepare(BlockPrepareRequest {
                         src_dir: source.clone(),
                         img_path: img_path.clone(),
-                        fstype: BlockFs::Ext4,
+                        fstype: if use_xfs { BlockFs::Xfs } else { BlockFs::Ext4 },
                         fallback_size_mb: self.vm.bind_image_fallback_size_mb(),
                         overhead_percent: self.vm.block_image_size_overhead_percent(),
                         source_identity: Some(format!("bind:{}", source)),
@@ -637,16 +702,16 @@ where
     }
 
     // Inject a small directory's files into the guest one by one via TTRPC.
-    // Creates a directory at dest_dir_in_guest and pushes each file with its permissions.
+    // Takes a pre-scanned ScannedDir to avoid re-traversing the host directory.
     async fn inject_small_dir(
         &mut self,
         storage_id: &str,
         container_id: &str,
         src_dir: &str,
+        scan: ScannedDir,
         dest_dir_in_guest: &str,
         m: &Mount,
     ) -> Result<()> {
-        // Create the destination dir in guest (dest_dir_in_guest is internally generated — safe)
         let client_guard = self.client.lock().await;
         let client = client_guard.as_ref().ok_or_else(|| {
             anyhow!(
@@ -655,7 +720,7 @@ where
             )
         })?;
         GuestFileInjector::new(client)
-            .inject_dir(src_dir, dest_dir_in_guest)
+            .inject_from_scan(dest_dir_in_guest, &scan)
             .await?;
 
         let read_only = m.options.contains(&"ro".to_string());
@@ -713,8 +778,7 @@ mod tests {
         block_provider::{BlockArtifact, LocalBlockProvider},
         device_graph::DeviceGraph,
         guest_file::{
-            count_dir_contents, join_guest_component, join_guest_path, shell_quote,
-            validate_guest_path,
+            join_guest_component, join_guest_path, scan_dir, shell_quote, validate_guest_path,
         },
     };
     use crate::{device::DeviceInfo, sandbox::KuasarSandbox, vm::VM};
@@ -879,7 +943,12 @@ mod tests {
             client: Default::default(),
             exit_signal: Default::default(),
             sandbox_cgroups: Default::default(),
+            template_id: None,
+            template_snapshot_type: None,
+            lease_mode: None,
+            reflink_supported: None,
             orphan_container_ids: vec![],
+            memory_restore_mode: None,
         };
 
         // Rootfs mounts skip is_for_mount but still need lower_dirs to match for reuse.
@@ -979,17 +1048,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_count_dir_contents_empty() {
+    async fn test_scan_dir_empty() {
         let dir = TempDir::new().unwrap();
-        let (count, bytes) = count_dir_contents(dir.path().to_str().unwrap())
-            .await
-            .unwrap();
-        assert_eq!(count, 0);
-        assert_eq!(bytes, 0);
+        let scan = scan_dir(dir.path().to_str().unwrap()).await.unwrap();
+        assert_eq!(scan.file_count, 0);
+        assert_eq!(scan.total_bytes, 0);
     }
 
     #[tokio::test]
-    async fn test_count_dir_contents_with_files() {
+    async fn test_scan_dir_with_files() {
         let dir = TempDir::new().unwrap();
         tokio::fs::write(dir.path().join("a.txt"), b"hello")
             .await
@@ -1001,31 +1068,27 @@ mod tests {
         tokio::fs::create_dir(&sub).await.unwrap();
         tokio::fs::write(sub.join("c.txt"), b"123").await.unwrap();
 
-        let (count, bytes) = count_dir_contents(dir.path().to_str().unwrap())
-            .await
-            .unwrap();
-        assert_eq!(count, 3);
-        assert_eq!(bytes, 5 + 6 + 3);
+        let scan = scan_dir(dir.path().to_str().unwrap()).await.unwrap();
+        assert_eq!(scan.file_count, 3);
+        assert_eq!(scan.total_bytes, 5 + 6 + 3);
     }
 
     #[tokio::test]
-    async fn test_count_dir_contents_counts_symlink_as_entry() {
+    async fn test_scan_dir_counts_symlink_as_entry() {
         let dir = TempDir::new().unwrap();
         let target = dir.path().join("target.txt");
         tokio::fs::write(&target, b"hello").await.unwrap();
         symlink(&target, dir.path().join("link.txt")).unwrap();
 
-        // Symlinks are counted as entries but contribute 0 bytes.
-        // Rejection happens later: inject_dir for guest-file paths, rsync for block images.
-        let (count, bytes) = count_dir_contents(dir.path().to_str().unwrap())
-            .await
-            .unwrap();
-        assert_eq!(count, 2); // target.txt + link.txt
-        assert_eq!(bytes, 5); // only target.txt's bytes
+        // Symlinks are counted toward the threshold but contribute 0 bytes.
+        // inject_from_scan rejects them at injection time.
+        let scan = scan_dir(dir.path().to_str().unwrap()).await.unwrap();
+        assert_eq!(scan.file_count, 2); // target.txt + link.txt
+        assert_eq!(scan.total_bytes, 5); // only target.txt's bytes
     }
 
     #[tokio::test]
-    async fn test_count_dir_contents_rejects_special_files() {
+    async fn test_scan_dir_rejects_special_files() {
         let dir = TempDir::new().unwrap();
         let fifo_path = dir.path().join("test.fifo");
         // Create a named pipe (FIFO) — a special file unsupported by virtio-blk
@@ -1035,9 +1098,7 @@ mod tests {
             .expect("mkfifo must be available");
         assert!(status.success(), "mkfifo failed");
 
-        let err = count_dir_contents(dir.path().to_str().unwrap())
-            .await
-            .unwrap_err();
+        let err = scan_dir(dir.path().to_str().unwrap()).await.unwrap_err();
         assert!(
             err.to_string().contains("not supported by virtio-blk"),
             "expected virtio-blk rejection, got: {}",
@@ -1060,7 +1121,12 @@ mod tests {
             client: Default::default(),
             exit_signal: Default::default(),
             sandbox_cgroups: Default::default(),
+            template_id: None,
+            template_snapshot_type: None,
+            lease_mode: None,
+            reflink_supported: None,
             orphan_container_ids: vec![],
+            memory_restore_mode: None,
         };
 
         let storage = Storage {
@@ -1105,7 +1171,12 @@ mod tests {
             client: Default::default(),
             exit_signal: Default::default(),
             sandbox_cgroups: Default::default(),
+            template_id: None,
+            template_snapshot_type: None,
+            lease_mode: None,
+            reflink_supported: None,
             orphan_container_ids: vec![],
+            memory_restore_mode: None,
         };
 
         let storage = Storage {
@@ -1171,7 +1242,12 @@ mod tests {
             client: Default::default(),
             exit_signal: Default::default(),
             sandbox_cgroups: Default::default(),
+            template_id: None,
+            template_snapshot_type: None,
+            lease_mode: None,
+            reflink_supported: None,
             orphan_container_ids: vec!["old-container".to_string()],
+            memory_restore_mode: None,
         };
 
         let err = sandbox
@@ -1203,7 +1279,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_small_dir_threshold_logic() {
-        // Test that small directories are identified correctly
         let small_dir = TempDir::new().unwrap();
         tokio::fs::write(small_dir.path().join("a.txt"), b"hello")
             .await
@@ -1211,16 +1286,13 @@ mod tests {
         tokio::fs::write(small_dir.path().join("b.txt"), b"world")
             .await
             .unwrap();
-        let (count, bytes) = count_dir_contents(small_dir.path().to_str().unwrap())
-            .await
-            .unwrap();
-        assert!(count <= crate::vm::DEFAULT_SMALL_DIR_MAX_FILES);
-        assert!(bytes <= crate::vm::DEFAULT_SMALL_DIR_MAX_BYTES);
+        let scan = scan_dir(small_dir.path().to_str().unwrap()).await.unwrap();
+        assert!(scan.file_count <= crate::vm::DEFAULT_SMALL_DIR_MAX_FILES);
+        assert!(scan.total_bytes <= crate::vm::DEFAULT_SMALL_DIR_MAX_BYTES);
     }
 
     #[tokio::test]
     async fn test_large_dir_threshold_logic() {
-        // Test that large directories exceed threshold
         let large_dir = TempDir::new().unwrap();
         for i in 0..100 {
             tokio::fs::write(
@@ -1230,12 +1302,10 @@ mod tests {
             .await
             .unwrap();
         }
-        let (count, bytes) = count_dir_contents(large_dir.path().to_str().unwrap())
-            .await
-            .unwrap();
+        let scan = scan_dir(large_dir.path().to_str().unwrap()).await.unwrap();
         assert!(
-            count > crate::vm::DEFAULT_SMALL_DIR_MAX_FILES
-                || bytes > crate::vm::DEFAULT_SMALL_DIR_MAX_BYTES
+            scan.file_count > crate::vm::DEFAULT_SMALL_DIR_MAX_FILES
+                || scan.total_bytes > crate::vm::DEFAULT_SMALL_DIR_MAX_BYTES
         );
     }
 

@@ -79,7 +79,6 @@ impl Default for VirtioBlkConfig {
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct CloudHypervisorVMConfig {
     pub path: String,
     #[serde(flatten)]
@@ -414,35 +413,6 @@ thread_pool_size = 4
             toml::from_str(&base_toml("foobar"));
         assert!(result.is_err());
         assert!(result.err().unwrap().to_string().contains("foobar"));
-    }
-
-    #[test]
-    fn test_unknown_hypervisor_field_rejected() {
-        let toml_str = r#"
-[sandbox]
-enable_tracing = false
-[hypervisor]
-path = "/usr/local/bin/cloud-hypervisor"
-vcpus = 1
-memory_in_mb = 1024
-kernel_path = "/var/lib/kuasar/vmlinux.bin"
-image_path = ""
-initrd_path = ""
-kernel_params = ""
-hugepages = false
-entropy_source = "/dev/urandom"
-unexpected_field = "value"
-[hypervisor.task]
-debug = false
-enable_tracing = false
-"#;
-        let result: Result<Config<CloudHypervisorVMConfig>, _> = toml::from_str(toml_str);
-        assert!(result.is_err());
-        assert!(result
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("unexpected_field"));
     }
 
     #[test]

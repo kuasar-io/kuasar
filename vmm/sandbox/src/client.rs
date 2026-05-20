@@ -48,7 +48,7 @@ use ttrpc::{
     r#async::{Client, TtrpcContext},
 };
 use vmm_common::api::{
-    sandbox::{CheckRequest, SetupSandboxRequest, SyncClockPacket},
+    sandbox::{CheckRequest, ReseedEntropyRequest, SetupSandboxRequest, SyncClockPacket},
     sandbox_ttrpc::SandboxServiceClient,
 };
 
@@ -267,6 +267,19 @@ pub fn unix_sock(r#abstract: bool, socket_path: &str) -> Result<UnixAddr> {
     }
     .map_err(|e| anyhow!("failed to new socket: {}", e))?;
     Ok(sockaddr_u)
+}
+
+pub(crate) async fn client_reseed_entropy(
+    client: &SandboxServiceClient,
+    seed: &[u8],
+) -> Result<()> {
+    let mut req = ReseedEntropyRequest::new();
+    req.seed = seed.to_vec();
+    client
+        .reseed_entropy(with_timeout(Duration::from_secs(5).as_nanos() as i64), &req)
+        .await
+        .map_err(|e| anyhow!("failed to reseed guest entropy: {}", e))?;
+    Ok(())
 }
 
 pub(crate) async fn client_check(client: &SandboxServiceClient, t_secs: u64) -> Result<()> {

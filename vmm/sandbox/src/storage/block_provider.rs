@@ -29,7 +29,6 @@ const MIN_EXT4_INODES: u64 = 1024;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BlockFs {
     Ext4,
-    #[allow(dead_code)]
     Xfs,
 }
 
@@ -351,7 +350,9 @@ async fn copy_dir_to_loop_image(src_dir: &str, img_path: &str, fstype: &str) -> 
         warn!("umount {} failed, trying force detach", mnt_dir);
         let _ = unmount(&mnt_dir, MNT_DETACH | MNT_NOFOLLOW);
     }
-    let _ = tokio::fs::remove_dir_all(&mnt_dir).await;
+    if let Err(e) = tokio::fs::remove_dir_all(&mnt_dir).await {
+        warn!("remove mnt dir {} failed: {}", mnt_dir, e);
+    }
 
     match rsync_status {
         Ok(s) if s.success() => Ok(()),

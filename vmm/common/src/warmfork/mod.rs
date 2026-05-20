@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kuasar Authors.
+Copyright 2026 The Kuasar Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,30 +13,5 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-#![warn(clippy::expect_fun_call, clippy::expect_used)]
 
-#[macro_use]
-mod device;
-
-mod cgroup;
-mod client;
-mod container;
-mod io;
-mod network;
-mod param;
-mod restore;
-mod storage;
-mod vm;
-pub mod warmfork;
-
-pub mod args;
-pub mod cloud_hypervisor;
-pub mod config;
-pub mod kata_config;
-pub mod qemu;
-pub mod sandbox;
-pub mod service;
-pub mod stratovirt;
-pub mod template;
-pub mod utils;
-pub mod version;
+pub mod message;

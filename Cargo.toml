@@ -3,6 +3,7 @@ members = [
     "vmm/task",
     "vmm/sandbox",
     "vmm/common",
+    "vmm/client",
     "runc",
     "quark",
     "wasm",

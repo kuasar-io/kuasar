@@ -16,7 +16,7 @@ limitations under the License.
 
 use std::{
     os::unix::fs::PermissionsExt,
-    path::{Component, Path},
+    path::{Component, Path, PathBuf},
     time::Duration,
 };
 
@@ -28,6 +28,18 @@ use vmm_common::api::{sandbox::ExecVMProcessRequest, sandbox_ttrpc::SandboxServi
 pub(crate) const DRIVER_GUEST_FILE: &str = "guest-file";
 
 const GUEST_EXEC_TIMEOUT_SECS: u64 = 10;
+
+/// Pre-scanned directory contents for size-threshold checking and guest-file injection.
+/// Created by `scan_dir`; passed to `GuestFileInjector::inject_from_scan` to avoid a
+/// second directory traversal when the directory is small enough for file injection.
+#[derive(Debug)]
+pub(crate) struct ScannedDir {
+    pub(crate) file_count: usize,
+    pub(crate) total_bytes: u64,
+    dirs: Vec<(PathBuf, PathBuf)>,       // (host_path, rel_path)
+    files: Vec<(PathBuf, PathBuf, u32)>, // (host_path, rel_path, mode)
+    symlinks: Vec<PathBuf>,
+}
 
 pub(crate) struct GuestFileInjector<'a> {
     client: &'a SandboxServiceClient,
@@ -70,55 +82,27 @@ impl<'a> GuestFileInjector<'a> {
             .map_err(|e| anyhow!("push file to guest at {}: {}", dest_path, e).into())
     }
 
-    pub(crate) async fn inject_dir(&self, src_dir: &str, dest_dir: &str) -> Result<()> {
-        self.ensure_dir(dest_dir).await?;
-
-        let mut stack = vec![src_dir.to_string()];
-        while let Some(dir) = stack.pop() {
-            let mut entries = tokio::fs::read_dir(&dir)
-                .await
-                .map_err(|e| anyhow!("read dir {}: {}", dir, e))?;
-            while let Some(entry) = entries
-                .next_entry()
-                .await
-                .map_err(|e| anyhow!("read entry in {}: {}", dir, e))?
-            {
-                let path = entry.path();
-                let rel = path
-                    .strip_prefix(src_dir)
-                    .map_err(|e| anyhow!("strip prefix {}: {}", path.display(), e))?;
-                let guest_path = join_guest_path(dest_dir, rel)?;
-                let ft = entry
-                    .file_type()
-                    .await
-                    .map_err(|e| anyhow!("file_type {}: {}", path.display(), e))?;
-                if ft.is_dir() {
-                    self.ensure_dir(&guest_path).await?;
-                    stack.push(path.to_string_lossy().to_string());
-                } else if ft.is_file() {
-                    let meta = entry
-                        .metadata()
-                        .await
-                        .map_err(|e| anyhow!("metadata {}: {}", path.display(), e))?;
-                    let mode = meta.permissions().mode() & 0o777;
-                    let content = tokio::fs::read(&path)
-                        .await
-                        .map_err(|e| anyhow!("read {}: {}", path.display(), e))?;
-                    self.push_file(&guest_path, content, mode).await?;
-                } else if ft.is_symlink() {
-                    return Err(Error::InvalidArgument(format!(
-                        "symlink {} is not supported by virtio-blk guest-file injection",
-                        path.display()
-                    )));
-                } else {
-                    return Err(Error::InvalidArgument(format!(
-                        "special file {} is not supported by virtio-blk guest-file injection",
-                        path.display()
-                    )));
-                }
-            }
+    /// Inject pre-scanned directory contents into the guest, reusing the entries
+    /// collected by `scan_dir` to avoid re-traversing the host directory.
+    pub(crate) async fn inject_from_scan(&self, dest_dir: &str, scan: &ScannedDir) -> Result<()> {
+        if let Some(symlink) = scan.symlinks.first() {
+            return Err(Error::InvalidArgument(format!(
+                "symlink {} is not supported by virtio-blk guest-file injection",
+                symlink.display()
+            )));
         }
-
+        self.ensure_dir(dest_dir).await?;
+        for (_, rel) in &scan.dirs {
+            let guest_path = join_guest_path(dest_dir, rel.as_path())?;
+            self.ensure_dir(&guest_path).await?;
+        }
+        for (host_path, rel, mode) in &scan.files {
+            let guest_path = join_guest_path(dest_dir, rel.as_path())?;
+            let content = tokio::fs::read(host_path)
+                .await
+                .map_err(|e| anyhow!("read {}: {}", host_path.display(), e))?;
+            self.push_file(&guest_path, content, *mode).await?;
+        }
         Ok(())
     }
 
@@ -141,43 +125,60 @@ impl<'a> GuestFileInjector<'a> {
     }
 }
 
-// Count entries and total regular-file bytes in a directory tree using iterative DFS.
-//
-// Symlinks are counted as entries (size 0) so that a directory containing symlinks
-// is measured correctly for the small-dir threshold.  The actual guest-file injection
-// path (inject_dir) rejects symlinks explicitly; the block-image path (rsync -aHAX)
-// handles them transparently.  Special files (device nodes, FIFOs, sockets) are still
-// rejected here because no delivery path supports them.
-pub(crate) async fn count_dir_contents(dir: &str) -> Result<(usize, u64)> {
-    let mut count = 0usize;
-    let mut total = 0u64;
-    let mut stack = vec![dir.to_string()];
-    while let Some(d) = stack.pop() {
-        let mut entries = tokio::fs::read_dir(&d)
+/// Scan a directory tree once, collecting both the size/count stats needed for the
+/// small-vs-large threshold decision and the entry list needed for injection.
+/// Passing the result to `GuestFileInjector::inject_from_scan` avoids a second traversal.
+pub(crate) async fn scan_dir(dir: &str) -> Result<ScannedDir> {
+    let root = PathBuf::from(dir);
+    let mut file_count = 0usize;
+    let mut total_bytes = 0u64;
+    let mut dirs: Vec<(PathBuf, PathBuf)> = Vec::new();
+    let mut files: Vec<(PathBuf, PathBuf, u32)> = Vec::new();
+    let mut symlinks: Vec<PathBuf> = Vec::new();
+    let mut stack = vec![root.clone()];
+    while let Some(current) = stack.pop() {
+        let mut read_dir = tokio::fs::read_dir(&current)
             .await
-            .map_err(|e| anyhow!("read_dir {}: {}", d, e))?;
-        while let Some(entry) = entries.next_entry().await.map_err(|e| anyhow!("{}", e))? {
+            .map_err(|e| anyhow!("read_dir {}: {}", current.display(), e))?;
+        while let Some(entry) = read_dir
+            .next_entry()
+            .await
+            .map_err(|e| anyhow!("read entry in {}: {}", current.display(), e))?
+        {
+            let path = entry.path();
+            let rel = path
+                .strip_prefix(&root)
+                .map_err(|e| anyhow!("strip prefix {}: {}", path.display(), e))?
+                .to_path_buf();
             let ft = entry.file_type().await.map_err(|e| anyhow!("{}", e))?;
             if ft.is_dir() {
-                stack.push(entry.path().to_string_lossy().to_string());
+                dirs.push((path.clone(), rel));
+                stack.push(path);
             } else if ft.is_file() {
                 let meta = entry.metadata().await.map_err(|e| anyhow!("{}", e))?;
-                count += 1;
-                total += meta.len();
+                let mode = meta.permissions().mode() & 0o777;
+                file_count += 1;
+                total_bytes += meta.len();
+                files.push((path, rel, mode));
             } else if ft.is_symlink() {
-                // Counted as one entry with zero byte contribution to the size total.
-                // Delivery-path rejection happens later (inject_dir for guest-file,
-                // rsync for block images).
-                count += 1;
+                // Counted toward threshold; rejected at inject time.
+                file_count += 1;
+                symlinks.push(path);
             } else {
                 return Err(Error::InvalidArgument(format!(
                     "special file {} is not supported by virtio-blk bind snapshot",
-                    entry.path().display()
+                    path.display()
                 )));
             }
         }
     }
-    Ok((count, total))
+    Ok(ScannedDir {
+        file_count,
+        total_bytes,
+        dirs,
+        files,
+        symlinks,
+    })
 }
 
 // Wrap a path in single quotes and escape any embedded single quotes.

@@ -442,10 +442,11 @@ async fn mount_static_mounts(mounts: Vec<StaticMount>) -> Result<()> {
 // bind to vsock 1024 port.
 async fn create_ttrpc_server() -> anyhow::Result<Server> {
     let (tx, rx) = channel(128);
-    let task = create_task_service(tx).await?;
+    let (task, sandbox_resources) = create_task_service(tx).await?;
+    let containers = task.containers.clone();
     let task_service = create_task(Arc::new(Box::new(task)));
 
-    let sandbox = SandboxService::new(rx)?;
+    let sandbox = SandboxService::new(rx, containers, sandbox_resources)?;
     sandbox.handle_localhost().await?;
     let sandbox_service = create_sandbox_service(Arc::new(Box::new(sandbox)));
 
