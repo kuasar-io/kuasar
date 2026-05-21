@@ -130,10 +130,12 @@ fn merge_resources(
     // 2. merge hugepage limits, sum the limit for those with same page size
     let mut hugepage_limits = resource1.hugepage_limits.clone();
     for h2 in &resource2.hugepage_limits {
-        let found = false;
+        let mut found = false;
         for l in &mut hugepage_limits {
             if l.page_size == h2.page_size {
                 l.limit += h2.limit;
+                found = true;
+                break;
             }
         }
         if !found {
@@ -538,9 +540,12 @@ pub fn start_watchdog() {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use containerd_sandbox::cri::api::v1::{HugepageLimit, LinuxContainerResources};
     use temp_dir::TempDir;
 
-    use super::{merge_cpusets, write_file_atomic};
+    use super::{merge_cpusets, merge_resources, write_file_atomic};
 
     #[test]
     fn test_merge_cpusets_empty_second() {
@@ -570,6 +575,34 @@ mod tests {
         assert_eq!(merge_cpusets("0", "1").unwrap(), "0,1");
         // Overlapping ranges are merged.
         assert_eq!(merge_cpusets("0-3", "2-5").unwrap(), "0-5");
+    }
+
+    #[test]
+    fn test_merge_resources_sums_matching_hugepage_limits() {
+        let mut resource1 = LinuxContainerResources {
+            hugepage_limits: vec![HugepageLimit {
+                page_size: "2MB".to_string(),
+                limit: 1024,
+            }],
+            unified: HashMap::new(),
+            ..Default::default()
+        };
+        resource1.cpu_period = 100000;
+
+        let resource2 = LinuxContainerResources {
+            hugepage_limits: vec![HugepageLimit {
+                page_size: "2MB".to_string(),
+                limit: 2048,
+            }],
+            unified: HashMap::new(),
+            ..Default::default()
+        };
+
+        let merged = merge_resources(&resource1, &resource2);
+
+        assert_eq!(merged.hugepage_limits.len(), 1);
+        assert_eq!(merged.hugepage_limits[0].page_size, "2MB");
+        assert_eq!(merged.hugepage_limits[0].limit, 3072);
     }
 
     #[tokio::test]
