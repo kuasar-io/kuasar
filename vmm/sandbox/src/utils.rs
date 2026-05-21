@@ -249,6 +249,9 @@ fn cpuset_intersect(cpuset1: (u32, u32), cpuset2: (u32, u32)) -> bool {
 }
 
 fn cpuset_parts(cpuset: &str) -> Result<Vec<(u32, u32)>> {
+    if cpuset.trim().is_empty() {
+        return Ok(vec![]);
+    }
     let mut cpuset1_parts = vec![];
     let c1 = cpuset.split(',');
     for ps in c1 {
@@ -537,7 +540,37 @@ pub fn start_watchdog() {
 mod tests {
     use temp_dir::TempDir;
 
-    use super::write_file_atomic;
+    use super::{merge_cpusets, write_file_atomic};
+
+    #[test]
+    fn test_merge_cpusets_empty_second() {
+        // Empty second operand means "no affinity"; result should be the first.
+        assert_eq!(merge_cpusets("0", "").unwrap(), "0");
+        assert_eq!(merge_cpusets("0-3", "").unwrap(), "0-3");
+        assert_eq!(merge_cpusets("0,2,4", "").unwrap(), "0,2,4");
+    }
+
+    #[test]
+    fn test_merge_cpusets_empty_first() {
+        // Empty first operand; result should be the second.
+        assert_eq!(merge_cpusets("", "0").unwrap(), "0");
+        assert_eq!(merge_cpusets("", "0-3").unwrap(), "0-3");
+    }
+
+    #[test]
+    fn test_merge_cpusets_both_empty() {
+        // Both empty; result should be empty.
+        assert_eq!(merge_cpusets("", "").unwrap(), "");
+    }
+
+    #[test]
+    fn test_merge_cpusets_non_empty() {
+        // Sanity-check: existing behaviour for non-empty inputs is unchanged.
+        // Non-overlapping single CPUs stay separate.
+        assert_eq!(merge_cpusets("0", "1").unwrap(), "0,1");
+        // Overlapping ranges are merged.
+        assert_eq!(merge_cpusets("0-3", "2-5").unwrap(), "0-5");
+    }
 
     #[tokio::test]
     async fn test_write_file_atomic_retries_when_stale_temp_exists() {
