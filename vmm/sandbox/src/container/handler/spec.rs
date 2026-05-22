@@ -98,7 +98,7 @@ where
 
         // In virtio-blk mode there is no shared filesystem between host and guest.
         // Push config.json directly into the VM via exec_vm_process.
-        if sandbox.vm.container_storage_backend() == VIRTIO_BLK {
+        if sandbox.storage_policy.storage_backend == VIRTIO_BLK {
             let client_guard = sandbox.client.lock().await;
             let client = client_guard.as_ref().ok_or_else(|| {
                 anyhow!(

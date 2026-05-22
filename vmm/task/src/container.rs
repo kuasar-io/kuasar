@@ -62,7 +62,7 @@ use crate::{
     device::rescan_pci_bus,
     io::{convert_stdio, copy_io_or_console, create_io},
     sandbox::SandboxResources,
-    util::{read_io, read_std, read_storages, PidMonitorGuard},
+    util::{read_io, read_std, read_storages, verify_orphan_alive, PidMonitorGuard},
 };
 
 pub const INIT_PID_FILE: &str = "init.pid";
@@ -163,28 +163,12 @@ impl ContainerFactory<KuasarContainer> for KuasarFactory {
         // of spawning a new runc process (which would run alongside the orphan).
         if let Some(adoption) = self.sandbox.lock().await.take_adoption(id) {
             info!(
-                "create {}: adopting orphan runc_id='{}' pid={}",
-                id, adoption.orphan_runc_id, adoption.orphan_pid
+                "create {}: adopting orphan container_id='{}' pid={}",
+                id, adoption.orphan_container_id, adoption.orphan_pid
             );
 
-            // Verify the orphan process is still alive before completing adoption.
-            // If it has exited since snapshot time, returning a RUNNING container with
-            // a dead PID would allow a new container to co-run alongside ghost state.
-            let proc_alive = std::path::Path::new("/proc")
-                .join(adoption.orphan_pid.to_string())
-                .exists();
-            if !proc_alive {
-                return Err(other!(
-                    "create {}: Resume adoption failed — orphan pid {} (runc_id '{}') \
-                     is no longer alive; sandbox must be restarted in Clone mode or \
-                     recreated from a fresh snapshot",
-                    id,
-                    adoption.orphan_pid,
-                    adoption.orphan_runc_id
-                ));
-            }
-
-            let orphan_runc_id = adoption.orphan_runc_id;
+            let orphan_container_id = adoption.orphan_container_id;
+            verify_orphan_alive(id, adoption.orphan_pid, &orphan_container_id)?;
             let mut init = InitProcess::new(
                 id,
                 Stdio::default(),
@@ -192,7 +176,7 @@ impl ContainerFactory<KuasarContainer> for KuasarFactory {
                     runc.clone(),
                     opts.clone(),
                     &bundle,
-                    orphan_runc_id.clone(),
+                    orphan_container_id.clone(),
                 ),
             );
             init.pid = adoption.orphan_pid;
@@ -206,7 +190,7 @@ impl ContainerFactory<KuasarContainer> for KuasarFactory {
                     bundle: bundle.to_string(),
                     io_uid: opts.io_uid,
                     io_gid: opts.io_gid,
-                    adopted_runc_id: Some(orphan_runc_id),
+                    adopted_runc_id: Some(orphan_container_id),
                 },
                 processes: Default::default(),
             });
@@ -547,10 +531,15 @@ impl KuasarInitLifecycle {
     }
 
     /// Build a lifecycle for a container adopted from a Resume-mode orphan.
-    /// All runc operations will use `orphan_runc_id` as the container ID.
-    pub fn new_adopted(runtime: Runc, opts: Options, bundle: &str, orphan_runc_id: String) -> Self {
+    /// All runc operations will use `orphan_container_id` as the container ID.
+    pub fn new_adopted(
+        runtime: Runc,
+        opts: Options,
+        bundle: &str,
+        orphan_container_id: String,
+    ) -> Self {
         let mut lc = Self::new(runtime, opts, bundle);
-        lc.adopted_runc_id = Some(orphan_runc_id);
+        lc.adopted_runc_id = Some(orphan_container_id);
         lc
     }
 }

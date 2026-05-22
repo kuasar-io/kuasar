@@ -78,12 +78,12 @@ use crate::{
     },
     utils::{get_dns_config, get_hostname, get_resources, get_sandbox_cgroup_parent_path},
     vm::{
-        DiskImageEntry, Hooks, Recoverable, RestoreSource, SnapshotMeta, SnapshotPathOverrides,
-        Snapshottable, VMFactory, WarmForkParams, WarmForkTarget, ANNOTATION_WARM_FORK_CONTAINERS,
-        ANNOTATION_WARM_FORK_DEFAULT_READINESS_SOCKET, ANNOTATION_WARM_FORK_ENV_PREFIX,
-        ANNOTATION_WARM_FORK_READINESS_SOCKET, ANNOTATION_WARM_FORK_READY_PROTOCOL,
-        ANNOTATION_WARM_FORK_TASK_CONTEXT, ANNOTATION_WARM_FORK_TASK_ID, VIRTIO_BLK, VM,
-        WARM_FORK_PROTOCOL_V1,
+        ContainerStoragePolicy, DiskImageEntry, Hooks, Recoverable, RestoreSource, SnapshotMeta,
+        SnapshotPathOverrides, Snapshottable, VMFactory, WarmForkParams, WarmForkTarget,
+        ANNOTATION_WARM_FORK_CONTAINERS, ANNOTATION_WARM_FORK_DEFAULT_READINESS_SOCKET,
+        ANNOTATION_WARM_FORK_ENV_PREFIX, ANNOTATION_WARM_FORK_READINESS_SOCKET,
+        ANNOTATION_WARM_FORK_READY_PROTOCOL, ANNOTATION_WARM_FORK_TASK_CONTEXT,
+        ANNOTATION_WARM_FORK_TASK_ID, VIRTIO_BLK, VM, WARM_FORK_PROTOCOL_V1,
     },
 };
 
@@ -125,8 +125,8 @@ where
 
     fn apply_pool_settings(&self, sandbox: &mut KuasarSandbox<F::VM>) {
         if let Some(pool) = &self.template_pool {
-            sandbox.lease_mode = Some(pool.lease_mode.clone());
-            sandbox.reflink_supported = Some(pool.reflink_supported);
+            sandbox.restore.lease_mode = Some(pool.lease_mode.clone());
+            sandbox.restore.reflink_supported = Some(pool.reflink_supported);
         }
     }
 
@@ -223,7 +223,7 @@ where
             self.factory.vcpus(),
             self.factory.memory_mb(),
             self.factory.kernel_params(),
-            self.factory.storage_backend(),
+            &self.factory.storage_policy().storage_backend,
         )
     }
 
@@ -348,19 +348,19 @@ where
                 let mut pinned_ids = Vec::new();
                 for sb_mutex in sbs.values() {
                     let sb = sb_mutex.lock().await;
-                    if let Some(tid) = &sb.template_id {
+                    if let Some(tid) = &sb.restore.template_id {
                         ids.insert(tid.clone());
                         if matches!(
-                            sb.template_snapshot_type.as_ref(),
+                            sb.restore.template_snapshot_type.as_ref(),
                             Some(SnapshotType::WarmFork)
-                        ) && sb.lease_mode == Some(TemplateLeaseMode::Shared)
+                        ) && sb.restore.lease_mode == Some(TemplateLeaseMode::Shared)
                         {
                             shared_ids.push(tid.clone());
                         } else if matches!(
-                            sb.template_snapshot_type.as_ref(),
+                            sb.restore.template_snapshot_type.as_ref(),
                             Some(SnapshotType::Environment)
                         ) && !matches!(
-                            sb.memory_restore_mode.as_ref(),
+                            sb.restore.memory_restore_mode.as_ref(),
                             Some(MemoryRestoreMode::Copy) | None
                         ) {
                             pinned_ids.push(tid.clone());
@@ -381,6 +381,25 @@ where
     }
 }
 
+/// Template restore metadata. All fields are `None`/empty for cold-started sandboxes;
+/// written once at restore time and read during GC accounting and cleanup.
+#[derive(Default, Serialize, Deserialize)]
+pub(crate) struct RestoreMetadata {
+    pub(crate) template_id: Option<String>,
+    /// SnapshotType of the template this sandbox was restored from.
+    pub(crate) template_snapshot_type: Option<SnapshotType>,
+    pub(crate) lease_mode: Option<TemplateLeaseMode>,
+    pub(crate) reflink_supported: Option<bool>,
+    /// Memory restore mode used when this sandbox was restored from a template.
+    /// Persisted so the sandboxer can rebuild in_use_count after restart for
+    /// Environment templates in non-Copy mode.
+    pub(crate) memory_restore_mode: Option<MemoryRestoreMode>,
+    /// Container IDs from the snapshot that may still have storage entries in the
+    /// restored sandbox. Sharing storage with an orphan is refused to prevent
+    /// cross-container data leaks after restore.
+    pub(crate) orphan_container_ids: Vec<String>,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct KuasarSandbox<V: VM> {
     pub(crate) vm: V,
@@ -399,26 +418,9 @@ pub struct KuasarSandbox<V: VM> {
     #[serde(default)]
     pub(crate) sandbox_cgroups: SandboxCgroup,
     #[serde(default)]
-    pub(crate) template_id: Option<String>,
-    /// The SnapshotType of the template this sandbox was restored from.
-    /// None for cold-started sandboxes.
+    pub(crate) storage_policy: ContainerStoragePolicy,
     #[serde(default)]
-    pub(crate) template_snapshot_type: Option<SnapshotType>,
-    #[serde(default)]
-    pub(crate) lease_mode: Option<TemplateLeaseMode>,
-    #[serde(default)]
-    pub(crate) reflink_supported: Option<bool>,
-    /// Memory restore mode used when this sandbox was restored from a template.
-    /// None for cold-started sandboxes. Persisted so the sandboxer can rebuild
-    /// in_use_count after restart for Environment templates in non-Copy mode.
-    #[serde(default)]
-    pub(crate) memory_restore_mode: Option<MemoryRestoreMode>,
-    /// Container IDs that were running when a snapshot was taken and have since been
-    /// removed from the guest, but whose storage entries may still be present in the
-    /// restored sandbox.  Sharing storage with an orphan is refused to prevent
-    /// cross-container data leaks after restore.
-    #[serde(default)]
-    pub(crate) orphan_container_ids: Vec<String>,
+    pub(crate) restore: RestoreMetadata,
 }
 
 /// Parsed snapshot-restore intent from a sandbox's pod annotations.
@@ -476,12 +478,8 @@ where
             client: Arc::new(Mutex::new(None)),
             exit_signal: Arc::new(ExitSignal::default()),
             sandbox_cgroups,
-            template_id: None,
-            template_snapshot_type: None,
-            lease_mode: None,
-            reflink_supported: None,
-            memory_restore_mode: None,
-            orphan_container_ids: vec![],
+            storage_policy: self.factory.storage_policy(),
+            restore: RestoreMetadata::default(),
         };
 
         // setup sandbox files: hosts, hostname and resolv.conf for guest
@@ -727,7 +725,7 @@ where
             let mut sb = sb_mutex.lock().await;
 
             // Capture before stop() so we can GC the template directory afterwards.
-            let consumed_template_id = sb.template_id.clone();
+            let consumed_template_id = sb.restore.template_id.clone();
 
             sb.stop(true).await?;
 
@@ -753,16 +751,16 @@ where
             // Continuation (Exclusive): calls cleanup_consumed to remove the template directory
             //   now that the VM has been stopped above.
             if let (Some(tid), Some(pool)) = (consumed_template_id, &self.template_pool) {
-                match sb.template_snapshot_type.as_ref() {
+                match sb.restore.template_snapshot_type.as_ref() {
                     Some(SnapshotType::Environment) => {
                         if !matches!(
-                            sb.memory_restore_mode.as_ref(),
+                            sb.restore.memory_restore_mode.as_ref(),
                             Some(MemoryRestoreMode::Copy) | None
                         ) {
                             pool.deref(&tid).await;
                         }
                     }
-                    Some(SnapshotType::WarmFork) => match sb.lease_mode {
+                    Some(SnapshotType::WarmFork) => match sb.restore.lease_mode {
                         Some(TemplateLeaseMode::Exclusive) => {
                             pool.cleanup_consumed(&tid).await;
                         }
@@ -872,11 +870,11 @@ where
         // SharedRef in_use_count, so non-Copy modes are safe there too.
         let memory_restore_mode = self.config.snapshot.default_memory_restore_mode.clone();
 
-        sandbox.template_id = params.template_id.clone();
-        sandbox.template_snapshot_type = Some(params.snapshot_type.clone());
-        sandbox.lease_mode = Some(params.lease_mode.clone());
-        sandbox.reflink_supported = Some(params.reflink_supported);
-        sandbox.memory_restore_mode = Some(memory_restore_mode.clone());
+        sandbox.restore.template_id = params.template_id.clone();
+        sandbox.restore.template_snapshot_type = Some(params.snapshot_type.clone());
+        sandbox.restore.lease_mode = Some(params.lease_mode.clone());
+        sandbox.restore.reflink_supported = Some(params.reflink_supported);
+        sandbox.restore.memory_restore_mode = Some(memory_restore_mode.clone());
 
         let work_dir = PathBuf::from(format!("{}/restore", sandbox.base_dir));
         let src = RestoreSource {
@@ -915,12 +913,12 @@ where
         // GC triggered by end_restore() (called in lease.complete()) cannot evict the template
         // between the restore succeeding and the sandbox reaching Running state.
         let env_non_copy_pinned =
-            if let (Some(tid), Some(pool)) = (&sandbox.template_id, &self.template_pool) {
+            if let (Some(tid), Some(pool)) = (&sandbox.restore.template_id, &self.template_pool) {
                 if matches!(
-                    sandbox.template_snapshot_type.as_ref(),
+                    sandbox.restore.template_snapshot_type.as_ref(),
                     Some(SnapshotType::Environment)
                 ) && !matches!(
-                    sandbox.memory_restore_mode.as_ref(),
+                    sandbox.restore.memory_restore_mode.as_ref(),
                     Some(MemoryRestoreMode::Copy) | None
                 ) {
                     pool.ref_template(tid).await;
@@ -936,7 +934,7 @@ where
         macro_rules! rollback_post_restore {
             ($sandbox:expr, $pool:expr, $err:expr, $label:literal) => {{
                 if env_non_copy_pinned {
-                    if let (Some(tid), Some(pool)) = (&$sandbox.template_id, $pool) {
+                    if let (Some(tid), Some(pool)) = (&$sandbox.restore.template_id, $pool) {
                         pool.deref(tid).await;
                     }
                 }
@@ -1104,7 +1102,7 @@ where
                 }
 
                 self.storages = self.remap_restored_storage_artifacts(src);
-                self.orphan_container_ids = src.orphan_container_ids.clone();
+                self.restore.orphan_container_ids = src.orphan_container_ids.clone();
 
                 if let Err(e) = self.refresh_instance_identity().await {
                     txn.rollback_vm(&mut self.vm).await;
@@ -1150,7 +1148,7 @@ where
                 // Track containers that were running at snapshot time so storage accounting
                 // and delete() cleanup work correctly.  We do NOT clean them up — they continue
                 // running with their original identity (no orphan kill, no identity refresh).
-                self.orphan_container_ids = src.orphan_container_ids.clone();
+                self.restore.orphan_container_ids = src.orphan_container_ids.clone();
 
                 txn.set_phase(RestorePhase::TransferNetworkIdentity);
                 info!(
@@ -1169,7 +1167,7 @@ where
                     return Err(txn.fail(e));
                 }
 
-                if self.vm.container_storage_backend() == VIRTIO_BLK {
+                if self.storage_policy.storage_backend == VIRTIO_BLK {
                     txn.set_phase(RestorePhase::PushSandboxFiles);
                     if let Err(e) = self.push_sandbox_files().await {
                         txn.rollback_vm(&mut self.vm).await;
@@ -1225,7 +1223,7 @@ where
         // Push updated sandbox config files (hostname, resolv.conf, hosts) into the guest.
         // In virtiofs mode these are served directly from the host share; in virtio-blk mode
         // they must be pushed explicitly since there is no shared filesystem.
-        if self.vm.container_storage_backend() == VIRTIO_BLK {
+        if self.storage_policy.storage_backend == VIRTIO_BLK {
             self.push_sandbox_files().await.map_err(|e| {
                 anyhow!(
                     "sandbox {}: push_sandbox_files in refresh_instance_identity: {}",
@@ -1276,11 +1274,7 @@ where
     V: VM + Sync + Send,
 {
     pub(crate) fn clear_template_restore_state(&mut self) {
-        self.template_id = None;
-        self.template_snapshot_type = None;
-        self.lease_mode = None;
-        self.reflink_supported = None;
-        self.memory_restore_mode = None;
+        self.restore = RestoreMetadata::default();
     }
 
     #[instrument(skip_all)]
@@ -1382,7 +1376,7 @@ where
 
         // In virtio-blk mode there is no virtiofs to share sandbox config files.
         // Push them into the guest before setup_sandbox() which reads the hostname.
-        if self.vm.container_storage_backend() == VIRTIO_BLK {
+        if self.storage_policy.storage_backend == VIRTIO_BLK {
             if let Err(e) = self.push_sandbox_files().await {
                 if let Err(re) = self.vm.stop(true).await {
                     warn!("roll back in push sandbox files: {}", re);
@@ -1670,7 +1664,7 @@ where
                     "autonomous"
                 },
                 params.task_id.as_deref().unwrap_or("-"),
-                self.template_id.as_deref().unwrap_or("-"),
+                self.restore.template_id.as_deref().unwrap_or("-"),
                 inject_start.elapsed().as_millis(),
             );
         } else {
@@ -2450,13 +2444,14 @@ where
 
     // Environment key is always derived from the factory config — user-specified keys are
     // rejected at the admin API boundary and must never reach this point.
+    let factory_policy = factory.storage_policy();
     let key = TemplateKey::from_vm_config(
         factory.kernel_path(),
         factory.image_path(),
         factory.vcpus(),
         factory.memory_mb(),
         factory.kernel_params(),
-        factory.storage_backend(),
+        &factory_policy.storage_backend,
     );
     let mut tmpl = PooledTemplate::new(
         &req.id,
@@ -2505,8 +2500,7 @@ where
         max_concurrent_restores: usize,
     ) -> Result<()> {
         // Check reflink support between sandboxer_working_dir and store_dir.
-        // mkfs.xfs / cp availability is implicitly validated here: if cp is missing the
-        // probe returns Err and we fall through to plain-copy mode.
+        // When enable_reflink_cow is true, reflink must be available; otherwise fatal.
         let reflink_supported = if lease_mode == TemplateLeaseMode::Shared {
             match crate::cloud_hypervisor::check_reflink_support(
                 Path::new(&sandboxer_working_dir),
@@ -2516,27 +2510,40 @@ where
             {
                 Ok(true) => {
                     log::info!(
-                        "reflink supported between {} and {} - Shared mode will use COW",
+                        "reflink supported between {} and {} - Shared mode will use XFS COW",
                         sandboxer_working_dir,
                         store_dir.display()
                     );
                     true
                 }
                 Ok(false) => {
-                    log::warn!(
-                        "reflink not supported between {} and {}. \
-                        Shared mode will use plain copy (less space-efficient). \
-                        Consider using XFS with reflink=1 or btrfs for both directories.",
+                    if self.factory.storage_policy().enable_reflink_cow {
+                        return Err(anyhow::anyhow!(
+                            "enable_reflink_cow is true but reflink is not supported between \
+                            {} and {}. Use XFS with reflink=1 for both directories, or set \
+                            enable_reflink_cow = false.",
+                            sandboxer_working_dir,
+                            store_dir.display()
+                        )
+                        .into());
+                    }
+                    log::info!(
+                        "reflink not supported between {} and {}, using ext4.",
                         sandboxer_working_dir,
                         store_dir.display()
                     );
                     false
                 }
                 Err(e) => {
-                    log::error!(
-                        "reflink test failed: {}. Shared mode will use plain copy.",
-                        e
-                    );
+                    if self.factory.storage_policy().enable_reflink_cow {
+                        return Err(anyhow::anyhow!(
+                            "enable_reflink_cow is true but reflink probe failed: {}. \
+                            Cannot start with XFS COW unavailable.",
+                            e
+                        )
+                        .into());
+                    }
+                    log::warn!("reflink probe failed: {}. Falling back to ext4.", e);
                     false
                 }
             }
@@ -2612,7 +2619,7 @@ where
                     let mut ids = std::collections::HashSet::new();
                     for sb_mutex in sbs.values() {
                         let sb = sb_mutex.lock().await;
-                        if let Some(tid) = &sb.template_id {
+                        if let Some(tid) = &sb.restore.template_id {
                             ids.insert(tid.clone());
                         }
                     }
@@ -2673,13 +2680,14 @@ where
             loop {
                 tokio::time::sleep(interval).await;
 
+                let factory_policy = factory.storage_policy();
                 let environment_key = TemplateKey::from_vm_config(
                     factory.kernel_path(),
                     factory.image_path(),
                     factory.vcpus(),
                     factory.memory_mb(),
                     factory.kernel_params(),
-                    factory.storage_backend(),
+                    &factory_policy.storage_backend,
                 );
 
                 let current = pool.depth(&environment_key).await;
@@ -2717,20 +2725,22 @@ where
 
                 pool.gc_if_needed().await;
 
-                // Warn if GC is blocked (all templates above water level are actively held).
-                // This indicates the pool is under pressure and may reject new templates.
-                let blocked = pool.gc_blocked_templates().await;
-                if !blocked.is_empty() {
-                    warn!(
-                        "template pool maintenance: GC blocked — {} template(s) cannot be evicted \
-                        because they are held by active restores or running sandboxes: {}",
-                        blocked.len(),
-                        blocked
-                            .iter()
-                            .map(|(id, reason)| format!("{} ({})", id, reason))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    );
+                // Warn only when the pool is above the watermark and GC cannot make progress
+                // because all eviction candidates are actively held.
+                if pool.total_depth().await > pool.gc_watermark {
+                    let blocked = pool.gc_blocked_templates().await;
+                    if !blocked.is_empty() {
+                        warn!(
+                            "template pool maintenance: GC blocked — {} template(s) cannot be evicted \
+                            because they are held by active restores or running sandboxes: {}",
+                            blocked.len(),
+                            blocked
+                                .iter()
+                                .map(|(id, reason)| format!("{} ({})", id, reason))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                    }
                 }
             }
         });
@@ -2793,7 +2803,7 @@ where
         // still active while restore validation and semaphore acquisition are in flight.
         if let Some(sb_mutex) = self.sandboxes.read().await.get(id).cloned() {
             let mut sb = sb_mutex.lock().await;
-            sb.template_id = Some(template_id.clone());
+            sb.restore.template_id = Some(template_id.clone());
         }
 
         // Validate snapshot files before acquiring the restore semaphore slot.
@@ -3344,9 +3354,9 @@ mod tests {
             cgroup::SandboxCgroup,
             container::KuasarContainer,
             device::{BusType, DeviceInfo},
-            sandbox::{KuasarSandbox, KuasarSandboxer, SandboxConfig},
+            sandbox::{KuasarSandbox, KuasarSandboxer, RestoreMetadata, SandboxConfig},
             storage::device_graph::DeviceGraph,
-            vm::{Hooks, Pids, Recoverable, VMFactory, VcpuThreads, VM},
+            vm::{ContainerStoragePolicy, Hooks, Pids, Recoverable, VMFactory, VcpuThreads, VM},
         };
 
         #[derive(Default, Serialize, Deserialize)]
@@ -3462,12 +3472,8 @@ mod tests {
                 client: Arc::new(Mutex::new(None)),
                 exit_signal: Arc::new(ExitSignal::default()),
                 sandbox_cgroups: SandboxCgroup::default(),
-                template_id: None,
-                template_snapshot_type: None,
-                lease_mode: None,
-                reflink_supported: None,
-                orphan_container_ids: vec![],
-                memory_restore_mode: None,
+                storage_policy: ContainerStoragePolicy::default(),
+                restore: RestoreMetadata::default(),
             }
         }
 

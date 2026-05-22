@@ -48,8 +48,10 @@ pub(crate) struct RestoredBlockArtifacts {
 /// Rename all moved disks back to their original template-dir paths.
 ///
 /// Called on any restore failure after `prepare_restore_block_artifacts` has run with
-/// `MovedExclusive` action.  If any rename fails the template snapshot directory will
-/// be missing disk files; log a warning and continue (best-effort).
+/// `MovedExclusive` action.  Returns the first rename error encountered; any subsequent
+/// disks are NOT rolled back.  Callers must log the error and continue — the template
+/// snapshot may be left partially inconsistent, but the restore pipeline has already
+/// failed at this point.
 ///
 /// The CH process **must be stopped** before calling this function so it cannot
 /// access the disk files after they are moved back.

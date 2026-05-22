@@ -51,7 +51,7 @@ use crate::{
         client::ChClient,
         config::{
             CloudHypervisorConfig, CloudHypervisorVMConfig, ContainerStorageBackend,
-            VirtioBlkConfig, VirtiofsdConfig,
+            VirtiofsdConfig,
         },
         devices::{
             block::Disk, vfio::VfioDevice, virtio_net::VirtioNetDevice, CloudHypervisorDevice,
@@ -104,7 +104,7 @@ pub struct CloudHypervisorVM {
     #[serde(default)]
     container_storage_backend: ContainerStorageBackend,
     #[serde(default)]
-    virtio_blk_config: VirtioBlkConfig,
+    direct_io: bool,
     #[serde(skip)]
     wait_chan: Option<Receiver<(u32, i128)>>,
     #[serde(skip)]
@@ -140,7 +140,7 @@ impl CloudHypervisorVM {
             agent_socket: "".to_string(),
             virtiofsd_config,
             container_storage_backend: vm_config.container_storage_backend.clone(),
-            virtio_blk_config: vm_config.virtio_blk.clone(),
+            direct_io: vm_config.virtio_blk.direct_io,
             wait_chan: None,
             client: None,
             fds: vec![],
@@ -309,7 +309,12 @@ impl VM for CloudHypervisorVM {
     async fn attach(&mut self, device_info: DeviceInfo) -> Result<()> {
         match device_info {
             DeviceInfo::Block(blk_info) => {
-                let device = Disk::new(&blk_info.id, &blk_info.path, blk_info.read_only, true);
+                let device = Disk::new(
+                    &blk_info.id,
+                    &blk_info.path,
+                    blk_info.read_only,
+                    self.direct_io,
+                );
                 self.add_device(device);
             }
             DeviceInfo::Tap(tap_info) => {
@@ -363,8 +368,9 @@ impl VM for CloudHypervisorVM {
 
     #[instrument(skip_all)]
     async fn hot_attach(&mut self, device_info: DeviceInfo) -> Result<(BusType, String)> {
+        let direct_io = self.direct_io;
         let client = self.get_client()?;
-        let addr = client.hot_attach(device_info)?;
+        let addr = client.hot_attach(device_info, direct_io)?;
         Ok((BusType::PCI, addr))
     }
 
@@ -430,34 +436,6 @@ impl VM for CloudHypervisorVM {
     #[instrument(skip_all)]
     fn pids(&self) -> Pids {
         self.pids.clone()
-    }
-
-    fn container_storage_backend(&self) -> &str {
-        self.container_storage_backend.as_str()
-    }
-
-    fn allow_bind_snapshot(&self) -> bool {
-        self.virtio_blk_config.allow_bind_snapshot
-    }
-
-    fn block_image_size_overhead_percent(&self) -> u32 {
-        self.virtio_blk_config.block_image_size_overhead_percent
-    }
-
-    fn small_dir_max_files(&self) -> usize {
-        self.virtio_blk_config.small_dir_max_files
-    }
-
-    fn small_dir_max_bytes(&self) -> u64 {
-        self.virtio_blk_config.small_dir_max_bytes
-    }
-
-    fn overlay_image_fallback_size_mb(&self) -> u64 {
-        self.virtio_blk_config.overlay_image_fallback_size_mb
-    }
-
-    fn bind_image_fallback_size_mb(&self) -> u64 {
-        self.virtio_blk_config.bind_image_fallback_size_mb
     }
 }
 

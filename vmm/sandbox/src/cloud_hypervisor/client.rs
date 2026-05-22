@@ -71,13 +71,13 @@ impl ChClient {
         Ok(Self { socket })
     }
 
-    pub fn hot_attach(&mut self, device_info: DeviceInfo) -> Result<String> {
+    pub fn hot_attach(&mut self, device_info: DeviceInfo, direct_io: bool) -> Result<String> {
         match device_info {
             DeviceInfo::Block(blk) => {
                 let disk_config = DiskConfig {
                     path: blk.path,
                     readonly: blk.read_only,
-                    direct: true,
+                    direct: direct_io,
                     vhost_user: false,
                     vhost_socket: None,
                     id: blk.id,
@@ -103,8 +103,11 @@ impl ChClient {
                 }
             }
             DeviceInfo::Tap(tap) => {
+                if tap.fds.is_empty() {
+                    return Err(anyhow!("tap device '{}': fds must not be empty", tap.id).into());
+                }
                 let raw_fds: Vec<RawFd> = tap.fds.iter().map(|fd| fd.as_raw_fd()).collect();
-                let num_queues = (raw_fds.len() as u32).max(1) * 2;
+                let num_queues = (raw_fds.len() as u32) * 2;
                 self.vm_add_net(&tap.id, &tap.mac_address, num_queues, raw_fds)?;
                 // net hotplug succeeds without a BDF response from CH
                 Ok(String::new())

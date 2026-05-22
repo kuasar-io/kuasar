@@ -153,7 +153,7 @@ use crate::{
     cgroup::SandboxCgroup,
     sandbox::{
         create_template_worker, monitor, parse_warm_fork_container_names, KuasarSandbox,
-        MemoryRestoreMode, SnapshotConfig, TemplateLeaseMode,
+        MemoryRestoreMode, RestoreMetadata, SnapshotConfig, TemplateLeaseMode,
     },
     storage::device_graph::DeviceGraph,
     template::{
@@ -578,8 +578,8 @@ where
             "id": id,
             "status": sandbox_status_str(&sb.status),
             "base_dir": sb.base_dir,
-            "template_id": sb.template_id,
-            "template_snapshot_type": sb.template_snapshot_type.as_ref().map(snapshot_type_str),
+            "template_id": sb.restore.template_id,
+            "template_snapshot_type": sb.restore.template_snapshot_type.as_ref().map(snapshot_type_str),
         }));
     }
     Ok(json!({"ok": true, "sandboxes": items}))
@@ -605,10 +605,10 @@ where
         "id": sb.id,
         "status": sandbox_status_str(&sb.status),
         "base_dir": sb.base_dir,
-        "template_id": sb.template_id,
-        "template_snapshot_type": sb.template_snapshot_type.as_ref().map(snapshot_type_str),
-        "lease_mode": sb.lease_mode.as_ref().map(|m| format!("{}", m)),
-        "memory_restore_mode": sb.memory_restore_mode.as_ref().map(|m| format!("{:?}", m)),
+        "template_id": sb.restore.template_id,
+        "template_snapshot_type": sb.restore.template_snapshot_type.as_ref().map(snapshot_type_str),
+        "lease_mode": sb.restore.lease_mode.as_ref().map(|m| format!("{}", m)),
+        "memory_restore_mode": sb.restore.memory_restore_mode.as_ref().map(|m| format!("{:?}", m)),
     }))
 }
 
@@ -746,13 +746,14 @@ where
     let target_depth = req["target_depth"].as_u64().unwrap_or(1) as usize;
     match kind_str {
         "environment" => {
+            let handle_policy = handle.factory.storage_policy();
             let key = TemplateKey::from_vm_config(
                 handle.factory.kernel_path(),
                 handle.factory.image_path(),
                 handle.factory.vcpus(),
                 handle.factory.memory_mb(),
                 handle.factory.kernel_params(),
-                handle.factory.storage_backend(),
+                &handle_policy.storage_backend,
             );
             let current = pool.depth(&key).await;
             let in_flight = pool.in_flight_count_for_key(&key).await;
@@ -951,11 +952,11 @@ where
     // Both WarmFork and Continuation require virtio-blk: virtiofs shares container layers via a
     // vhost-user socket bound to a specific virtiofsd process, whose file descriptors
     // cannot be transferred across the snapshot/restore boundary.
-    if sandbox.vm.container_storage_backend() != VIRTIO_BLK {
+    if sandbox.storage_policy.storage_backend != VIRTIO_BLK {
         return Err(anyhow!(
             "WarmFork/Continuation snapshots require container_storage_backend=virtio-blk; \
              current type '{}' cannot be snapshotted with active containers.",
-            sandbox.vm.container_storage_backend()
+            sandbox.storage_policy.storage_backend
         )
         .into());
     }
@@ -1162,7 +1163,7 @@ where
     // Also include any orphan containers from a prior WarmFork restore that are
     // still alive in the guest but were never adopted into sandbox.containers.
     let mut orphan_container_ids: Vec<String> = sandbox.containers.keys().cloned().collect();
-    for id in &sandbox.orphan_container_ids {
+    for id in &sandbox.restore.orphan_container_ids {
         if !orphan_container_ids.contains(id) {
             orphan_container_ids.push(id.clone());
         }
@@ -1329,12 +1330,8 @@ where
         client: Arc::new(Mutex::new(None)),
         exit_signal: Arc::new(ExitSignal::default()),
         sandbox_cgroups: SandboxCgroup::default(),
-        template_id: None,
-        template_snapshot_type: None,
-        lease_mode: None,
-        reflink_supported: None,
-        memory_restore_mode: None,
-        orphan_container_ids: vec![],
+        storage_policy: handle.factory.storage_policy(),
+        restore: RestoreMetadata::default(),
     };
     sandbox.setup_sandbox_files().await?;
     sandbox.dump().await?;
@@ -1373,10 +1370,10 @@ where
     {
         let mut sandbox = sandbox_mutex.lock().await;
         base_dir = sandbox.base_dir.clone();
-        consumed_template_id = sandbox.template_id.clone();
-        template_snapshot_type = sandbox.template_snapshot_type.clone();
-        lease_mode = sandbox.lease_mode.clone();
-        memory_restore_mode = sandbox.memory_restore_mode.clone();
+        consumed_template_id = sandbox.restore.template_id.clone();
+        template_snapshot_type = sandbox.restore.template_snapshot_type.clone();
+        lease_mode = sandbox.restore.lease_mode.clone();
+        memory_restore_mode = sandbox.restore.memory_restore_mode.clone();
 
         sandbox
             .stop(true)
@@ -1546,10 +1543,10 @@ where
         }
     }
 
-    sandbox.template_id = Some(acquired_template_id.clone());
-    sandbox.template_snapshot_type = Some(SnapshotType::WarmFork);
-    sandbox.lease_mode = Some(lease_mode.clone());
-    sandbox.reflink_supported = Some(pool.reflink_supported);
+    sandbox.restore.template_id = Some(acquired_template_id.clone());
+    sandbox.restore.template_snapshot_type = Some(SnapshotType::WarmFork);
+    sandbox.restore.lease_mode = Some(lease_mode.clone());
+    sandbox.restore.reflink_supported = Some(pool.reflink_supported);
     sandbox.id_generator = tmpl.id_generator;
 
     let src = RestoreSource {
@@ -1680,10 +1677,10 @@ where
         .map(|p| p.reflink_supported)
         .unwrap_or(false);
 
-    sandbox.template_id = Some(acquired_template_id.clone());
-    sandbox.template_snapshot_type = Some(SnapshotType::Continuation);
-    sandbox.lease_mode = Some(TemplateLeaseMode::Exclusive);
-    sandbox.reflink_supported = Some(reflink_supported);
+    sandbox.restore.template_id = Some(acquired_template_id.clone());
+    sandbox.restore.template_snapshot_type = Some(SnapshotType::Continuation);
+    sandbox.restore.lease_mode = Some(TemplateLeaseMode::Exclusive);
+    sandbox.restore.reflink_supported = Some(reflink_supported);
     sandbox.id_generator = tmpl.id_generator;
 
     let src = RestoreSource {

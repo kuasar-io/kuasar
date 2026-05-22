@@ -24,7 +24,7 @@ use crate::{
         CloudHypervisorVM,
     },
     utils::get_netns,
-    vm::{VMFactory, CONSOLE_LOG_FILENAME, TASK_VSOCK_FILENAME},
+    vm::{ContainerStoragePolicy, VMFactory, CONSOLE_LOG_FILENAME, TASK_VSOCK_FILENAME},
 };
 
 pub struct CloudHypervisorVMFactory {
@@ -114,8 +114,27 @@ impl VMFactory for CloudHypervisorVMFactory {
         &self.vm_config.common.kernel_params
     }
 
-    fn storage_backend(&self) -> &str {
-        self.vm_config.container_storage_backend.as_str()
+    fn storage_policy(&self) -> ContainerStoragePolicy {
+        ContainerStoragePolicy {
+            storage_backend: self
+                .vm_config
+                .container_storage_backend
+                .as_str()
+                .to_string(),
+            allow_large_bind_mount: self.vm_config.virtio_blk.allow_large_bind_mount,
+            enable_reflink_cow: self.vm_config.virtio_blk.enable_reflink_cow,
+            block_image_size_overhead_percent: self
+                .vm_config
+                .virtio_blk
+                .block_image_size_overhead_percent,
+            small_dir_max_files: self.vm_config.virtio_blk.small_dir_max_files,
+            small_dir_max_bytes: self.vm_config.virtio_blk.small_dir_max_bytes,
+            overlay_image_fallback_size_mb: self
+                .vm_config
+                .virtio_blk
+                .overlay_image_fallback_size_mb,
+            bind_image_fallback_size_mb: self.vm_config.virtio_blk.bind_image_fallback_size_mb,
+        }
     }
 
     fn with_resources(&self, vcpus: u32, memory_mb: u32) -> Self {

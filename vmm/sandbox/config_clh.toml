@@ -89,13 +89,35 @@ debug = false
 container_storage_backend = "virtio-blk"
 
 [hypervisor.virtio_blk]
-allow_bind_snapshot = false
-default_fstype = "ext4"
+allow_large_bind_mount = false
+enable_reflink_cow = false
+
+# Extra headroom added on top of the measured directory size (percent).
+# Final image size = max(measured * (1 + overhead/100), fallback_size_mb).
 block_image_size_overhead_percent = 20
+
 small_dir_max_files = 50
 small_dir_max_bytes = 10485760
+
+# Minimum block image size (MB) for overlay and bind-mount images respectively.
+# Acts as a floor: if the overhead-adjusted measured size is smaller, this value is used.
+# Also used as the image size when directory size measurement fails.
 overlay_image_fallback_size_mb = 64
 bind_image_fallback_size_mb = 8
+
+# Use O_DIRECT when opening block image files, bypassing the host page cache.
+#
+# true  — eliminates double-buffering (guest OS has its own caches; caching again
+#         on the host wastes memory). Improves throughput for large sequential I/O.
+#         Requires the sandboxer working directory to be on a filesystem that supports
+#         direct I/O (ext4, xfs). Do NOT use when the working directory is on tmpfs
+#         (the default /run mount) — tmpfs returns EINVAL for O_DIRECT.
+#
+# false — block image files go through the host page cache. Safe on any filesystem
+#         including tmpfs, but causes double-buffering: the same data is cached in
+#         both guest memory and the host page cache, increasing memory pressure.
+#         Acceptable for development or when the working directory is on tmpfs.
+direct_io = true
 
 [hypervisor.task]
 debug = false

@@ -72,11 +72,12 @@ where
         // referenced by an orphan container from a prior WarmFork restore.  We do
         // this with an immutable scan first to avoid borrow conflicts with the
         // mutable storage ref below.
-        let orphan_match: Option<(String, String)> = if !self.orphan_container_ids.is_empty() {
-            self.find_orphan_for_mount(m, is_rootfs_mount)
-        } else {
-            None
-        };
+        let orphan_match: Option<(String, String)> =
+            if !self.restore.orphan_container_ids.is_empty() {
+                self.find_orphan_for_mount(m, is_rootfs_mount)
+            } else {
+                None
+            };
 
         if let Some((orphan_id, _storage_id)) = orphan_match {
             match self.call_adopt_container(&orphan_id, container_id).await {
@@ -86,7 +87,9 @@ where
                         storage.defer(&orphan_id);
                         storage.refer(container_id);
                     }
-                    self.orphan_container_ids.retain(|id| *id != orphan_id);
+                    self.restore
+                        .orphan_container_ids
+                        .retain(|id| *id != orphan_id);
                     return Ok(());
                 }
                 Err(e) => {
@@ -131,7 +134,7 @@ where
         }
 
         if is_bind(m) {
-            if self.vm.container_storage_backend() == VIRTIO_BLK {
+            if self.storage_policy.storage_backend == VIRTIO_BLK {
                 self.handle_bind_mount_blk(&id, container_id, m, is_rootfs_mount)
                     .await?;
             } else {
@@ -141,7 +144,7 @@ where
         }
 
         if is_overlay(m) {
-            if self.vm.container_storage_backend() == VIRTIO_BLK {
+            if self.storage_policy.storage_backend == VIRTIO_BLK {
                 self.handle_overlay_mount_blk(&id, container_id, m).await?;
             } else {
                 self.handle_overlay_mount(&id, container_id, m).await?;
@@ -186,7 +189,7 @@ where
     fn find_orphan_for_mount(&self, m: &Mount, is_rootfs_mount: bool) -> Option<(String, String)> {
         device_graph::find_orphan_for_mount(
             &self.storages,
-            &self.orphan_container_ids,
+            &self.restore.orphan_container_ids,
             m,
             is_rootfs_mount,
         )
@@ -491,11 +494,16 @@ where
         }
 
         // Steps 2-4: create block image and copy overlay content into it.
-        // Shared mode + reflink_supported uses XFS with reflink=1 for COW efficiency.
-        // Shared mode without reflink or Exclusive mode uses ext4 (default).
+        // Shared mode + enable_reflink_cow uses XFS with reflink=1 for COW efficiency;
+        // if reflink is not available the sandboxer fatals at startup before reaching here.
+        // Exclusive mode always uses ext4.
         let img_path = format!("{}/{}.img", self.base_dir, storage_id);
-        let use_xfs = self.lease_mode == Some(crate::sandbox::TemplateLeaseMode::Shared)
-            && self.reflink_supported == Some(true);
+        let is_shared = self.restore.lease_mode == Some(crate::sandbox::TemplateLeaseMode::Shared);
+        let fstype = if is_shared && self.storage_policy.enable_reflink_cow {
+            BlockFs::Xfs
+        } else {
+            BlockFs::Ext4
+        };
         let provider = LocalBlockProvider;
         let lower_dirs = extract_lower_dirs(&m.options);
         let source_identity = lower_dirs.clone().map(|lower| format!("overlay:{}", lower));
@@ -504,9 +512,9 @@ where
             .prepare(BlockPrepareRequest {
                 src_dir: overlay_dir.clone(),
                 img_path: img_path.clone(),
-                fstype: if use_xfs { BlockFs::Xfs } else { BlockFs::Ext4 },
-                fallback_size_mb: self.vm.overlay_image_fallback_size_mb(),
-                overhead_percent: self.vm.block_image_size_overhead_percent(),
+                fstype,
+                fallback_size_mb: self.storage_policy.overlay_image_fallback_size_mb,
+                overhead_percent: self.storage_policy.block_image_size_overhead_percent,
                 source_identity,
                 readonly: read_only,
             })
@@ -626,8 +634,8 @@ where
         } else if meta.is_dir() {
             // Directory: scan once to get stats and pre-collect entries for injection.
             let scan = scan_dir(&source).await?;
-            if scan.file_count <= self.vm.small_dir_max_files()
-                && scan.total_bytes <= self.vm.small_dir_max_bytes()
+            if scan.file_count <= self.storage_policy.small_dir_max_files
+                && scan.total_bytes <= self.storage_policy.small_dir_max_bytes
             {
                 if is_rootfs_mount {
                     return Err(Error::InvalidArgument(format!(
@@ -647,25 +655,31 @@ where
                 )
                 .await?;
             } else {
-                if !self.vm.allow_bind_snapshot() {
+                if !self.storage_policy.allow_large_bind_mount {
                     return Err(Error::InvalidArgument(format!(
-                        "large bind mount source {} requires virtio-blk bind snapshot to be explicitly enabled",
+                        "large bind mount source {} requires allow_large_bind_mount to be explicitly enabled",
                         source
                     )));
                 }
                 // Large directory (HostPath volumes etc.): block image hot-attached as virtio-blk.
-                // Shared mode + reflink_supported uses XFS with reflink=1; otherwise uses ext4.
+                // Shared mode + enable_reflink_cow uses XFS with reflink=1 for COW efficiency.
+                // Exclusive mode always uses ext4.
                 let img_path = format!("{}/{}.img", self.base_dir, storage_id);
-                let use_xfs = self.lease_mode == Some(crate::sandbox::TemplateLeaseMode::Shared)
-                    && self.reflink_supported == Some(true);
+                let is_shared =
+                    self.restore.lease_mode == Some(crate::sandbox::TemplateLeaseMode::Shared);
+                let fstype = if is_shared && self.storage_policy.enable_reflink_cow {
+                    BlockFs::Xfs
+                } else {
+                    BlockFs::Ext4
+                };
                 let provider = LocalBlockProvider;
                 let artifact = provider
                     .prepare(BlockPrepareRequest {
                         src_dir: source.clone(),
                         img_path: img_path.clone(),
-                        fstype: if use_xfs { BlockFs::Xfs } else { BlockFs::Ext4 },
-                        fallback_size_mb: self.vm.bind_image_fallback_size_mb(),
-                        overhead_percent: self.vm.block_image_size_overhead_percent(),
+                        fstype,
+                        fallback_size_mb: self.storage_policy.bind_image_fallback_size_mb,
+                        overhead_percent: self.storage_policy.block_image_size_overhead_percent,
                         source_identity: Some(format!("bind:{}", source)),
                         readonly: read_only,
                     })
@@ -781,7 +795,38 @@ mod tests {
             join_guest_component, join_guest_path, scan_dir, shell_quote, validate_guest_path,
         },
     };
-    use crate::{device::DeviceInfo, sandbox::KuasarSandbox, vm::VM};
+    use crate::{
+        device::DeviceInfo,
+        sandbox::{KuasarSandbox, RestoreMetadata},
+        vm::{ContainerStoragePolicy, VM},
+    };
+
+    fn make_sandbox(
+        base_dir: &str,
+        status: containerd_sandbox::SandboxStatus,
+        storages: DeviceGraph,
+        orphan_container_ids: Vec<String>,
+    ) -> KuasarSandbox<MockVM> {
+        KuasarSandbox {
+            vm: MockVM,
+            id: "test-sandbox".to_string(),
+            status,
+            base_dir: base_dir.to_string(),
+            data: Default::default(),
+            containers: HashMap::new(),
+            storages,
+            id_generator: 1,
+            network: None,
+            client: Default::default(),
+            exit_signal: Default::default(),
+            sandbox_cgroups: Default::default(),
+            storage_policy: ContainerStoragePolicy::default(),
+            restore: RestoreMetadata {
+                orphan_container_ids,
+                ..Default::default()
+            },
+        }
+    }
 
     #[derive(Serialize, Deserialize)]
     struct MockVM;
@@ -930,26 +975,12 @@ mod tests {
         };
         storages.push(s1);
 
-        let mut sandbox = KuasarSandbox {
-            vm: MockVM,
-            id: "test-sandbox".to_string(),
-            status: containerd_sandbox::SandboxStatus::Created,
-            base_dir: "/tmp".to_string(),
-            data: Default::default(),
-            containers: HashMap::new(),
+        let mut sandbox = make_sandbox(
+            "/tmp",
+            containerd_sandbox::SandboxStatus::Created,
             storages,
-            id_generator: 1,
-            network: None,
-            client: Default::default(),
-            exit_signal: Default::default(),
-            sandbox_cgroups: Default::default(),
-            template_id: None,
-            template_snapshot_type: None,
-            lease_mode: None,
-            reflink_supported: None,
-            orphan_container_ids: vec![],
-            memory_restore_mode: None,
-        };
+            vec![],
+        );
 
         // Rootfs mounts skip is_for_mount but still need lower_dirs to match for reuse.
         // storage1 has lower_dirs: None and the bind mount has no lowerdir= option,
@@ -1108,26 +1139,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_detach_storage_not_found() {
-        let mut sandbox = KuasarSandbox {
-            vm: MockVM,
-            id: "test-sandbox".to_string(),
-            status: containerd_sandbox::SandboxStatus::Created,
-            base_dir: "/tmp/non-existent-dir-12345".to_string(),
-            data: Default::default(),
-            containers: HashMap::new(),
-            storages: DeviceGraph::default(),
-            id_generator: 1,
-            network: None,
-            client: Default::default(),
-            exit_signal: Default::default(),
-            sandbox_cgroups: Default::default(),
-            template_id: None,
-            template_snapshot_type: None,
-            lease_mode: None,
-            reflink_supported: None,
-            orphan_container_ids: vec![],
-            memory_restore_mode: None,
-        };
+        let mut sandbox = make_sandbox(
+            "/tmp/non-existent-dir-12345",
+            containerd_sandbox::SandboxStatus::Created,
+            DeviceGraph::default(),
+            vec![],
+        );
 
         let storage = Storage {
             host_source: "".to_string(),
@@ -1158,26 +1175,12 @@ mod tests {
         let img_path = dir.path().join("external.img");
         tokio::fs::write(&img_path, b"external").await.unwrap();
 
-        let mut sandbox = KuasarSandbox {
-            vm: MockVM,
-            id: "test-sandbox".to_string(),
-            status: containerd_sandbox::SandboxStatus::Created,
-            base_dir: dir.path().to_string_lossy().to_string(),
-            data: Default::default(),
-            containers: HashMap::new(),
-            storages: DeviceGraph::default(),
-            id_generator: 1,
-            network: None,
-            client: Default::default(),
-            exit_signal: Default::default(),
-            sandbox_cgroups: Default::default(),
-            template_id: None,
-            template_snapshot_type: None,
-            lease_mode: None,
-            reflink_supported: None,
-            orphan_container_ids: vec![],
-            memory_restore_mode: None,
-        };
+        let mut sandbox = make_sandbox(
+            &dir.path().to_string_lossy(),
+            containerd_sandbox::SandboxStatus::Created,
+            DeviceGraph::default(),
+            vec![],
+        );
 
         let storage = Storage {
             host_source: img_path.to_string_lossy().to_string(),
@@ -1229,26 +1232,12 @@ mod tests {
             source_identity: None,
         };
 
-        let mut sandbox = KuasarSandbox {
-            vm: MockVM,
-            id: "test-sandbox".to_string(),
-            status: containerd_sandbox::SandboxStatus::Running(123),
-            base_dir: "/tmp".to_string(),
-            data: Default::default(),
-            containers: HashMap::new(),
-            storages: vec![storage].into(),
-            id_generator: 1,
-            network: None,
-            client: Default::default(),
-            exit_signal: Default::default(),
-            sandbox_cgroups: Default::default(),
-            template_id: None,
-            template_snapshot_type: None,
-            lease_mode: None,
-            reflink_supported: None,
-            orphan_container_ids: vec!["old-container".to_string()],
-            memory_restore_mode: None,
-        };
+        let mut sandbox = make_sandbox(
+            "/tmp",
+            containerd_sandbox::SandboxStatus::Running(123),
+            vec![storage].into(),
+            vec!["old-container".to_string()],
+        );
 
         let err = sandbox
             .attach_storage("new-container", &mount, false)

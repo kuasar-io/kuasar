@@ -55,25 +55,45 @@ impl ContainerStorageBackend {
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct VirtioBlkConfig {
-    pub allow_bind_snapshot: bool,
-    pub default_fstype: String,
+    /// Allow large bind-mount directories to be converted into a virtio-blk block image.
+    /// Small directories are always injected via TTRPC regardless of this setting.
+    /// Defaults to false; must be explicitly enabled for HostPath volumes and similar use cases.
+    pub allow_large_bind_mount: bool,
+    /// Enable XFS reflink CoW for block images in Shared template mode.
+    /// When true, Shared mode uses XFS with reflink=1 for fast per-instance CoW cloning;
+    /// if reflink is not supported on the working filesystem the sandboxer will Fatal.
+    /// Exclusive mode always uses ext4 regardless of this setting.
+    /// Defaults to false (ext4 everywhere).
+    pub enable_reflink_cow: bool,
     pub block_image_size_overhead_percent: u32,
     pub small_dir_max_files: usize,
     pub small_dir_max_bytes: u64,
     pub overlay_image_fallback_size_mb: u64,
     pub bind_image_fallback_size_mb: u64,
+    /// Use O_DIRECT when opening block image files. Requires the sandboxer
+    /// working directory to reside on a filesystem that supports direct I/O
+    /// (e.g. ext4, xfs). Must be set to false when the working directory is on
+    /// tmpfs (e.g. /run), which does not support O_DIRECT.
+    /// Defaults to true to preserve the historical hardcoded behavior.
+    #[serde(default = "default_direct_io")]
+    pub direct_io: bool,
+}
+
+fn default_direct_io() -> bool {
+    true
 }
 
 impl Default for VirtioBlkConfig {
     fn default() -> Self {
         Self {
-            allow_bind_snapshot: false,
-            default_fstype: "ext4".to_string(),
+            allow_large_bind_mount: false,
+            enable_reflink_cow: false,
             block_image_size_overhead_percent: DEFAULT_BLOCK_IMAGE_SIZE_OVERHEAD_PERCENT,
             small_dir_max_files: DEFAULT_SMALL_DIR_MAX_FILES,
             small_dir_max_bytes: DEFAULT_SMALL_DIR_MAX_BYTES,
             overlay_image_fallback_size_mb: DEFAULT_OVERLAY_IMAGE_FALLBACK_SIZE_MB,
             bind_image_fallback_size_mb: DEFAULT_BIND_IMAGE_FALLBACK_SIZE_MB,
+            direct_io: true,
         }
     }
 }

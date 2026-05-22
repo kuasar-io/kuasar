@@ -45,15 +45,15 @@ use crate::{
 pub struct AdoptionInfo {
     /// PID of the orphan's init process (still running in the VM).
     pub orphan_pid: i32,
-    /// The runc container ID of the orphan (used for runc kill/delete/ps).
-    pub orphan_runc_id: String,
+    /// Runtime container ID of the orphan (used for lookup/kill/ps).
+    pub orphan_container_id: String,
 }
 
 pub struct SandboxResources {
     storages: Vec<Storage>,
     device_monitor: DeviceMonitor,
     /// Pending orphan adoptions: new_container_id → orphan info.
-    /// Populated by `adopt_container` RPC; consumed by `KuasarFactory::create`.
+    /// Populated by `adopt_container` RPC.
     pending_adoptions: std::collections::HashMap<String, AdoptionInfo>,
 }
 
@@ -68,13 +68,18 @@ impl SandboxResources {
         }
     }
 
-    /// Register that `new_id` should be adopted from orphan `orphan_runc_id` (with pid `orphan_pid`).
-    pub fn register_adoption(&mut self, new_id: &str, orphan_pid: i32, orphan_runc_id: String) {
+    /// Register that `new_id` should be adopted from orphan `orphan_container_id` (with pid `orphan_pid`).
+    pub fn register_adoption(
+        &mut self,
+        new_id: &str,
+        orphan_pid: i32,
+        orphan_container_id: String,
+    ) {
         self.pending_adoptions.insert(
             new_id.to_string(),
             AdoptionInfo {
                 orphan_pid,
-                orphan_runc_id,
+                orphan_container_id,
             },
         );
     }

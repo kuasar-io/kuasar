@@ -510,7 +510,7 @@ impl api::sandbox_ttrpc::SandboxService for SandboxService {
             pid
         };
 
-        // Register the pending adoption so KuasarFactory::create can pick it up.
+        // Register the pending adoption so the container factory create path can pick it up.
         self.sandbox_resources.lock().await.register_adoption(
             &req.new_id,
             orphan_pid,

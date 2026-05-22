@@ -102,7 +102,7 @@ impl BlockProvider for LocalBlockProvider {
             .as_ref()
             .map(|s| s.ext4_inode_count(req.overhead_percent))
             .unwrap_or(MIN_EXT4_INODES);
-        let size_mb = apply_overhead(base, req.overhead_percent) + req.fallback_size_mb;
+        let size_mb = apply_overhead(base, req.overhead_percent).max(req.fallback_size_mb);
 
         let prepare_result = async {
             match req.fstype {

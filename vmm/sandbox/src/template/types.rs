@@ -135,10 +135,9 @@ impl TemplateKey {
     /// - `kernel_params`: user-supplied cmdline additions change guest behaviour.
     /// - `storage_backend`: virtio-blk and virtiofs guests use different task binary paths.
     ///
-    /// NOTE: the guest task binary version is part of the intended Environment key, but it is
-    /// not yet available from the current factory inputs. Environment snapshot creation should
-    /// fail closed until the sandboxer can reliably read that version from config or a build-
-    /// time constant embedded in the guest image.
+    /// TODO: the guest task binary version is not yet included in this key; see Future
+    /// Enhancements #4 in the snapshot/restore proposal. The key is intentionally incomplete
+    /// until the sandboxer can reliably read the version from config or the guest image.
     pub fn from_vm_config(
         kernel_path: &str,
         image_path: &str,
@@ -147,6 +146,9 @@ impl TemplateKey {
         kernel_params: &str,
         storage_backend: &str,
     ) -> Self {
+        // TODO: fields are joined with ':' but kernel_params may itself contain ':',
+        // which can produce collisions. Replace with a collision-free scheme (e.g.
+        // length-prefixed fields or a hash) when this becomes a practical concern.
         Self {
             key: format!(
                 "{}:{}:{}:{}:{}:{}",

@@ -67,7 +67,7 @@ use crate::{
     device::rescan_pci_bus,
     io::{convert_stdio, copy_io_or_console, ProcessIO},
     sandbox::SandboxResources,
-    util::{read_io, read_storages},
+    util::{read_io, read_storages, verify_orphan_alive},
 };
 
 pub type ExecProcess = ProcessTemplate<YoukiExecLifecycle>;
@@ -120,9 +120,10 @@ impl ContainerFactory<YoukiContainer> for YoukiFactory {
         if let Some(adoption) = self.sandbox.lock().await.take_adoption(id) {
             warn!(
                 "create {}: adopting orphan youki container '{}' pid={}",
-                id, adoption.orphan_runc_id, adoption.orphan_pid
+                id, adoption.orphan_container_id, adoption.orphan_pid
             );
-            let orphan_id = adoption.orphan_runc_id.clone();
+            let orphan_id = adoption.orphan_container_id.clone();
+            verify_orphan_alive(id, adoption.orphan_pid, &orphan_id)?;
             let (container, orphan_id) = spawn_blocking(move || {
                 let c = Container::load(PathBuf::from(YOUKI_DIR).join(&orphan_id))
                     .map_err(|e| other!("load orphan youki container '{}': {}", orphan_id, e))?;

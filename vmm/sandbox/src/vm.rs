@@ -50,6 +50,36 @@ pub const DEFAULT_SMALL_DIR_MAX_BYTES: u64 = 10 * 1024 * 1024;
 pub const DEFAULT_OVERLAY_IMAGE_FALLBACK_SIZE_MB: u64 = 64;
 pub const DEFAULT_BIND_IMAGE_FALLBACK_SIZE_MB: u64 = 8;
 
+/// Storage policy for container layer attachment, passed from factory → sandbox at creation time.
+/// Decouples packaging decisions from the VM lifecycle interface.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ContainerStoragePolicy {
+    /// Backend identifier used for container storage (e.g. "virtio-blk", "virtiofs").
+    pub storage_backend: String,
+    pub allow_large_bind_mount: bool,
+    pub enable_reflink_cow: bool,
+    pub block_image_size_overhead_percent: u32,
+    pub small_dir_max_files: usize,
+    pub small_dir_max_bytes: u64,
+    pub overlay_image_fallback_size_mb: u64,
+    pub bind_image_fallback_size_mb: u64,
+}
+
+impl Default for ContainerStoragePolicy {
+    fn default() -> Self {
+        Self {
+            storage_backend: VIRTIOFS.to_string(),
+            allow_large_bind_mount: false,
+            enable_reflink_cow: false,
+            block_image_size_overhead_percent: DEFAULT_BLOCK_IMAGE_SIZE_OVERHEAD_PERCENT,
+            small_dir_max_files: DEFAULT_SMALL_DIR_MAX_FILES,
+            small_dir_max_bytes: DEFAULT_SMALL_DIR_MAX_BYTES,
+            overlay_image_fallback_size_mb: DEFAULT_OVERLAY_IMAGE_FALLBACK_SIZE_MB,
+            bind_image_fallback_size_mb: DEFAULT_BIND_IMAGE_FALLBACK_SIZE_MB,
+        }
+    }
+}
+
 #[async_trait]
 pub trait VMFactory {
     type VM: VM + Sync + Send;
@@ -77,11 +107,11 @@ pub trait VMFactory {
     fn kernel_params(&self) -> &str {
         ""
     }
-    /// Container storage backend identifier (e.g. "virtio-blk", "virtiofs").
-    /// Included in the Environment TemplateKey so virtio-blk and virtiofs VMs never
-    /// share a snapshot (their guest agent paths and task binary differ).
-    fn storage_backend(&self) -> &str {
-        ""
+    /// Container storage policy: backend selection and block-image packaging parameters.
+    /// Included in TemplateKey (via storage_backend) so VMs with different backends never share
+    /// a snapshot. Override in implementations that use virtio-blk or non-default sizing.
+    fn storage_policy(&self) -> ContainerStoragePolicy {
+        ContainerStoragePolicy::default()
     }
 
     /// Return a new factory instance with overridden vcpus and memory for template creation.
@@ -121,27 +151,6 @@ pub trait VM: Serialize + Sync + Send {
     async fn wait_channel(&self) -> Option<Receiver<(u32, i128)>>;
     async fn vcpus(&self) -> Result<VcpuThreads>;
     fn pids(&self) -> Pids;
-    fn container_storage_backend(&self) -> &str {
-        VIRTIOFS
-    }
-    fn allow_bind_snapshot(&self) -> bool {
-        false
-    }
-    fn block_image_size_overhead_percent(&self) -> u32 {
-        DEFAULT_BLOCK_IMAGE_SIZE_OVERHEAD_PERCENT
-    }
-    fn small_dir_max_files(&self) -> usize {
-        DEFAULT_SMALL_DIR_MAX_FILES
-    }
-    fn small_dir_max_bytes(&self) -> u64 {
-        DEFAULT_SMALL_DIR_MAX_BYTES
-    }
-    fn overlay_image_fallback_size_mb(&self) -> u64 {
-        DEFAULT_OVERLAY_IMAGE_FALLBACK_SIZE_MB
-    }
-    fn bind_image_fallback_size_mb(&self) -> u64 {
-        DEFAULT_BIND_IMAGE_FALLBACK_SIZE_MB
-    }
 
     /// Hotplug tap network devices that were registered via `attach()` into a running
     /// (restored) VM. Called after `vm.restore()` + `vm.resume()` for `SnapshotType::Environment`

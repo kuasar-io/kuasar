@@ -148,7 +148,7 @@ virtio-blk provides a static snapshot, not live virtiofs-style sharing.
 
 - `container_storage_backend="virtio-blk"` is explicit opt-in.
 - Live HostPath, sockets, devices, and log directories are rejected by default.
-- Snapshot-safe bind mounts require config or annotation opt-in.
+- Large bind-mount directories converted to block images require `allow_large_bind_mount = true`.
 
 #### Risk 3: Startup Latency and Disk Usage
 
@@ -233,8 +233,8 @@ Example configuration:
 container_storage_backend = "virtiofs" # virtiofs | virtio-blk
 
 [hypervisor.virtio_blk]
-allow_bind_snapshot = false
-default_fstype = "ext4" # reserved; current attach paths explicitly request ext4
+allow_large_bind_mount = false
+enable_reflink_cow = false
 block_image_size_overhead_percent = 20
 small_dir_max_files = 50
 small_dir_max_bytes = 10485760
@@ -291,7 +291,7 @@ Phase 1 uses ext4 compatibility images:
 - overlay rootfs: sandbox-private ext4 image.
 - static large directory: sandbox-private ext4 image.
 - writeability follows mount semantics, but the image is never shared across sandboxes.
-- `default_fstype` and XFS/reflink helpers are reserved for future policy; current overlay and large-bind paths explicitly pass `BlockFs::Ext4`.
+- Overlay and large-bind paths use ext4 by default. Set `enable_reflink_cow = true` to use XFS with reflink=1 for Shared template mode; the sandboxer fatals at startup if reflink is unavailable.
 
 Long-term immutable model:
 
@@ -319,7 +319,7 @@ Bind mounts are classified first:
 
 - single regular file: TTRPC guest-file injection.
 - small regular directory: TTRPC guest-file injection.
-- large directory explicitly declared as static snapshot: block image.
+- large directory: block image (requires `allow_large_bind_mount = true`).
 - socket, device node, fifo, live writeback path, or live read path: reject or require virtiofs.
 
 Directory bind mounts are static snapshots, not transparent live shares.
