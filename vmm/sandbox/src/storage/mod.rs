@@ -67,12 +67,14 @@ where
             return Ok(());
         }
         // handle tmpfs mount
-        let mount_info = get_mount_info(&m.source).await?;
-        if let Some(mi) = mount_info {
-            // Only allow use tmpfs in emptyDir
-            if mi.fs_type == "tmpfs" && mi.mount_point.contains("kubernetes.io~empty-dir") {
-                self.handle_tmpfs_mount(&id, container_id, m, &mi).await?;
-                return Ok(());
+        if m.source.contains("kubernetes.io~empty-dir") {
+            let mount_info = get_mount_info(&m.source).await?;
+            if let Some(mi) = mount_info {
+                // Only allow use tmpfs in emptyDir
+                if mi.fs_type == "tmpfs" && mi.mount_point.contains("kubernetes.io~empty-dir") {
+                    self.handle_tmpfs_mount(&id, container_id, m, &mi).await?;
+                    return Ok(());
+                }
             }
         }
         if is_bind_shm(m) {
