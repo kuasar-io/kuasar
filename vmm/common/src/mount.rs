@@ -215,6 +215,62 @@ lazy_static! {
                 flags: MsFlags::MS_SYNCHRONOUS,
             },
         );
+        mf.insert(
+            "shared",
+            Flag {
+                clear: false,
+                flags: MsFlags::MS_SHARED,
+            },
+        );
+        mf.insert(
+            "rshared",
+            Flag {
+                clear: false,
+                flags: MsFlags::MS_SHARED | MsFlags::MS_REC,
+            },
+        );
+        mf.insert(
+            "slave",
+            Flag {
+                clear: false,
+                flags: MsFlags::MS_SLAVE,
+            },
+        );
+        mf.insert(
+            "rslave",
+            Flag {
+                clear: false,
+                flags: MsFlags::MS_SLAVE | MsFlags::MS_REC,
+            },
+        );
+        mf.insert(
+            "private",
+            Flag {
+                clear: false,
+                flags: MsFlags::MS_PRIVATE,
+            },
+        );
+        mf.insert(
+            "rprivate",
+            Flag {
+                clear: false,
+                flags: MsFlags::MS_PRIVATE | MsFlags::MS_REC,
+            },
+        );
+        mf.insert(
+            "unbindable",
+            Flag {
+                clear: false,
+                flags: MsFlags::MS_UNBINDABLE,
+            },
+        );
+        mf.insert(
+            "runbindable",
+            Flag {
+                clear: false,
+                flags: MsFlags::MS_UNBINDABLE | MsFlags::MS_REC,
+            },
+        );
         mf
     };
     static ref PROPAGATION_TYPES: MsFlags = MsFlags::MS_SHARED
@@ -249,7 +305,11 @@ pub fn mount(
     // mount with non-propagation first, or remount with changed data
     let oflags = flags.bitand(PROPAGATION_TYPES.not());
     let zero: MsFlags = MsFlags::from_bits(0).unwrap();
-    if flags.bitand(MsFlags::MS_REMOUNT).eq(&zero) || data.is_some() {
+    let is_propagation_only = flags.bitand(MS_PROPAGATION.not()).eq(&zero)
+        && source.is_none()
+        && fs_type.is_none()
+        && data.is_none();
+    if !is_propagation_only && (flags.bitand(MsFlags::MS_REMOUNT).eq(&zero) || data.is_some()) {
         nix::mount::mount(source, target, fs_type, oflags, data)
             .map_err(|e| anyhow!("failed to mount {:?} to {}, err: {}", source, target, e))?
     }

@@ -41,6 +41,20 @@ use crate::{
 pub mod mount;
 pub mod utils;
 
+fn is_propagation_option(option: &str) -> bool {
+    matches!(
+        option,
+        "shared"
+            | "rshared"
+            | "slave"
+            | "rslave"
+            | "private"
+            | "rprivate"
+            | "unbindable"
+            | "runbindable"
+    )
+}
+
 impl<V> KuasarSandbox<V>
 where
     V: VM + Sync + Send,
@@ -66,7 +80,7 @@ where
             self.handle_block_device(&id, container_id, m).await?;
             return Ok(());
         }
-        // handle tmpfs mount
+        // handle tmpfs emptyDir mount: only query mountinfo for potential kubernetes emptyDir
         if m.source.contains("kubernetes.io~empty-dir") {
             let mount_info = get_mount_info(&m.source).await?;
             if let Some(mi) = mount_info {
@@ -199,7 +213,15 @@ where
             }
             tokio::fs::File::create(&host_dest).await?;
         }
-        bind_mount(&*source, &host_dest, &m.options)?;
+        // Perform bind mount first without propagation flags. Passing propagation flags
+        // directly to the initial bind mount call would fail with EINVAL on Linux.
+        let bind_options: Vec<String> = m
+            .options
+            .iter()
+            .filter(|o| !is_propagation_option(o))
+            .cloned()
+            .collect();
+        bind_mount(&*source, &host_dest, &bind_options)?;
         let mut storage = Storage {
             host_source: source.clone(),
             r#type: m.r#type.clone(),
@@ -292,9 +314,9 @@ where
             options,
             mount_point: format!("{}{}", KUASAR_GUEST_SHARE_DIR, storage_id),
         };
-        // only handle size option because other options may not supported in guest
+        // only handle size and propagation options because other options may not supported in guest
         for o in &mount_info.options {
-            if o.starts_with("size=") {
+            if o.starts_with("size=") || is_propagation_option(o) {
                 storage.options.push(o.to_string());
             }
         }
@@ -525,6 +547,7 @@ mod tests {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct MountInfo {
     pub mount_point: String,
     pub fs_type: String,

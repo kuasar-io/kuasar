@@ -81,7 +81,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: bin/kuasar.img
-          key: vmm-img-${{ inputs.hypervisor }}-${{ env.GUESTOS_IMAGE }}-${{ hashFiles('vmm/task/**', 'Cargo.lock', 'vmm/scripts/image/**', 'Makefile') }}
+          key: vmm-img-${{ inputs.hypervisor }}-${{ env.GUESTOS_IMAGE }}-${{ hashFiles('vmm/task/**', 'vmm/common/**', 'Cargo.lock', 'vmm/scripts/image/**', 'Makefile') }}
 
       - name: Restore Sandboxer Artifact Cache
         id: cache-sandboxer
