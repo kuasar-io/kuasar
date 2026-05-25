@@ -444,6 +444,99 @@ test_exec() {
     grep -q "kuasar-e2e-ok" "${exec_output_file}" || die "unexpected exec output: ${exec_output}"
 }
 
+test_emptydir_mount() {
+    local pod_cfg="${report_dir}/emptydir-pod.json"
+    local container_cfg="${report_dir}/emptydir-container.json"
+    local emptydir_host_dir="/tmp/kubernetes.io~empty-dir-test"
+    local p_id c_id host_mountinfo container_mountinfo
+
+    log "Testing emptyDir tmpfs mount propagation"
+
+    # 1. Prepare host tmpfs mount
+    sudo mkdir -p "${emptydir_host_dir}"
+    sudo mount -t tmpfs tmpfs "${emptydir_host_dir}"
+    sudo mount --make-shared "${emptydir_host_dir}"
+
+    host_mountinfo="$(grep " ${emptydir_host_dir} " /proc/self/mountinfo)"
+    log "Host emptyDir mountinfo: ${host_mountinfo}"
+    echo "${host_mountinfo}" | grep -q " - tmpfs " ||
+        die "host emptydir mount is not tmpfs"
+    echo "${host_mountinfo}" | grep -q " shared:" ||
+        die "host emptydir mount propagation is not shared"
+
+    # 2. Write pod and container config
+    create_podsandbox_config "${pod_cfg}" "emptydir-pod" "emptydir-uid"
+
+    cat >"${container_cfg}" <<EOF
+{
+  "metadata": {
+    "name": "emptydir-container",
+    "namespace": "default"
+  },
+  "image": {
+    "image": "docker.io/library/busybox:1.36.1"
+  },
+  "command": [
+    "/bin/sh",
+    "-c",
+    "sleep 3600"
+  ],
+  "log_path": "emptydir.log",
+  "linux": {
+    "security_context": {
+      "namespace_options": {
+        "network": 2,
+        "pid": 1
+      }
+    }
+  },
+  "mounts": [
+    {
+      "container_path": "/mnt/emptydir",
+      "host_path": "${emptydir_host_dir}",
+      "readonly": false,
+      "propagation": 0
+    }
+  ]
+}
+EOF
+
+    # 3. Create and start container
+    p_id="$(sudo crictl runp --runtime="${RUNTIME_HANDLER}" "${pod_cfg}")"
+    [[ -n "${p_id}" ]] || die "failed to run emptydir pod"
+    extra_pod_ids+=("${p_id}")
+
+    c_id="$(sudo crictl create "${p_id}" "${container_cfg}" "${pod_cfg}")"
+    [[ -n "${c_id}" ]] || die "failed to create container with emptydir mount"
+    sudo crictl start "${c_id}"
+
+    # 4. Verify /mnt/emptydir is tmpfs with non-private propagation.
+    # When the guest-side tmpfs is shared and the container bind-mounts from it
+    # inside a new mount namespace, Linux makes the container mount a slave
+    # (master:N) of the guest peer group. Both shared:N and master:N are
+    # acceptable: they confirm the guest tmpfs has shared propagation set by
+    # vmm-task based on the host mountinfo.
+    container_mountinfo="$(
+        sudo crictl exec "${c_id}" /bin/sh -c \
+            "grep ' /mnt/emptydir ' /proc/self/mountinfo"
+    )"
+    log "Mountinfo inside container: ${container_mountinfo}"
+    echo "${container_mountinfo}" | grep -q " - tmpfs " ||
+        die "emptydir mount inside container is not tmpfs"
+    echo "${container_mountinfo}" | grep -qE " (shared|master):[0-9]+" ||
+        die "emptydir mount propagation is not shared/slave (private is not acceptable)"
+
+    # 5. Clean up container and pod
+    sudo crictl rm -f "${c_id}"
+    sudo crictl stopp "${p_id}"
+    sudo crictl rmp -f "${p_id}"
+    extra_pod_ids=("${extra_pod_ids[@]/$p_id/}")
+
+    # 6. Unmount host dir
+    sudo umount "${emptydir_host_dir}"
+    sudo rm -rf "${emptydir_host_dir}"
+}
+
 test_kuasar_ctl_exec() {
     local output
 
@@ -653,7 +746,8 @@ run_all_tests() {
     run_test_group "CRI Basic" \
         test_cri_pod_lifecycle \
         test_multi_container_pod \
-        test_exec
+        test_exec \
+        test_emptydir_mount
 
     run_test_group "kuasar-ctl Functionality" \
         test_kuasar_ctl_exec \
