@@ -60,7 +60,7 @@ use crate::{
         utils::detect_pid,
     },
     utils::{read_std, set_cmd_netns, wait_channel, wait_pid, write_file_atomic},
-    vm::{BlockDriver, Pids, VcpuThreads, VM},
+    vm::{BlockDriver, Pids, Snapshottable, VcpuThreads, VM},
 };
 
 pub mod config;
@@ -612,3 +612,5 @@ fn spawn_wait(
 }
 
 impl_recoverable!(QemuVM);
+
+impl Snapshottable for QemuVM {}

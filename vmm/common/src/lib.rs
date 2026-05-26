@@ -22,6 +22,7 @@ pub mod panic;
 pub mod signal;
 pub mod storage;
 pub mod trace;
+pub mod warmfork;
 
 pub const KUASAR_STATE_DIR: &str = "/run/kuasar/state";
 

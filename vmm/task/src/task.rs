@@ -47,12 +47,17 @@ type Factory = YoukiFactory;
 #[cfg(feature = "youki")]
 type RealContainer = YoukiContainer;
 
+/// Returns the TaskService together with the shared SandboxResources so that
+/// SandboxService can call `register_adoption` for Resume-mode orphan adoption.
 pub(crate) async fn create_task_service(
     tx: Sender<(String, Box<dyn MessageDyn>)>,
-) -> anyhow::Result<TaskService<Factory, RealContainer>> {
+) -> anyhow::Result<(
+    TaskService<Factory, RealContainer>,
+    Arc<Mutex<SandboxResources>>,
+)> {
     let sandbox = Arc::new(Mutex::new(SandboxResources::new().await));
     let task = TaskService {
-        factory: Factory::new(sandbox),
+        factory: Factory::new(sandbox.clone()),
         containers: Arc::new(Default::default()),
         namespace: NAMESPACE.to_string(),
         exit: Arc::new(Default::default()),
@@ -61,7 +66,7 @@ pub(crate) async fn create_task_service(
     let s = monitor_subscribe(Topic::Pid).await?;
     process_exits(s, &task).await;
 
-    Ok(task)
+    Ok((task, sandbox))
 }
 
 async fn process_exits(s: Subscription, task: &TaskService<Factory, RealContainer>) {

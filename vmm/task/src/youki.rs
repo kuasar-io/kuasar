@@ -67,7 +67,7 @@ use crate::{
     device::rescan_pci_bus,
     io::{convert_stdio, copy_io_or_console, ProcessIO},
     sandbox::SandboxResources,
-    util::{read_io, read_storages},
+    util::{read_io, read_storages, verify_orphan_alive},
 };
 
 pub type ExecProcess = ProcessTemplate<YoukiExecLifecycle>;
@@ -114,6 +114,49 @@ impl ContainerFactory<YoukiContainer> for YoukiFactory {
 
         let id = req.id();
 
+        // Resume mode: check if this container should be adopted from a running orphan.
+        // adopt_container() pre-registered the orphan's PID; load the orphan's youki container
+        // state from disk and reuse it instead of spawning a new process.
+        if let Some(adoption) = self.sandbox.lock().await.take_adoption(id) {
+            warn!(
+                "create {}: adopting orphan youki container '{}' pid={}",
+                id, adoption.orphan_container_id, adoption.orphan_pid
+            );
+            let orphan_id = adoption.orphan_container_id.clone();
+            verify_orphan_alive(id, adoption.orphan_pid, &orphan_id)?;
+            let (container, orphan_id) = spawn_blocking(move || {
+                let c = Container::load(PathBuf::from(YOUKI_DIR).join(&orphan_id))
+                    .map_err(|e| other!("load orphan youki container '{}': {}", orphan_id, e))?;
+                Ok::<_, Error>((c, orphan_id))
+            })
+            .await
+            .map_err(other_error!(e, "join container load"))??;
+            let mut init = InitProcess::new(
+                id,
+                Stdio::new("", "", "", false),
+                YoukiInitLifecycle::new_adopted(
+                    Arc::new(Mutex::new(container)),
+                    opts.clone(),
+                    &bundle,
+                    orphan_id.clone(),
+                ),
+            );
+            init.pid = adoption.orphan_pid;
+            init.state = Status::RUNNING;
+            return Ok(YoukiContainer {
+                id: id.to_string(),
+                bundle: bundle.to_string(),
+                init,
+                process_factory: YoukiExecFactory {
+                    bundle: bundle.to_string(),
+                    io_uid: opts.io_uid,
+                    io_gid: opts.io_gid,
+                    adopted_youki_id: Some(orphan_id),
+                },
+                processes: Default::default(),
+            });
+        }
+
         let stdio = match read_io(&bundle, req.id(), None).await {
             Ok(io) => Stdio::new(&io.stdin, &io.stdout, &io.stderr, io.terminal),
             Err(_) => Stdio::new(req.stdin(), req.stdout(), req.stderr(), req.terminal()),
@@ -132,6 +175,7 @@ impl ContainerFactory<YoukiContainer> for YoukiFactory {
                 bundle: bundle.to_string(),
                 io_uid: opts.io_uid,
                 io_gid: opts.io_gid,
+                adopted_youki_id: None,
             },
             processes: Default::default(),
         };
@@ -229,6 +273,8 @@ pub struct YoukiExecFactory {
     bundle: String,
     io_uid: u32,
     io_gid: u32,
+    /// For adopted containers: the orphan's youki container ID used for exec operations.
+    adopted_youki_id: Option<String>,
 }
 
 #[async_trait]
@@ -252,7 +298,11 @@ impl ProcessFactory<ExecProcess> for YoukiExecFactory {
             console: None,
             lifecycle: Arc::from(YoukiExecLifecycle {
                 bundle: self.bundle.to_string(),
-                container_id: req.id.to_string(),
+                // Adopted containers: exec must target the orphan's youki state directory.
+                container_id: self
+                    .adopted_youki_id
+                    .clone()
+                    .unwrap_or_else(|| req.id.to_string()),
                 io_uid: self.io_uid,
                 io_gid: self.io_gid,
                 spec: p,
@@ -266,11 +316,20 @@ impl ProcessFactory<ExecProcess> for YoukiExecFactory {
 pub struct YoukiInitLifecycle {
     youki_container: Arc<Mutex<Container>>,
     exit_signal: Arc<ExitSignal>,
+    /// For adopted containers: the orphan's youki container ID.
+    /// Non-None means this container was adopted from a Resume-mode orphan;
+    /// start() must skip youki start because the orphan is already running.
+    adopted_youki_id: Option<String>,
 }
 
 #[async_trait]
 impl ProcessLifecycle<InitProcess> for YoukiInitLifecycle {
     async fn start(&self, p: &mut InitProcess) -> containerd_shim::Result<()> {
+        // Adopted orphans are already running; skip youki start.
+        if self.adopted_youki_id.is_some() {
+            p.state = Status::RUNNING;
+            return Ok(());
+        }
         p.lifecycle
             .youki_container
             .lock()
@@ -366,7 +425,19 @@ impl YoukiInitLifecycle {
         Self {
             youki_container,
             exit_signal: Default::default(),
+            adopted_youki_id: None,
         }
+    }
+
+    pub fn new_adopted(
+        youki_container: Arc<Mutex<Container>>,
+        opts: Options,
+        bundle: &str,
+        orphan_youki_id: String,
+    ) -> Self {
+        let mut lc = Self::new(youki_container, opts, bundle);
+        lc.adopted_youki_id = Some(orphan_youki_id);
+        lc
     }
 }
 

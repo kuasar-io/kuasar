@@ -34,6 +34,22 @@ use tokio::{
 };
 use vmm_common::{storage::Storage, Io, IO_FILE_PREFIX, STORAGE_FILE_PREFIX};
 
+/// Verify that an orphaned container process is still alive before completing resume adoption.
+/// Returns an error if `/proc/<pid>` does not exist.
+pub fn verify_orphan_alive(container_id: &str, pid: i32, runtime_id: &str) -> Result<()> {
+    if !std::path::Path::new("/proc").join(pid.to_string()).exists() {
+        return Err(other!(
+            "create {}: Resume adoption failed — orphan pid {} (runtime_id '{}') \
+             is no longer alive; sandbox must be restarted in Clone mode or \
+             recreated from a fresh snapshot",
+            container_id,
+            pid,
+            runtime_id
+        ));
+    }
+    Ok(())
+}
+
 pub struct PidMonitorGuard {
     subscription: Option<Subscription>,
 }

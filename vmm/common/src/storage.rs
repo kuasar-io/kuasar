@@ -44,6 +44,23 @@ pub struct Storage {
     pub fstype: String,
     pub options: Vec<String>,
     pub mount_point: String,
+    /// lowerdir= value extracted from overlay mount options.
+    /// Used for cross-sandbox storage reuse: two containers sharing the same
+    /// image layers will have identical lower_dirs and can share the same
+    /// hot-attached block device after snapshot restore.
+    #[serde(default)]
+    pub lower_dirs: Option<String>,
+    /// Host-side artifact path that the runtime owns and may delete when the
+    /// storage is no longer referenced.
+    #[serde(default)]
+    pub cleanup_path: Option<String>,
+    /// Whether the runtime owns the host-side artifact referenced by cleanup_path.
+    #[serde(default)]
+    pub owned_by_runtime: bool,
+    /// Stable identity for matching restored block artifacts without relying on
+    /// host mount source strings alone.
+    #[serde(default)]
+    pub source_identity: Option<String>,
 }
 
 impl Storage {

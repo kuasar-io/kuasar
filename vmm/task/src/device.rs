@@ -94,6 +94,11 @@ impl DeviceMonitor {
         let (tx, rx) = channel(1);
         for device in internal.devices.values() {
             if matcher.is_match(device) {
+                log::debug!(
+                    "device_monitor: cache hit for device addr={} path={}",
+                    device.addr,
+                    device.path
+                );
                 let _ = tx.send(device.clone()).await;
             }
         }

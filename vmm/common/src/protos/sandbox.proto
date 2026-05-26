@@ -33,6 +33,25 @@ service SandboxService {
     rpc SyncClock (SyncClockPacket) returns (SyncClockPacket);
     rpc GetEvents (google.protobuf.Empty) returns (containerd.services.events.ttrpc.v1.Envelope);
     rpc SetupSandbox (SetupSandboxRequest) returns (google.protobuf.Empty);
+
+    // Resume mode: rename an orphan container to the new containerd-assigned ID so the
+    // running process is adopted instead of duplicated.
+    rpc AdoptContainer (AdoptContainerRequest) returns (AdoptContainerResponse);
+
+    // Snapshot restore: inject fresh host-generated entropy into the guest to prevent
+    // duplicate random state across VMs restored from the same snapshot.
+    rpc ReseedEntropy (ReseedEntropyRequest) returns (google.protobuf.Empty);
+
+    // WarmFork: deliver task parameters to all ready-waiting workload processes via the
+    // two-phase PREPARE/READY/COMMIT/STARTED protocol. The guest agent enters each
+    // container's mount namespace (via setns) before connecting to its readiness socket.
+    rpc InjectTask (InjectTaskRequest) returns (InjectTaskResponse);
+
+    // WarmFork: verify all readiness sockets are open and workloads speak the expected
+    // protocol version. The guest agent probes each target: connects, reads CAPABILITIES,
+    // then closes the connection. Each workload receives EOF and loops back to accept(),
+    // ready for the real injection after restore.
+    rpc CheckInjectSocket (CheckInjectSocketRequest) returns (CheckInjectSocketResponse);
 }
 
 message CheckRequest {
@@ -117,4 +136,129 @@ message SetupSandboxRequest {
     google.protobuf.Any config = 1;
     repeated Interface interfaces = 2;
     repeated Route routes = 3;
+}
+
+message AdoptContainerRequest {
+    string old_id = 1;
+    string new_id = 2;
+}
+
+message AdoptContainerResponse {
+}
+
+message ReseedEntropyRequest {
+    bytes seed = 1;
+}
+
+// ── WarmFork: CheckInjectSocket ───────────────────────────────────────────────
+
+// One workload container target to probe or inject.
+message InjectTarget {
+    // CRI container ID; guest agent uses this to enter the container's mount namespace.
+    string container_id = 1;
+    // Absolute path of the readiness socket inside the container's mount namespace.
+    // Defaults to /run/warmfork-readiness.sock when empty.
+    string socket_path  = 2;
+}
+
+// Per-target result of CheckInjectSocket.
+message TargetCheckResult {
+    string container_id      = 1;
+    TargetCheckStatus status = 2;
+    // Human-readable detail on non-OK status.
+    string message           = 3;
+}
+
+enum TargetCheckStatus {
+    TARGET_CHECK_OK    = 0;
+    // container_id unknown to guest agent.
+    TARGET_NOT_FOUND   = 1;
+    // setns into container's mount namespace failed.
+    NAMESPACE_ERROR    = 2;
+    // unix connect() to socket_path failed.
+    CONNECT_FAILED     = 3;
+    // CAPABILITIES missing, wrong version, or malformed.
+    PROTOCOL_ERROR     = 4;
+}
+
+// WarmFork: pre-snapshot readiness socket probe.
+// Targets to probe. For single-container mode this has exactly one entry.
+message CheckInjectSocketRequest {
+    repeated InjectTarget targets = 1;
+}
+
+message CheckInjectSocketResponse {
+    // Per-target results, in the same order as CheckInjectSocketRequest.targets.
+    repeated TargetCheckResult results = 1;
+}
+
+// ── WarmFork: InjectTask ──────────────────────────────────────────────────────
+
+// Per-container task parameters for injection.
+message ContainerTask {
+    // Used for mount-namespace entry.
+    string container_id              = 1;
+    // Absolute path of the readiness socket inside the container's mount namespace.
+    string socket_path               = 2;
+    // Non-empty; same value for all targets in one restore.
+    string task_id                   = 3;
+    // Per-target effective env overrides (pod-level merged with per-container).
+    map<string, string> env_overrides = 4;
+    // Per-target effective context.
+    string context                   = 5;
+}
+
+// Per-target result of InjectTask.
+message ContainerInjectResult {
+    string container_id  = 1;
+    InjectStatus status  = 2;
+    // Which phase this result belongs to; use this, not enum ordinal.
+    InjectPhase phase    = 3;
+    string message       = 4;
+}
+
+// Which protocol phase the result belongs to, so the host can choose the correct
+// action (rollback vs. VM stop) without relying on enum ordinals.
+enum InjectPhase {
+    // Failure before COMMIT was sent (connect / setns / PREPARE exchange).
+    INJECT_PHASE_PREPARE = 0;
+    // Failure after COMMIT was sent (COMMIT exchange / STARTED wait).
+    INJECT_PHASE_COMMIT  = 1;
+}
+
+enum InjectStatus {
+    // Workload sent STARTED; restore committed.
+    INJECT_STARTED          = 0;
+    // Workload sent REJECT during PREPARE (always PHASE_PREPARE).
+    INJECT_REJECT           = 1;
+    // Could not connect to readiness socket.
+    INJECT_CONNECT_FAILED   = 2;
+    // setns into container's mount namespace failed.
+    INJECT_NAMESPACE_ERROR  = 3;
+    // Unexpected message or parse failure.
+    INJECT_PROTOCOL_ERROR   = 4;
+    // READY never received within prepare_timeout_ms (always PHASE_PREPARE).
+    INJECT_TIMEOUT_PREPARE  = 5;
+    // STARTED never received within commit_timeout_ms (always PHASE_COMMIT).
+    INJECT_TIMEOUT_COMMIT   = 6;
+    // container_id not found in guest agent.
+    INJECT_TARGET_NOT_FOUND = 7;
+    // Any other guest-side error.
+    INJECT_INTERNAL_ERROR   = 8;
+}
+
+// WarmFork: task parameters delivered to all ready-waiting workload processes.
+// The guest agent implements the two-phase PREPARE/READY/COMMIT/STARTED protocol.
+message InjectTaskRequest {
+    // One entry per workload target.
+    repeated ContainerTask tasks     = 1;
+    // Phase-1 timeout in milliseconds (waiting for all READY replies).
+    uint32 prepare_timeout_ms        = 2;
+    // Phase-2 timeout in milliseconds (waiting for all STARTED replies after COMMIT).
+    uint32 commit_timeout_ms         = 3;
+}
+
+message InjectTaskResponse {
+    // Per-target results, in the same order as InjectTaskRequest.tasks.
+    repeated ContainerInjectResult results = 1;
 }
