@@ -28,6 +28,7 @@ use log::debug;
 use nix::{errno::Errno, libc, mount::MsFlags, NixPath};
 use regex::Regex;
 
+pub const MNT_DETACH: i32 = libc::MNT_DETACH;
 pub const MNT_NOFOLLOW: i32 = 0x8;
 pub const MNT_OPTION_MAX_LEN: usize = 4096;
 

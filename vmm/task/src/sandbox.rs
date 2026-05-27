@@ -47,13 +47,13 @@ pub struct SandboxResources {
 }
 
 impl SandboxResources {
-    pub async fn new() -> Self {
+    pub async fn new() -> Result<Self> {
         let device_monitor = DeviceMonitor::new();
-        device_monitor.start().await;
-        Self {
+        device_monitor.start().await?;
+        Ok(Self {
             storages: vec![],
             device_monitor,
-        }
+        })
     }
 
     pub async fn add_storages(&mut self, container_id: &str, storages: Vec<Storage>) -> Result<()> {
@@ -178,7 +178,13 @@ async fn mount_storage(storage: &Storage) -> Result<()> {
 
 async fn unmount_storage(storage: &Storage) -> Result<()> {
     let src_path = Path::new(&storage.source);
-    unmount(&storage.mount_point, 0).map_err(other_error!(e, ""))?;
+    // MNT_DETACH: lazy unmount to handle busy mounts during fast restarts
+    // MNT_NOFOLLOW: don't follow symlinks for safety
+    unmount(
+        &storage.mount_point,
+        vmm_common::mount::MNT_DETACH | vmm_common::mount::MNT_NOFOLLOW,
+    )
+    .map_err(other_error!(e, ""))?;
     if storage.fstype == "bind" && !src_path.is_dir() {
         tokio::fs::remove_file(&storage.mount_point)
             .await
