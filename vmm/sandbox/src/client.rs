@@ -375,15 +375,12 @@ fn checked_compute_delta(c_send: i64, c_arrive: i64, s_send: i64, s_arrive: i64)
         .checked_sub(s_send)
         .ok_or_else(|| anyhow!("integer overflow {} - {}", s_arrive, s_send))?;
 
-    let delta_sum = delta_client
-        .checked_add(delta_server)
-        .ok_or_else(|| anyhow!("integer overflow {} + {}", delta_client, delta_server))?;
+    // Widen to i128 before adding to avoid intermediate overflow.
+    // Both delta_client and delta_server fit in i64, so their sum fits in i128,
+    // and after dividing by 2 the result is guaranteed to fit back in i64.
+    let delta = (delta_client as i128 + delta_server as i128) / 2;
 
-    let delta = delta_sum
-        .checked_div(2)
-        .ok_or_else(|| anyhow!("integer overflow {} / 2", delta_sum))?;
-
-    Ok(delta)
+    Ok(delta as i64)
 }
 
 pub(crate) async fn publish_event(envelope: Envelope) -> Result<()> {
@@ -472,5 +469,31 @@ mod tests {
         let expect_delta = 128;
         let actual_delta = checked_compute_delta(c_send, c_arrive, s_send, s_arrive).unwrap();
         assert_eq!(expect_delta, actual_delta);
+    }
+
+    #[test]
+    fn test_checked_compute_delta_no_intermediate_overflow_max() {
+        // Regression test for issue #244.
+        // delta = ((i64::MAX - 0) + (i64::MAX - 0)) / 2 = i64::MAX
+        // The intermediate sum 2 * i64::MAX overflows i64 but fits in i128.
+        let max = i64::MAX;
+        let result = checked_compute_delta(max, 0, 0, max);
+        assert_eq!(result.unwrap(), max);
+    }
+
+    #[test]
+    fn test_checked_compute_delta_no_intermediate_overflow_min() {
+        // delta = ((i64::MIN - 0) + (i64::MIN - 0)) / 2 = i64::MIN
+        let min = i64::MIN;
+        let result = checked_compute_delta(min, 0, 0, min);
+        assert_eq!(result.unwrap(), min);
+    }
+
+    #[test]
+    fn test_checked_compute_delta_overflow_on_subtraction() {
+        // i64::MIN - i64::MAX overflows i64; this should still return Err.
+        let result = checked_compute_delta(i64::MIN, i64::MAX, 0, 0);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("overflow"));
     }
 }
