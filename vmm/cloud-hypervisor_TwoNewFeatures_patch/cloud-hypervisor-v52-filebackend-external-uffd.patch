@@ -1,9 +1,9 @@
 diff --git a/Cargo.lock b/Cargo.lock
-index 1c02d2604..7c1cdf8e2 100644
+index d0a21c5f0..0fe9e8830 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
-@@ -367,6 +367,15 @@ dependencies = [
-  "zstd",
+@@ -353,6 +353,15 @@ dependencies = [
+  "hybrid-array",
  ]
  
 +[[package]]
@@ -18,7 +18,7 @@ index 1c02d2604..7c1cdf8e2 100644
  [[package]]
  name = "blocking"
  version = "1.6.2"
-@@ -410,6 +419,12 @@ version = "1.0.4"
+@@ -396,6 +405,12 @@ version = "1.0.4"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
  
@@ -31,7 +31,7 @@ index 1c02d2604..7c1cdf8e2 100644
  [[package]]
  name = "chacha20"
  version = "0.10.0"
-@@ -457,6 +472,7 @@ dependencies = [
+@@ -443,6 +458,7 @@ dependencies = [
   "api_client",
   "block",
   "clap",
@@ -39,7 +39,7 @@ index 1c02d2604..7c1cdf8e2 100644
   "dhat",
   "dirs",
   "env_logger",
-@@ -468,6 +484,7 @@ dependencies = [
+@@ -455,6 +471,7 @@ dependencies = [
   "net_util",
   "option_parser",
   "seccompiler",
@@ -47,9 +47,9 @@ index 1c02d2604..7c1cdf8e2 100644
   "serde_json",
   "signal-hook",
   "test_infra",
-@@ -539,6 +556,17 @@ version = "0.8.21"
- source = "registry+https://github.com/rust-lang/crates.io-index"
- checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
+@@ -541,6 +558,17 @@ dependencies = [
+  "hybrid-array",
+ ]
  
 +[[package]]
 +name = "ctrlc"
@@ -59,14 +59,14 @@ index 1c02d2604..7c1cdf8e2 100644
 +dependencies = [
 + "dispatch2",
 + "nix",
-+ "windows-sys 0.61.0",
++ "windows-sys",
 +]
 +
  [[package]]
  name = "darling"
  version = "0.23.0"
-@@ -644,6 +672,18 @@ dependencies = [
-  "windows-sys 0.61.0",
+@@ -657,6 +685,18 @@ dependencies = [
+  "windows-sys",
  ]
  
 +[[package]]
@@ -75,7 +75,7 @@ index 1c02d2604..7c1cdf8e2 100644
 +source = "registry+https://github.com/rust-lang/crates.io-index"
 +checksum = "1e0e367e4e7da84520dedcac1901e4da967309406d1e51017ae1abfb97adbd38"
 +dependencies = [
-+ "bitflags 2.11.0",
++ "bitflags 2.11.1",
 + "block2",
 + "libc",
 + "objc2",
@@ -84,17 +84,17 @@ index 1c02d2604..7c1cdf8e2 100644
  [[package]]
  name = "either"
  version = "1.15.0"
-@@ -1413,6 +1453,18 @@ dependencies = [
+@@ -1446,6 +1486,18 @@ dependencies = [
   "vmm-sys-util",
  ]
  
 +[[package]]
 +name = "nix"
-+version = "0.31.2"
++version = "0.31.3"
 +source = "registry+https://github.com/rust-lang/crates.io-index"
-+checksum = "5d6d0705320c1e6ba1d912b5e37cf18071b6c2e9b7fa8215a1e8a7651966f5d3"
++checksum = "cf20d2fde8ff38632c426f1165ed7436270b44f199fc55284c38276f9db47c3d"
 +dependencies = [
-+ "bitflags 2.11.0",
++ "bitflags 2.11.1",
 + "cfg-if",
 + "cfg_aliases",
 + "libc",
@@ -103,7 +103,7 @@ index 1c02d2604..7c1cdf8e2 100644
  [[package]]
  name = "no-std-net"
  version = "0.6.0"
-@@ -1450,6 +1502,21 @@ dependencies = [
+@@ -1483,6 +1535,21 @@ dependencies = [
   "syn",
  ]
  
@@ -125,7 +125,7 @@ index 1c02d2604..7c1cdf8e2 100644
  [[package]]
  name = "object"
  version = "0.37.3"
-@@ -2561,6 +2628,7 @@ dependencies = [
+@@ -2594,6 +2661,7 @@ dependencies = [
   "blocking",
   "cfg-if",
   "clap",
@@ -134,18 +134,18 @@ index 1c02d2604..7c1cdf8e2 100644
   "dhat",
   "epoll",
 diff --git a/cloud-hypervisor/Cargo.toml b/cloud-hypervisor/Cargo.toml
-index 8259b716f..6c6363ccf 100644
+index 39bcd3ff4..46409a786 100644
 --- a/cloud-hypervisor/Cargo.toml
 +++ b/cloud-hypervisor/Cargo.toml
-@@ -32,6 +32,7 @@ vm-memory = { workspace = true }
+@@ -33,6 +33,7 @@ vm-memory = { workspace = true }
  vmm = { path = "../vmm" }
  vmm-sys-util = { workspace = true }
- zbus = { version = "5.14.0", optional = true }
+ zbus = { version = "5.15.0", optional = true }
 +ctrlc = "3"
  
  [dev-dependencies]
  block = { path = "../block" }
-@@ -40,6 +41,7 @@ net_util = { path = "../net_util" }
+@@ -41,6 +42,7 @@ net_util = { path = "../net_util" }
  serde_json = { workspace = true }
  test_infra = { path = "../test_infra" }
  wait-timeout = { workspace = true }
@@ -155,10 +155,10 @@ index 8259b716f..6c6363ccf 100644
  # feature list below
 diff --git a/cloud-hypervisor/examples/external_uffd_handler.rs b/cloud-hypervisor/examples/external_uffd_handler.rs
 new file mode 100644
-index 000000000..b9210a0b0
+index 000000000..5070a347b
 --- /dev/null
 +++ b/cloud-hypervisor/examples/external_uffd_handler.rs
-@@ -0,0 +1,1974 @@
+@@ -0,0 +1,1873 @@
 +// Copyright 2026 The Kuasar Author
 +//
 +// SPDX-License-Identifier: Apache-2.0
@@ -202,8 +202,10 @@ index 000000000..b9210a0b0
 +    MAP_FAILED,
 +    MADV_WILLNEED,
 +};
-+#[allow(unused)]
 +
++use log::debug;
++
++#[allow(unused)]
 +use vmm::external_uffd::{
 +    accept_and_recv_handshake,
 +    read_pagefault_message,
@@ -732,100 +734,9 @@ index 000000000..b9210a0b0
 +        }
 +    }
 +
-+    #[allow(unused)]
-+    fn print_stats(&self) {
-+        eprintln!(
-+            "[handler][debug] print_stats: global_faults={} handler_stats_ptr={:p}",
-+            self.handler_stats.fault_count,
-+            &self.handler_stats,
-+        );
-+        
-+        let region_fault_sum: u64 = self.stats.iter().map(|s| s.fault_count).sum();
-+
-+        eprintln!(
-+            "[handler][stats] faults={} batches={} drained_faults={} copied_pages={} copied_bytes={} prefetch_pages={} sequential_hits={} eagain_retries={} eexist_fallbacks={}",
-+            region_fault_sum,
-+            self.handler_stats.batch_count,
-+            self.handler_stats.drained_faults_total,
-+            self.handler_stats.copied_pages,
-+            self.handler_stats.copied_bytes,
-+            self.handler_stats.prefetch_pages,
-+            self.handler_stats.sequential_hits,
-+            self.handler_stats.copy_eagain_retries,
-+            self.handler_stats.copy_eexist_fallbacks,
-+        );
-+
-+        let avg_faults_per_batch = if self.handler_stats.batch_count > 0 {
-+            let region_fault_sum: u64 = self.stats.iter().map(|s| s.fault_count).sum();
-+            eprintln!(
-+                "[handler][stats] region_fault_sum={} global_faults={}",
-+                region_fault_sum,
-+                self.handler_stats.fault_count,
-+            );
-+            self.handler_stats.drained_faults_total as f64
-+                / self.handler_stats.batch_count as f64
-+        } else {
-+            0.0
-+        };
-+
-+        let avg_pages_per_batch = if self.handler_stats.batch_count > 0 {
-+            self.handler_stats.copied_pages as f64
-+                / self.handler_stats.batch_count as f64
-+        } else {
-+            0.0
-+        };
-+
-+        eprintln!(
-+            "[handler][stats] avg_faults_per_batch={avg_faults_per_batch:.2} avg_pages_per_batch={avg_pages_per_batch:2}"
-+        );
-+
-+        for (i, s) in self.stats.iter().enumerate() {
-+            eprintln!(
-+                "[handler][region {}] faults={} copied_pages={} copied_bytes={} prefetch_pages={} sequential_hits={} eagain_retries={} eexist_fallbacks={}",
-+                i,
-+                s.fault_count,
-+                s.copied_pages,
-+                s.copied_bytes,
-+                s.prefetch_pages,
-+                s.sequential_hits,
-+                s.eagain_retries,
-+                s.eexist_fallbacks,
-+            );
-+
-+            eprintln!(
-+                "[handler][region {}] faults={} batches={} merged_ranges={} merged_fault_savings={} copied_pages={} prefetch_pages={} eagain_retries={} eexist_fallbacks={}",
-+                i,
-+                s.fault_count,
-+                s.batch_count,
-+                s.merged_ranges,
-+                s.merged_fault_savings,
-+                s.copied_pages,
-+                s.prefetch_pages,
-+                s.eagain_retries,
-+                s.eexist_fallbacks,
-+            );
-+        }
-+
-+        if let Some(first) = self.mappings.first() {
-+            eprintln!("[handler][stats] page_size={}", first.page_size);
-+        }
-+    }
-+
 +    // Optimization version
 +    // Print out stats when type Ctr+C in side of external Handler 
 +    fn print_stats_opti(&self) {
-+        let avg_faults_per_batch = if self.handler_stats.batch_count > 0 {
-+            self.handler_stats.drained_faults_total as f64 / self.handler_stats.batch_count as f64
-+        } else {
-+            0.0
-+        };
-+
-+        let avg_pages_per_batch = if self.handler_stats.batch_count > 0 {
-+            self.handler_stats.copied_pages as f64 / self.handler_stats.batch_count as f64
-+        } else {
-+            0.0
-+        };
-+
 +        eprintln!(
 +            "[handler][stats] faults={} batches={} drained_faults={} copied_pages={} copied_bytes={} prefetch_pages={} range_copy_calls={} page_copy_calls={} skipped_existing_pages={} merged_ranges={} merged_fault_savings={} eagain_retries={} eexist_fallbacks={}",
 +            self.handler_stats.fault_count,
@@ -843,20 +754,8 @@ index 000000000..b9210a0b0
 +            self.handler_stats.copy_eexist_fallbacks,
 +        );
 +
-+        eprintln!(
-+            "[handler][stats] avg_faults_per_batch={:.2} avg_pages_per_batch={:.2} sequential_hits={} random_hits={} max_faults_in_batch={} max_pages_in_batch={} prefetch_useful_pages={} prefetch_wasted_pages={}",
-+            avg_faults_per_batch,
-+            avg_pages_per_batch,
-+            self.handler_stats.sequential_hits,
-+            self.handler_stats.random_hits,
-+            self.handler_stats.max_faults_in_batch,
-+            self.handler_stats.max_pages_in_batch,
-+            self.handler_stats.prefetch_useful_pages,
-+            self.handler_stats.prefetch_wasted_pages,
-+        );
-+
 +        for (idx, s) in self.stats.iter().enumerate() {
-+            eprintln!(
++            debug!(
 +                "[handler][region {}] faults={} batches={} drained_faults={} copy_calls={} range_copy_calls={} page_copy_calls={} copied_pages={} copied_bytes={} skipped_existing_pages={} prefetch_pages={} sequential_hits={} merged_ranges={} merged_fault_savings={} eagain_retries={} eexist_fallbacks={} zeropage_calls={} remove_events={}",
 +                idx,
 +                s.fault_count,
@@ -912,13 +811,13 @@ index 000000000..b9210a0b0
 +                }
 +            };
 +
-+            eprintln!(
++            debug!(
 +                "[handler] msg.event = {} pf_flags=0x{:x} pf_address=0x{:x}",
 +                msg.event, msg.pf_flags, msg.pf_address
 +            );
 +
 +            if msg.event != EXTERNAL_UFFD_EVENT_PAGEFAULT {
-+                eprintln!("[handler] skipping non-pagefault event {}", msg.event);
++                debug!("[handler] skipping non-pagefault event {}", msg.event);
 +                continue;
 +            }
 +
@@ -927,7 +826,7 @@ index 000000000..b9210a0b0
 +            let idx = match self.find_mapping_idx(addr) {
 +                Ok(idx) => idx,
 +                Err(e) => {
-+                    eprintln!("[handler] mapping miss for addr=0x{addr:x}: {e:#}");
++                    debug!("[handler] mapping miss for addr=0x{addr:x}: {e:#}");
 +                    continue;
 +                }
 +            };
@@ -1854,7 +1753,7 @@ index 000000000..b9210a0b0
 +        };
 +
 +        eprintln!(
-+            "[handler][stats] avg_faults_per_batch={:.2} avg_pages_per_batch={:.2} sequential_hits={} random_hits={} max_faults_in_batch={} max_pages_in_batch={} prefetch_useful_pages={} prefetch_wasted_pages={}",
++            "[handler][summary] avg_faults_per_batch={:.2} avg_pages_per_batch={:.2} sequential_hits={} random_hits={} max_faults_in_batch={} max_pages_in_batch={} prefetch_useful_pages={} prefetch_wasted_pages={}",
 +            avg_faults_per_batch,
 +            avg_pages_per_batch,
 +            self.handler_stats.sequential_hits,
@@ -2021,7 +1920,7 @@ index 000000000..b9210a0b0
 +        let result = (|| -> Result<()> {
 +            loop {
 +                if stop.load(Ordering::SeqCst) {
-+                    eprintln!("[handler] stop flag set, breaking loop");
++                    debug!("[handler] stop flag set, breaking loop");
 +                    break;
 +                }
 +
@@ -2133,2493 +2032,8 @@ index 000000000..b9210a0b0
 +}
 +
 +
-diff --git a/cloud-hypervisor/examples/external_uffd_handler.rs.milestone.73ms b/cloud-hypervisor/examples/external_uffd_handler.rs.milestone.73ms
-new file mode 100644
-index 000000000..1c401456e
---- /dev/null
-+++ b/cloud-hypervisor/examples/external_uffd_handler.rs.milestone.73ms
-@@ -0,0 +1,2390 @@
-+// Copyright 2026 The Kuasar Authors
-+//
-+// SPDX-License-Identifier: Apache-2.0
-+//
-+//use serde::Deserialize;
-+use std::path::Path;
-+
-+#[allow(unused)]
-+use std::{
-+    ffi::c_void,
-+    fs::File,
-+    io::{self, Error, ErrorKind},
-+    os::unix::{
-+        io::{RawFd, AsRawFd},
-+        net::UnixListener,
-+        fs::FileExt
-+    },
-+    mem,
-+    ptr,
-+    cmp::{max,min},
-+    sync::{
-+        atomic::{AtomicBool, Ordering},
-+    Arc}
-+};
-+
-+#[allow(unused)]
-+use anyhow::{bail, Context, Result};
-+
-+#[allow(unused)]
-+use libc::{
-+    read,
-+    iovec,
-+    msghdr,
-+    recvmsg,
-+    CMSG_FIRSTHDR,
-+    CMSG_DATA,
-+    mmap, 
-+    PROT_READ,
-+    MAP_PRIVATE,
-+    MAP_FAILED,
-+    MADV_WILLNEED,
-+    madvise,
-+    ioctl,
-+};
-+
-+use vmm::external_uffd::{
-+    accept_and_recv_handshake,
-+    ExternalUffdMapping,
-+};
-+
-+//#[allow(non_snake_case)]
-+//#[allow(unreachable_patterns)]
-+//#[allow(unused)]
-+use vmm::external_uffd::read_pagefault_message;
-+#[allow(unused)]
-+use vmm::external_uffd::UffdPagefaultMsg;
-+
-+//#[allow(unused)]
-+use vmm::external_uffd::EXTERNAL_UFFD_EVENT_PAGEFAULT;
-+
-+// Change #41 - for external UFFD
-+#[repr(C)]
-+#[derive(Debug, Copy, Clone)]
-+struct uffdio_copy {
-+    dst: u64,
-+    src: u64,
-+    len: u64,
-+    mode: u64,
-+    //copy: u64,
-+    copy: i64,
-+}
-+
-+// Change #42 - for external UFFD
-+#[repr(C)]
-+#[derive(Debug, Copy, Clone)]
-+struct uffdio_range {
-+    start: u64,
-+    len: u64,
-+}
-+
-+// Change #43 - for external UFFD
-+#[repr(C)]
-+#[derive(Debug, Copy, Clone)]
-+struct uffdio_zeropage {
-+    range: uffdio_range,
-+    mode: u64,
-+    zeropage: i64,
-+}
-+
-+
-+const IOC_NRBITS: u64 = 8;
-+const IOC_TYPEBITS: u64 = 8;
-+const IOC_SIZEBITS: u64 = 14;
-+
-+const IOC_NRSHIFT: u64 = 0;
-+const IOC_TYPESHIFT: u64 = IOC_NRSHIFT + IOC_NRBITS;
-+const IOC_SIZESHIFT: u64 = IOC_TYPESHIFT + IOC_TYPEBITS;
-+const IOC_DIRSHIFT: u64 = IOC_SIZESHIFT + IOC_SIZEBITS;
-+
-+const IOC_WRITE: u64 = 1;
-+const IOC_READ: u64 = 2;
-+
-+const UFFDIO: u64 = 0xAA;
-+
-+const fn ioc(dir: u64, ty: u64, nr: u64, size: u64) -> u64 {
-+    (dir << IOC_DIRSHIFT)
-+        | (ty << IOC_TYPESHIFT)
-+        | (nr << IOC_NRSHIFT)
-+        | (size << IOC_SIZESHIFT)
-+}
-+
-+const fn iowr(ty: u64, nr: u64, size: u64) -> u64 {
-+    ioc(IOC_READ | IOC_WRITE, ty, nr, size)
-+}
-+
-+const UFFDIO_COPY: libc::c_ulong =
-+    iowr(UFFDIO, 3, std::mem::size_of::<uffdio_copy>() as u64) as libc::c_ulong;
-+
-+const UFFDIO_ZEROPAGE: libc::c_ulong = 
-+    iowr(UFFDIO, 4, std::mem::size_of::<uffdio_zeropage>() as u64) as libc::c_ulong;
-+
-+
-+#[allow(unused)]
-+const MAX_BATCHED_FAULTS: usize = 64; // if more aggressive, change to 128
-+
-+#[allow(unused)]
-+const MAX_DRAIN_PER_WAKE: usize = 128;
-+
-+#[allow(unused)]
-+const DEFAULT_PREFETCH_PAGES: u64 = 2;
-+
-+#[allow(unused)]
-+const MAX_PREFETCH_PAGES: u64 = 16; // if more aggressive, change to 128
-+
-+#[allow(unused)]
-+const SEQUENTIAL_PROMOTE_THRESHOLD: u64 = 3;
-+
-+#[allow(unused)]
-+const DRAIN_TIMEOUT_SPINS: usize = 8;
-+
-+#[allow(unused)]
-+const DRAIN_SPIN_ROUNDS: usize = 8;
-+
-+#[allow(unused)]
-+const COPY_CHUNK_BYTES: u64 = 256 * 1024;
-+
-+// change #27 - for external UFFD
-+#[allow(unused)]
-+fn recv_fd(sock: RawFd) -> Result<(Vec<u8>, RawFd)> {
-+    let mut buf = [0u8; 16 * 1024];
-+    let mut iov = [iovec {
-+        iov_base: buf.as_mut_ptr() as *mut c_void,
-+        iov_len: buf.len(),
-+    }];
-+
-+    let mut cmsgspace = [0u8; 64];
-+
-+    let mut msg: msghdr =
-+        // SAFETY: 
-+        // To do
-+        unsafe { mem::zeroed() };
-+    msg.msg_iov = iov.as_mut_ptr();
-+    msg.msg_iovlen = 1;
-+    msg.msg_control = cmsgspace.as_mut_ptr() as *mut c_void;
-+    msg.msg_controllen = cmsgspace.len();
-+
-+    let size = 
-+        // SAFETY: 
-+        // To do
-+        unsafe { recvmsg(sock, &mut msg, 0) };
-+    if size <= 0 {
-+        return Err(io::Error::last_os_error()).context("recvmsg failed");
-+    }
-+
-+    let mut fd = -1;
-+    // SAFETY: 
-+    // To do
-+    unsafe {
-+        let cmsg = CMSG_FIRSTHDR(&msg);
-+        if !cmsg.is_null() {
-+            let data = CMSG_DATA(cmsg) as *const RawFd;
-+            fd = *data;
-+        }
-+    }
-+
-+    Ok((buf[..size as usize].to_vec(), fd))
-+}
-+
-+// change #29 - for external UFFD
-+#[allow(unused)]
-+struct SnapshotMap {
-+    ptr: *mut c_void,
-+    len: usize,
-+}
-+
-+#[allow(unused)]
-+impl SnapshotMap {
-+    pub fn read_exact_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
-+        let start = usize::try_from(offset).map_err(|_| {
-+            Error::new(
-+                ErrorKind::InvalidInput,
-+                format!("offset {offset} does not fit in usize"),
-+            )
-+        })?;
-+
-+        let end = start.checked_add(buf.len()).ok_or_else(|| {
-+            Error::new(
-+                ErrorKind::InvalidInput,
-+                format!("offset {} + len {} overflow", offset, buf.len()),
-+            )
-+        })?;
-+
-+        if end > self.len {
-+            return Err(Error::new(
-+                ErrorKind::UnexpectedEof,
-+                format!(
-+                    "snapshot out of range: [{}..{}) exceeds snapshot len {}",
-+                    start, end, self.len
-+                ),
-+            ));
-+        }
-+
-+        // SAFETY: 
-+        // To do
-+        unsafe {
-+            // SAFETY:
-+            // - self.ptr points to a valid mapped memory region of length self.len
-+            // - range [start, end) has been bounds-checked above
-+            // - buf is a valid writable slice of length buf.len()
-+            std::ptr::copy_nonoverlapping(
-+                (self.ptr as *const u8).add(start),
-+                buf.as_mut_ptr(),
-+                buf.len(),
-+            );
-+        }
-+
-+        Ok(())
-+    }
-+
-+    fn map(file: &File) -> Result<Self> {
-+        let len = file.metadata()?.len() as usize;
-+        // SAFETY: 
-+        // To do
-+        let ptr = unsafe { 
-+            mmap(
-+                ptr::null_mut(), 
-+                len, 
-+                PROT_READ,
-+                MAP_PRIVATE, 
-+                file.as_raw_fd(), 
-+                0) };
-+        
-+        if ptr == MAP_FAILED {
-+            return Err(io::Error::last_os_error()).context("mmap snapshot failed");
-+        }
-+
-+        // SAFETY: 
-+        // To do
-+        unsafe {
-+            let _ = madvise(ptr, len, MADV_WILLNEED);
-+        }
-+
-+        Ok(Self { ptr, len })
-+    }
-+
-+    fn as_ptr(&self) -> *const u8 {
-+        self.ptr as *const u8
-+    }
-+}
-+
-+// Change #30 - for external UFFD
-+#[allow(unused)]
-+struct ExternalUffdHandler {
-+    uffd_fd: RawFd,
-+    snapshot: SnapshotMap,
-+    mappings: Vec<ExternalUffdMapping>,
-+    heuristics: Vec<RegionHeuristics>,
-+    stats: Vec<RegionStats>, // per-region stats
-+    handler_stats: HandlerStats,  // global stats
-+    // recommended: reusable copy buffer for snapshot -> uffdio_copy
-+    scratch: Vec<u8>,
-+}
-+
-+#[allow(unused)]
-+#[derive(Default, Debug, Clone)]
-+struct HandlerStats {
-+    fault_count: u64,
-+    batch_count: u64,
-+    drained_faults_total: u64,
-+
-+    copied_pages: u64,
-+    copied_bytes: u64,
-+    prefetch_pages: u64,
-+
-+    sequential_hits: u64,
-+    random_hits: u64,
-+
-+    copy_eagain_retries: u64,
-+    copy_eexist_fallbacks: u64,
-+
-+    range_copy_calls: u64,
-+    page_copy_calls: u64,
-+    skipped_existing_pages: u64,
-+
-+    // 新增
-+    merged_ranges: u64,
-+    merged_fault_savings: u64, // 原始 faults - merged ranges
-+
-+    prefetch_useful_pages: u64,
-+    prefetch_wasted_pages: u64,
-+
-+    max_faults_in_batch: u64,
-+    max_pages_in_batch: u64,
-+}
-+
-+#[allow(unused)]
-+#[derive(Default, Clone)]
-+struct RegionHeuristics {
-+    last_fault_addr: u64,
-+    last_prefetch_end: u64,
-+    seq_hits: u32,
-+}
-+
-+#[allow(unused)]
-+#[derive(Default, Debug, Clone)]
-+struct RegionStats {
-+    fault_count: u64,
-+    batch_count: u64,
-+    drained_faults: u64,
-+
-+    // legacy
-+    copy_calls: u64,
-+    pages_copied: u64,
-+    zeropage_calls: u64,
-+    remove_events: u64,
-+
-+    // precise copy stats
-+    range_copy_calls: u64,
-+    page_copy_calls: u64,
-+    copied_pages: u64,
-+    copied_bytes: u64,
-+    skipped_existing_pages: u64,
-+
-+    // prefetch / heuristic stats
-+    prefetch_pages: u64,
-+    sequential_hits: u64,
-+
-+    // retry / fallback
-+    eagain_retries: u64,
-+    eexist_fallbacks: u64,
-+
-+    // UFFD optimization
-+    merged_ranges: u64,
-+    merged_fault_savings: u64,
-+    //prefetch_useful_pages: u64,
-+    //prefetch_wasted_pages: u64,
-+    //max_faults_in_batch: u64,
-+    //max_pages_in_batch: u64,
-+}
-+
-+// For optimization of external UFFD by focusing on 
-+// batching, merging and prefetching
-+#[allow(unused)]
-+#[derive(Debug, Clone)]
-+struct FaultRange {
-+    mapping_idx: usize,
-+    start_addr: u64,   // inclusive, page aligned
-+    end_addr: u64,     // exclusive, page aligned
-+    fault_pages: u64,  // 原始 fault 数, how many original faults got merged into this range
-+    prefetched_pages: u64,
-+}
-+
-+// For optimization of external UFFD by focusing on 
-+// batching, merging and prefetching
-+#[allow(unused)]
-+impl FaultRange {
-+    fn len_bytes(&self) -> u64 {
-+        self.end_addr - self.start_addr
-+    }
-+
-+    fn total_pages(&self, page_size: u64) -> u64 {
-+        (self.end_addr - self.start_addr) / page_size
-+    }
-+}
-+
-+// For optimization of external UFFD by focusing on 
-+// batching, merging and prefetching
-+#[allow(unused)]
-+#[derive(Debug, Clone,Copy)]
-+struct PendingFault {
-+    addr: u64,
-+    mapping_idx: usize,
-+}
-+
-+// For optimization of external UFFD by focusing on 
-+// batching, merging and prefetching
-+#[allow(unused)]
-+#[derive(Debug, Default, Clone)]
-+struct MappingHeuristics {
-+    last_fault_addr: u64,
-+    last_fault_end: u64,
-+    sequential_hits: u64,
-+    random_hits: u64,
-+    current_prefetch_pages: u64,
-+}
-+
-+// For optimization of external UFFD by focusing on 
-+// batching, merging and prefetching
-+#[allow(unused)]
-+impl MappingHeuristics {
-+    fn observe_fault(&mut self, addr: u64, page_size: u64) {
-+        if self.last_fault_addr != 0 && addr == self.last_fault_end {
-+            self.sequential_hits += 1;
-+        } else {
-+            self.random_hits += 1;
-+            self.sequential_hits = 0;
-+        }
-+
-+        self.last_fault_addr = addr;
-+        self.last_fault_end = addr + page_size;
-+
-+        if self.current_prefetch_pages == 0 {
-+            self.current_prefetch_pages = DEFAULT_PREFETCH_PAGES;
-+        }
-+
-+        if self.sequential_hits >= SEQUENTIAL_PROMOTE_THRESHOLD {
-+            self.current_prefetch_pages =
-+                (self.current_prefetch_pages.saturating_mul(2)).min(MAX_PREFETCH_PAGES);
-+        } else if self.random_hits > self.sequential_hits + 4 {
-+            self.current_prefetch_pages =
-+                (self.current_prefetch_pages / 2).max(1);
-+        }
-+    }
-+
-+    fn suggested_prefetch_pages(&self) -> u64 {
-+        self.current_prefetch_pages.max(1)
-+
-+        //let should_prefetch =
-+        //heur.last_fault_addr != 0 &&
-+        //range.start_addr >= heur.last_fault_addr &&
-+        //range.start_addr - heur.last_fault_addr <= page_size * 2;
-+
-+        //match self.sequential_hits {
-+        //    0..=1 => 1,
-+        //    2..=4 => 4,
-+        //    5..=8 => 8,
-+        //    _ => 16,
-+        //}
-+    }
-+}
-+
-+#[allow(unused)]
-+#[derive(Debug, Clone, Copy)]
-+struct PrefetchWindow {
-+    start: u64,
-+    end: u64,
-+    mapping_idx: usize,
-+}
-+
-+#[allow(unused)]
-+#[derive(Debug)]
-+enum CopyError {
-+    TryAgain,
-+    AlreadyExists,
-+    Fatal(anyhow::Error),
-+}
-+
-+#[derive(Default,Debug, Clone, Copy)]
-+enum CopyOutcome {
-+    #[default]
-+    Full,
-+    EagainRetry,
-+    Fallback,
-+}
-+
-+#[allow(unused)]
-+#[derive(Debug, Clone, Copy)]
-+enum PageCopyResult {
-+    Copied,
-+    AlreadyPresent,
-+}
-+
-+//#[allow(unused)]
-+//impl Default for CopyOutcome {
-+//    fn default() -> Self {
-+//        CopyOutcome::Full
-+//    }
-+//}
-+
-+#[allow(unused)]
-+#[derive(Default,Debug, Clone, Copy)]
-+struct CopyStats {
-+    outcome: CopyOutcome,
-+    attempted_pages: u64,
-+    copied_pages: u64,
-+    skipped_existing_pages: u64,
-+    eagain_retries: u64,
-+    range_copy_calls: u64,
-+    page_copy_calls: u64,
-+}
-+
-+#[allow(unused)]
-+#[repr(C)]
-+#[derive(Copy, Clone)]
-+struct UffdMsg {
-+    event: u8,
-+    _reserved1: u8,
-+    _reserved2: u16,
-+    _reserved3: u32,
-+    pf_flags: u64,
-+    pf_address: u64,
-+    _pad: [u8; 8],
-+}
-+
-+impl std::fmt::Debug for UffdMsg {
-+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-+        f.debug_struct("UffdMsg")
-+            .field("event", &self.event)
-+            .field("pf_flags", &self.pf_flags)
-+            .field("pf_address", &format_args!("{:#x}", self.pf_address))
-+            .finish()
-+    }
-+}
-+
-+// change #40 - for external UFFD
-+// Use this version when need optimization
-+fn align_down(addr: u64, page_size: u64) -> u64 {
-+    addr & !(page_size - 1)
-+}
-+
-+// Use this version when prior to optimization 
-+//fn align_down(v: u64, align: u64) -> u64 {
-+//    (v / align) * align
-+//}
-+
-+// change #43 - for external UFFD
-+fn align_up(addr: u64, page_size: u64) -> u64 {
-+    (addr + page_size - 1) & !(page_size - 1)
-+}
-+
-+#[allow(unused)]
-+impl ExternalUffdHandler {
-+    fn print_stats(&self) {
-+        eprintln!(
-+            "[handler][debug] print_stats: global_faults={} handler_stats_ptr={:p}",
-+            self.handler_stats.fault_count,
-+            &self.handler_stats,
-+        );
-+        
-+        let region_fault_sum: u64 = self.stats.iter().map(|s| s.fault_count).sum();
-+
-+        eprintln!(
-+            "[handler][stats] faults={} batches={} drained_faults={} copied_pages={} copied_bytes={} prefetch_pages={} sequential_hits={} eagain_retries={} eexist_fallbacks={}",
-+            region_fault_sum,
-+            self.handler_stats.batch_count,
-+            self.handler_stats.drained_faults_total,
-+            self.handler_stats.copied_pages,
-+            self.handler_stats.copied_bytes,
-+            self.handler_stats.prefetch_pages,
-+            self.handler_stats.sequential_hits,
-+            self.handler_stats.copy_eagain_retries,
-+            self.handler_stats.copy_eexist_fallbacks,
-+        );
-+
-+        let avg_faults_per_batch = if self.handler_stats.batch_count > 0 {
-+            let region_fault_sum: u64 = self.stats.iter().map(|s| s.fault_count).sum();
-+            eprintln!(
-+                "[handler][stats] region_fault_sum={} global_faults={}",
-+                region_fault_sum,
-+                self.handler_stats.fault_count,
-+            );
-+            self.handler_stats.drained_faults_total as f64
-+                / self.handler_stats.batch_count as f64
-+        } else {
-+            0.0
-+        };
-+
-+        let avg_pages_per_batch = if self.handler_stats.batch_count > 0 {
-+            self.handler_stats.copied_pages as f64
-+                / self.handler_stats.batch_count as f64
-+        } else {
-+            0.0
-+        };
-+
-+        eprintln!(
-+            "[handler][stats] avg_faults_per_batch={avg_faults_per_batch:.2} avg_pages_per_batch={avg_pages_per_batch:2}"
-+        );
-+
-+        for (i, s) in self.stats.iter().enumerate() {
-+            eprintln!(
-+                "[handler][region {}] faults={} copied_pages={} copied_bytes={} prefetch_pages={} sequential_hits={} eagain_retries={} eexist_fallbacks={}",
-+                i,
-+                s.fault_count,
-+                s.copied_pages,
-+                s.copied_bytes,
-+                s.prefetch_pages,
-+                s.sequential_hits,
-+                s.eagain_retries,
-+                s.eexist_fallbacks,
-+            );
-+
-+            //let merged_ranges = stats.merged_ranges;
-+            //let merged_fault_savings = stats.merged_fault_savings;
-+
-+            eprintln!(
-+                "[handler][region {}] faults={} batches={} merged_ranges={} merged_fault_savings={} copied_pages={} prefetch_pages={} eagain_retries={} eexist_fallbacks={}",
-+                i,
-+                s.fault_count,
-+                s.batch_count,
-+                s.merged_ranges,
-+                s.merged_fault_savings,
-+                s.copied_pages,
-+                s.prefetch_pages,
-+                s.eagain_retries,
-+                s.eexist_fallbacks,
-+            );
-+        }
-+
-+        if let Some(first) = self.mappings.first() {
-+            eprintln!("[handler][stats] page_size={}", first.page_size);
-+        }
-+    }
-+
-+    fn print_stats_opti(&self) {
-+        let avg_faults_per_batch = if self.handler_stats.batch_count > 0 {
-+            self.handler_stats.drained_faults_total as f64 / self.handler_stats.batch_count as f64
-+        } else {
-+            0.0
-+        };
-+
-+        let avg_pages_per_batch = if self.handler_stats.batch_count > 0 {
-+            self.handler_stats.copied_pages as f64 / self.handler_stats.batch_count as f64
-+        } else {
-+            0.0
-+        };
-+
-+        eprintln!(
-+            "[handler][stats] faults={} batches={} drained_faults={} copied_pages={} copied_bytes={} prefetch_pages={} range_copy_calls={} page_copy_calls={} skipped_existing_pages={} merged_ranges={} merged_fault_savings={} eagain_retries={} eexist_fallbacks={}",
-+            self.handler_stats.fault_count,
-+            self.handler_stats.batch_count,
-+            self.handler_stats.drained_faults_total,
-+            self.handler_stats.copied_pages,
-+            self.handler_stats.copied_bytes,
-+            self.handler_stats.prefetch_pages,
-+            self.handler_stats.range_copy_calls,
-+            self.handler_stats.page_copy_calls,
-+            self.handler_stats.skipped_existing_pages,
-+            self.handler_stats.merged_ranges,
-+            self.handler_stats.merged_fault_savings,
-+            self.handler_stats.copy_eagain_retries,
-+            self.handler_stats.copy_eexist_fallbacks,
-+        );
-+
-+        eprintln!(
-+            "[handler][stats] avg_faults_per_batch={:.2} avg_pages_per_batch={:.2} sequential_hits={} random_hits={} max_faults_in_batch={} max_pages_in_batch={} prefetch_useful_pages={} prefetch_wasted_pages={}",
-+            avg_faults_per_batch,
-+            avg_pages_per_batch,
-+            self.handler_stats.sequential_hits,
-+            self.handler_stats.random_hits,
-+            self.handler_stats.max_faults_in_batch,
-+            self.handler_stats.max_pages_in_batch,
-+            self.handler_stats.prefetch_useful_pages,
-+            self.handler_stats.prefetch_wasted_pages,
-+        );
-+
-+        for (idx, s) in self.stats.iter().enumerate() {
-+            eprintln!(
-+                "[handler][region {}] faults={} batches={} drained_faults={} copy_calls={} range_copy_calls={} page_copy_calls={} copied_pages={} copied_bytes={} skipped_existing_pages={} prefetch_pages={} sequential_hits={} merged_ranges={} merged_fault_savings={} eagain_retries={} eexist_fallbacks={} zeropage_calls={} remove_events={}",
-+                idx,
-+                s.fault_count,
-+                s.batch_count,
-+                s.drained_faults,
-+                s.copy_calls,
-+                s.range_copy_calls,
-+                s.page_copy_calls,
-+                s.copied_pages,
-+                s.copied_bytes,
-+                s.skipped_existing_pages,
-+                s.prefetch_pages,
-+                s.sequential_hits,
-+                s.merged_ranges,
-+                s.merged_fault_savings,
-+                s.eagain_retries,
-+                s.eexist_fallbacks,
-+                s.zeropage_calls,
-+                s.remove_events,
-+            );
-+        }
-+    }
-+
-+    // Simplied version
-+    fn find_mapping_idx(&self, addr: u64) -> Result<usize> {
-+        for (idx, m) in self.mappings.iter().enumerate() {
-+            let start = m.base_host_virt_addr;
-+            let end = m.base_host_virt_addr + m.size;
-+
-+            if addr >= start && addr < end {
-+                return Ok(idx);
-+            }
-+        }
-+
-+        Err(anyhow::anyhow!("address 0x{addr:x} not found in mappings"))
-+    }
-+
-+    fn drain_fault_batch(&mut self) -> Result<Vec<PendingFault>> {
-+        let mut out = Vec::with_capacity(64);
-+
-+        loop {
-+            let msg = match read_pagefault_message(self.uffd_fd) {
-+                Ok(msg) => msg,
-+                Err(e) => {
-+                    if e.kind() == std::io::ErrorKind::WouldBlock {
-+                        break;
-+                    }
-+                    if e.kind() == std::io::ErrorKind::Interrupted {
-+                        continue;
-+                    }
-+                    return Err(anyhow::Error::new(e).context("read uffd_msg failed"));
-+                }
-+            };
-+
-+            eprintln!(
-+                "[handler] msg.event = {} pf_flags=0x{:x} pf_address=0x{:x}",
-+                msg.event, msg.pf_flags, msg.pf_address
-+            );
-+
-+            if msg.event != EXTERNAL_UFFD_EVENT_PAGEFAULT {
-+                eprintln!("[handler] skipping non-pagefault event {}", msg.event);
-+                continue;
-+            }
-+
-+            let addr = msg.pf_address as u64;
-+
-+            let idx = match self.find_mapping_idx(addr) {
-+                Ok(idx) => idx,
-+                Err(e) => {
-+                    eprintln!("[handler] mapping miss for addr=0x{addr:x}: {e:#}");
-+                    continue;
-+                }
-+            };
-+
-+            self.stats[idx].fault_count += 1;
-+
-+            out.push(PendingFault {
-+                addr,
-+                mapping_idx: idx,
-+            });
-+
-+            if out.len() >= 64 {
-+                break;
-+            }
-+        }
-+
-+        out.sort_by_key(|f| (f.mapping_idx, f.addr));
-+        Ok(out)
-+    }
-+
-+    fn drain_fault_batch_opti(&mut self) -> Result<Vec<PendingFault>> {
-+        let first = match self.read_one_fault_nonblocking()? {
-+            Some(f) => f,
-+            None => return Ok(Vec::new()),
-+        };
-+
-+        let mut faults = Vec::with_capacity(MAX_BATCHED_FAULTS);
-+        faults.push(first);
-+
-+        for _ in 0..MAX_DRAIN_PER_WAKE {
-+            if faults.len() >= MAX_BATCHED_FAULTS {
-+                break;
-+            }
-+
-+            match self.read_one_fault_nonblocking()? {
-+                Some(f) => faults.push(f),
-+                None => break,
-+            }
-+        }
-+
-+        for _ in 0..DRAIN_SPIN_ROUNDS {
-+            if faults.len() >= MAX_BATCHED_FAULTS {
-+                break;
-+            }
-+
-+            std::hint::spin_loop();
-+
-+            #[allow(clippy::single_match)]
-+            match self.read_one_fault_nonblocking()? {
-+                Some(f) => faults.push(f),
-+                None => {}
-+            }
-+        }
-+
-+        Ok(faults)
-+    }
-+
-+    // change #40 - for external UFFD
-+    // Prior to UFFD optimization
-+    //fn drain_fault_batch(&mut self) -> Result<Vec<PendingFault>> {
-+    //    let mut out = Vec::with_capacity(64);
-+
-+    //    loop {
-+    //        let msg = match read_pagefault_message(self.uffd_fd) {
-+    //            Ok(msg) => msg,
-+    //            Err(e) => {
-+    //                if e.kind() == std::io::ErrorKind::WouldBlock {
-+    //                    break;
-+    //                }
-+    //                if e.kind() == std::io::ErrorKind::Interrupted {
-+    //                    continue;
-+    //                }
-+    //                return Err(anyhow::Error::new(e).context("read uffd_msg failed"));
-+    //            }
-+    //        };
-+
-+    //        eprintln!(
-+    //            "[handler] msg.event = {} pf_flags=0x{:x} pf_address=0x{:x}",
-+    //            msg.event, msg.pf_flags, msg.pf_address
-+    //        );
-+
-+    //        if msg.event != EXTERNAL_UFFD_EVENT_PAGEFAULT {
-+    //            eprintln!("[handler] skipping non-pagefault event {}", msg.event);
-+    //            continue;
-+    //        }
-+
-+    //        let addr = msg.pf_address as u64;
-+
-+    //        let idx = match self.find_mapping_idx(addr) {
-+    //            Ok(idx) => idx,
-+    //            Err(e) => {
-+    //                eprintln!("[handler] mapping miss for addr=0x{addr:x}: {e:#}");
-+    //                continue;
-+    //            }
-+    //        };
-+
-+    //        self.stats[idx].fault_count += 1;
-+
-+    //        out.push(PendingFault {
-+    //            addr,
-+    //            mapping_idx: idx,
-+    //        });
-+
-+    //        if out.len() >= 64 {
-+    //            break;
-+    //        }
-+    //    }
-+
-+    //    out.sort_by_key(|f| (f.mapping_idx, f.addr));
-+    //    Ok(out)
-+    //}
-+
-+
-+
-+    // change #31 - for external UFFD
-+    //fn drain_fault_batch(&mut self) -> Result<Vec<PendingFault>> {
-+    //    let mut out = Vec::with_capacity(64);
-+
-+    //    while out.len() < 64 {
-+    //        let mut msg: UffdMsg = unsafe { mem::zeroed() };
-+
-+    //        let r = unsafe {
-+    //            read(
-+    //                self.uffd_fd,
-+    //                &mut msg as *mut _ as *mut c_void,
-+    //                mem::size_of::<UffdMsg>(),
-+    //            )
-+    //        };
-+
-+    //        if r == -1 {
-+    //            let err = io::Error::last_os_error();
-+    //            if err.kind() == io::ErrorKind::WouldBlock {
-+    //                break;
-+    //            }
-+    //            return Err(err).context("read UffdMsg failed");
-+    //        }
-+
-+    //        if r == 0 {
-+    //            break;
-+    //        }
-+
-+    //        #[allow(non_snake_case)]
-+    //        #[allow(unreachable_patterns)]
-+    //        #[allow(unused)]
-+    //        match msg.event {
-+    //            UFFD_EVENT_PAGEFAULT => {
-+    //                let addr = msg.pf_address as u64;
-+    //                let idx = self
-+    //                    .find_mapping_idx(addr)
-+    //                    .with_context(|| format!("no mapping for fault 0x{addr:x}"))?;
-+    //                self.stats[idx].fault_count += 1;
-+    //                out.push(PendingFault { addr, mapping_idx: idx });
-+    //            }
-+    //            UFFD_EVENT_REMOVE => {
-+    //                eprintln!("[handler] got UFFD_EVENT_REMOVE, ignored in minimal handler")
-+    //            }
-+    //            _ => {}
-+    //        }
-+    //    }
-+
-+    //    out.sort_by_key(|f| (f.mapping_idx, f.addr));
-+    //    Ok(out)
-+    //}
-+
-+    // change #32 - for external UFFD
-+    //fn choose_prefetch_pages(&self, idx: usize, start_addr: u64) -> u64 {
-+    //    let h = &self.heuristics[idx];
-+
-+        //1. test prefetch only and return 1 with loose condition
-+        //let extra_pages = if h.last_fault_addr != 0 { 1 } else { 0 };
-+
-+        //0. test prefetch only and return 1
-+        //let extra_pages = 1;
-+
-+        //eprintln!(
-+        //    "[handler][prefetch] idx={} last=0x{:x} -> extra_pages={}",
-+        //    idx,
-+        //    h.last_fault_addr,
-+        //    extra_pages
-+        //);
-+
-+        //extra_pages
-+    //}
-+
-+    //fn choose_prefetch_pages(&self, idx: usize, start_addr: u64) -> u64 {
-+    //    let h = &self.heuristics[idx];
-+    //    let page = self.mappings[idx].page_size;
-+
-+    //    let is_sequential = h.last_fault_addr != 0
-+    //        && start_addr == h.last_fault_addr + page;
-+
-+    //    let extra_pages = if is_sequential { 1 } else { 0 };
-+
-+    //    eprintln!(
-+    //        "[handler][prefetch] idx={} start=0x{:x} last=0x{:x} seq={} -> extra_pages={}",
-+    //        idx,
-+    //        start_addr,
-+    //        h.last_fault_addr,
-+    //        is_sequential,
-+    //        extra_pages
-+    //    );
-+
-+    //    extra_pages
-+    //}
-+
-+    //fn choose_prefetch_pages(&self, idx: usize, start_addr: u64) -> u64 {
-+    //    let h = &self.heuristics[idx];
-+    //    let page = self.mappings[idx].page_size;
-+
-+    //    if h.last_fault_addr != 0 && start_addr == h.last_fault_addr + page {
-+    //        1
-+    //    } else {
-+    //        0
-+    //    }
-+    //}
-+
-+    // 3. final version
-+    //fn choose_prefetch_pages(&mut self, idx: usize, addr: u64) -> u64 {
-+    //    let h = &mut self.heuristics[idx];
-+    //    let page = self.mappings[idx].page_size;
-+
-+    //    let near_sequential = h.last_prefetch_end != 0
-+    //        && addr >= h.last_fault_addr
-+    //        && addr <= h.last_prefetch_end + 2 * page;
-+
-+    //    if near_sequential {
-+    //        h.seq_hits += 1;
-+    //    } else {
-+    //        h.seq_hits = 0;
-+    //    }
-+
-+    //    match h.seq_hits {
-+    //        0 => 1,     //16 64 KiB
-+    //        1..=2 => 2, //64 256 KiB
-+    //        _ => 4,    //256 1 MiB
-+    //    }
-+    //}
-+
-+    // change #33 - for external UFFD
-+    fn coalesce_and_copy(&mut self, faults: &[PendingFault]) -> Result<()> {
-+        
-+        self.handler_stats.batch_count += 1;
-+        self.handler_stats.drained_faults_total += faults.len() as u64;
-+        
-+        let mut i = 0;
-+
-+        while i < faults.len() {
-+            let idx = faults[i].mapping_idx;
-+
-+            let base_host_virt_addr = self.mappings[idx].base_host_virt_addr;
-+            let mapping_size = self.mappings[idx].size;
-+            let mapping_offset = self.mappings[idx].offset;
-+            let page = self.mappings[idx].page_size;
-+
-+            let start_addr = align_down(faults[i].addr, page);
-+            let mut end_addr = start_addr + page;
-+
-+            let mut j = i + 1;
-+
-+            while j < faults.len() && faults[j].mapping_idx == idx {
-+                let next = align_down(faults[j].addr, page);
-+                if next <= end_addr + 2 * page {
-+                    end_addr = std::cmp::max(end_addr, next + page);
-+                    j += 1;
-+                } else {
-+                    break;
-+                }
-+            }
-+
-+            let extra_pages = self.choose_prefetch_pages(idx, start_addr);
-+            let desired_end = end_addr + extra_pages * page;
-+
-+            let region_end = base_host_virt_addr + mapping_size;
-+            let final_end = std::cmp::min(desired_end, region_end);
-+            let len = final_end - start_addr;
-+
-+            let fault_pages = (end_addr - start_addr) / page;
-+            let total_pages = len / page;
-+            let prefetch_pages = total_pages.saturating_sub(fault_pages);
-+
-+            eprintln!(
-+                "[handler] coalesced copy: idx={idx} start=0x{start_addr:x} end=0x{final_end:x} len=0x{len:x} fault_pages={fault_pages} total_pages={total_pages} prefetch_pages={prefetch_pages}",
-+                //idx,
-+                //start_addr,
-+                //final_end,
-+                //len,
-+                //fault_pages,
-+                //total_pages,
-+                //prefetch_pages,
-+            );
-+
-+            if prefetch_pages > 0 {
-+                self.handler_stats.prefetch_pages += prefetch_pages;
-+                self.handler_stats.sequential_hits += 1;
-+
-+                self.stats[idx].prefetch_pages += prefetch_pages;
-+                self.stats[idx].sequential_hits += 1;
-+            }
-+
-+            let src_off = mapping_offset + (start_addr - base_host_virt_addr);
-+
-+            let src =
-+                // SAFETY: 
-+                // To do
-+                unsafe {
-+                    // SAFETY: src_off is derived from a validated mapping and snapshot mmap.
-+                    self.snapshot.as_ptr().add(src_off as usize)
-+                };
-+
-+            eprintln!(
-+                "[handler] coalesced copy: mapping_idx={idx} start=0x{start_addr:x} end=0x{final_end:x} src_off=0x{src_off:x} len=0x{len:x} extra_pages={extra_pages}",
-+                //idx, start_addr, final_end, src_off, len, extra_pages
-+            );
-+
-+            //self.copy_range(start_addr, src as u64, len)?;
-+            //self.copy_range(start_addr, src as u64, len as u64, self.mappings[idx].page_size as u64)?;
-+            
-+            //let outcome = self.copy_range(start_addr, src as u64, len as u64, self.mappings[idx].page_size as u64)?;
-+
-+            //match outcome {
-+            //    CopyOutcome::Full => {}
-+
-+            //    CopyOutcome::EagainRetry => {
-+            //        self.handler_stats.copy_eagain_retries += 1;
-+            //        self.stats[idx].eagain_retries += 1;
-+            //    }
-+
-+            //    CopyOutcome::Fallback => {
-+            //        self.handler_stats.copy_eexist_fallbacks += 1;
-+            //        self.stats[idx].eexist_fallbacks += 1;
-+            //    }
-+            //}
-+
-+            //let copied_pages = len / self.mappings[idx].page_size;
-+
-+            //self.handler_stats.copied_bytes += len;
-+            //self.handler_stats.copied_pages += copied_pages;
-+
-+            //self.stats[idx].copied_bytes += len;
-+            //self.stats[idx].copied_pages += copied_pages;
-+
-+            //self.stats[idx].copy_calls += 1;
-+            //self.stats[idx].pages_copied += len / page;
-+
-+            let copy_stats = self.copy_range(
-+                start_addr,
-+                src as u64,
-+                len as u64,
-+                self.mappings[idx].page_size,
-+            )?;
-+
-+            match copy_stats.outcome {
-+                CopyOutcome::Full => {}
-+
-+                CopyOutcome::EagainRetry => {
-+                    self.handler_stats.copy_eagain_retries += copy_stats.eagain_retries.max(1);
-+                    self.stats[idx].eagain_retries += copy_stats.eagain_retries.max(1);
-+                }
-+
-+                CopyOutcome::Fallback => {
-+                    self.handler_stats.copy_eexist_fallbacks += 1;
-+                    self.stats[idx].eexist_fallbacks += 1;
-+
-+                    self.handler_stats.copy_eagain_retries += copy_stats.eagain_retries;
-+                    self.stats[idx].eagain_retries += copy_stats.eagain_retries;
-+                }
-+            }
-+
-+            // ===== global stats =====
-+            self.handler_stats.copied_pages += copy_stats.copied_pages;
-+            self.handler_stats.copied_bytes += copy_stats.copied_pages * page;
-+            self.handler_stats.copy_eagain_retries += 0; // 已在上面处理
-+            self.handler_stats.copy_eexist_fallbacks += 0; // 已在上面处理
-+
-+            self.handler_stats.range_copy_calls += copy_stats.range_copy_calls;
-+            self.handler_stats.page_copy_calls += copy_stats.page_copy_calls;
-+            self.handler_stats.skipped_existing_pages += copy_stats.skipped_existing_pages;
-+
-+            // ===== per-region stats =====
-+            self.stats[idx].copied_pages += copy_stats.copied_pages;
-+            self.stats[idx].copied_bytes += copy_stats.copied_pages * page;
-+
-+            // legacy stats（保持兼容）
-+            self.stats[idx].copy_calls += copy_stats.range_copy_calls + copy_stats.page_copy_calls;
-+            self.stats[idx].pages_copied += copy_stats.copied_pages;
-+
-+            let h = &mut self.heuristics[idx];
-+            h.last_fault_addr = start_addr;
-+            h.last_prefetch_end = final_end;
-+
-+            i = j;
-+        }
-+
-+        Ok(())
-+    }
-+
-+    // for UFFD optimization
-+    fn coalesce_and_copy_opti(&mut self, batch: &[PendingFault]) -> Result<()> {
-+        if batch.is_empty() {
-+            return Ok(());
-+        }
-+
-+        let batch_faults = batch.len() as u64;
-+        if batch_faults > self.handler_stats.max_faults_in_batch {
-+            self.handler_stats.max_faults_in_batch = batch_faults;
-+        }
-+
-+        let mut ranges = self.merge_faults_into_ranges(batch.to_vec());
-+
-+        self.handler_stats.batch_count += 1;
-+        self.handler_stats.drained_faults_total += batch_faults;
-+
-+
-+        for range in &mut ranges {
-+            self.maybe_expand_range_with_prefetch(range);
-+        }
-+
-+        for range in &ranges {
-+            let idx = range.mapping_idx;
-+            let page_size = self.mappings[idx].page_size;
-+            let pages_in_range = range.total_pages(page_size);
-+
-+            self.stats[idx].batch_count += 1;
-+            self.stats[idx].drained_faults += range.fault_pages;
-+            self.stats[idx].merged_ranges += 1;
-+
-+            if range.fault_pages > 1 {
-+                self.stats[idx].merged_fault_savings += range.fault_pages - 1;
-+            }
-+
-+            if pages_in_range > self.handler_stats.max_pages_in_batch {
-+                self.handler_stats.max_pages_in_batch = pages_in_range;
-+            }
-+
-+            self.handler_stats.merged_ranges += 1;
-+            if range.fault_pages > 1 {
-+                self.handler_stats.merged_fault_savings += range.fault_pages - 1;
-+            }
-+
-+            self.copy_range_from_snapshot(range)?;
-+        }
-+
-+        Ok(())
-+    }
-+
-+    //fn coalesce_and_copy(&mut self, faults: &[PendingFault]) -> Result<()> {
-+    //    let mut i = 0;
-+
-+    //    while i < faults.len() {
-+    //        let idx = faults[i].mapping_idx;
-+    //        let mapping = &self.mappings[idx];
-+    //        let page = mapping.page_size;
-+
-+    //        let start_addr = align_down(faults[i].addr, page);
-+    //        let mut end_addr = start_addr + page;
-+
-+    //        let mut j = i + 1;
-+
-+    //        while j < faults.len() && faults[j].mapping_idx == idx {
-+    //            let next = align_down(faults[j].addr, page);
-+
-+    //            if next <= end_addr + 2 * page {
-+    //                end_addr = std::cmp::max(end_addr, next + page);
-+    //                j += 1;
-+    //            } else {
-+    //                break;
-+    //            }
-+    //        }
-+
-+    //        let region_end = mapping.base_host_virt_addr + mapping.size;
-+    //        let final_end = std::cmp::min(end_addr, region_end);
-+    //        let len = final_end - start_addr;
-+
-+    //        let src_off = mapping.offset + (start_addr - mapping.base_host_virt_addr);
-+    //        let src = unsafe {
-+    //            // SAFETY: `src_off` is computed from a validated mapping and page-aligned
-+    //            // address range, and `self.snapshot` is a valid mmap of the memory image.
-+    //            self.snapshot.as_ptr().add(src_off as usize)
-+    //        };
-+
-+    //        eprintln!(
-+    //            "[handler] coalesced copy: mapping_idx={} start=0x{:x} end=0x{:x} src_off=0x{:x} len=0x{:x}",
-+    //            idx, start_addr, final_end, src_off, len
-+    //        );
-+
-+    //        self.copy_range(start_addr, src as u64, len)?;
-+
-+    //        self.stats[idx].copy_calls += 1;
-+    //        self.stats[idx].pages_copied += len / page;
-+
-+    //        i = j;
-+    //    }
-+
-+    //    Ok(())
-+    //}
-+
-+    //fn coalesce_and_copy(&mut self, faults: &[PendingFault]) -> Result<()> {
-+
-+    //    let mut i = 0;
-+
-+    //    while i < faults.len() {
-+    //        let idx = faults[i].mapping_idx;
-+
-+    //        let base_host_virt_addr = self.mappings[idx].base_host_virt_addr;
-+    //        let mapping_size = self.mappings[idx].size as u64;
-+    //        let mapping_offset = self.mappings[idx].offset;
-+    //        let page = self.mappings[idx].page_size as u64;
-+
-+            //let mapping = &self.mappings[idx];
-+            //let page = mapping.page_size as u64;
-+    //        let start_addr = align_down(faults[i].addr, page);
-+
-+    //        let mut end_addr = start_addr + page;
-+    //        let mut j = i + 1;
-+
-+    //        while j < faults.len() && faults[j].mapping_idx == idx {
-+    //            let next = align_down(faults[j].addr, page);
-+    //            if next <= end_addr + 2 * page {
-+    //                end_addr = max(end_addr, next + page);
-+    //                j += 1;
-+    //            } else {
-+    //                break;
-+    //            }
-+    //        }
-+
-+    //        let extra_pages = self.choose_prefetch_pages(idx, start_addr);
-+    //        let desired_end = end_addr + extra_pages * page;
-+    //        let region_end = base_host_virt_addr + mapping_size;
-+    //        let final_end = min(desired_end, region_end);
-+    //        let len = final_end - start_addr;
-+
-+    //        let src_off = mapping_offset + (start_addr - base_host_virt_addr);
-+    //        let src = unsafe { self.snapshot.as_ptr().add(src_off as usize) };
-+
-+    //        self.copy_range(start_addr, src as u64, len)?;
-+    //        self.stats[idx].copy_calls += 1;
-+    //        self.stats[idx].pages_copied += len / page;
-+
-+    //        let h = &mut self.heuristics[idx];
-+    //        h.last_fault_addr = start_addr;
-+    //        h.last_prefetch_end = final_end;
-+
-+    //       i = j;
-+    //    }
-+
-+    //    Ok(())
-+    //}
-+
-+    // Change #34 - for external UFFD
-+    //fn copy_one_page(&self, dst: u64, src: u64, page_size: u64) -> Result<bool> {
-+    //    let mut copy = uffdio_copy {
-+    //        dst,
-+    //        src,
-+    //        len: page_size,
-+    //        mode: 0,
-+    //        copy: 0,
-+    //    };
-+
-+    //    let ret = unsafe { ioctl(self.uffd_fd, UFFDIO_COPY, &mut copy) };
-+    //    if ret == 0 {
-+    //        return Ok(true);
-+    //    }
-+
-+    //    let err = io::Error::last_os_error();
-+
-+    //    match err.raw_os_error() {
-+    //        Some(libc::EEXIST) => {
-+    //            eprintln!(
-+    //                "[handler] UFFDIO_COPY page already exists: dst=0x{dst:x} src=0x{src:x} len=0x{page_size:x}"
-+    //            );
-+    //            return Ok(false)
-+    //        }
-+    //        Some(libc::EAGAIN) => {
-+                // 先简单重试几次
-+    //            for _ in 0..50 {
-+    //                std::thread::yield_now();
-+    //                let mut retry_copy = uffdio_copy {
-+    //                    dst,
-+    //                    src,
-+    //                    len: page_size,
-+    //                    mode: 0,
-+    //                    copy: 0,
-+    //                };
-+    //                let retry_ret = unsafe { ioctl(self.uffd_fd, UFFDIO_COPY, &mut retry_copy) };
-+    //                if retry_ret == 0 {
-+    //                    return Ok(true);
-+    //                }
-+    //                let retry_err = io::Error::last_os_error();
-+    //                if retry_err.raw_os_error() != Some(libc::EAGAIN) {
-+    //                    if retry_err.raw_os_error() == Some(libc::EEXIST) {
-+    //                        eprintln!(
-+    //                            "[handler] UFFDIO_COPY page became present during retry: dst=0x{dst:x}"
-+    //                        );
-+    //                        return Ok(false);
-+    //                    }
-+    //                    return Err(retry_err).context("UFFDIO_COPY page retry failed");
-+    //                }
-+    //            }
-+    //            Err(err).context("UFFDIO_COPY page EAGAIN retries exhausted")
-+    //        }
-+    //        _ => Err(err).context("UFFDIO_COPY page failed"),
-+    //    }
-+    //}
-+
-+    fn copy_one_page(&self, dst: u64, src: u64, page_size: u64) -> Result<PageCopyResult> {
-+        let mut eagain_retries = 0u32;
-+
-+        loop {
-+            let mut copy = uffdio_copy {
-+                dst,
-+                src,
-+                len: page_size,
-+                mode: 0,
-+                copy: 0,
-+            };
-+
-+            // SAFETY: 
-+            // To do
-+            let ret = unsafe { ioctl(self.uffd_fd, UFFDIO_COPY, &mut copy) };
-+            if ret == 0 {
-+                return Ok(PageCopyResult::Copied);
-+            }
-+
-+            let err = io::Error::last_os_error();
-+            match err.raw_os_error() {
-+                Some(libc::EEXIST) => {
-+                    eprintln!(
-+                        "[handler] page already present: dst=0x{dst:x} src=0x{src:x} len=0x{page_size:x}"
-+                    );
-+                    return Ok(PageCopyResult::AlreadyPresent);
-+                }
-+                Some(libc::EAGAIN) if eagain_retries < 50 => {
-+                    eagain_retries += 1;
-+                    std::thread::yield_now();
-+                }
-+                _ => {
-+                    return Err(err).context("UFFDIO_COPY page failed");
-+                }
-+            }
-+        }
-+    }
-+
-+    //fn copy_range(&self, dst: u64, src: u64, len: u64, page_size: u64) -> Result<CopyOutcome> {
-+    //    let mut copy = uffdio_copy {
-+    //        dst,
-+    //        src,
-+    //        len,
-+    //        mode: 0,
-+    //        copy: 0,
-+    //    };
-+
-+    //    let ret = unsafe { ioctl(self.uffd_fd, UFFDIO_COPY, &mut copy) };
-+    //    if ret == 0 {
-+    //        return Ok(CopyOutcome::Full);
-+    //    }
-+
-+    //    let err = io::Error::last_os_error();
-+
-+    //    let mut had_eagain = false;
-+    //    let mut had_fallback = false;
-+
-+    //    match err.raw_os_error() {
-+    //        Some(libc::EAGAIN) => {
-+    //            had_eagain = true;
-+    //            for _ in 0..50 {
-+    //                std::thread::yield_now();
-+    //                let mut retry_copy = uffdio_copy {
-+    //                    dst,
-+    //                    src,
-+    //                    len,
-+    //                    mode: 0,
-+    //                    copy: 0,
-+    //                };
-+    //                let retry_ret = unsafe { ioctl(self.uffd_fd, UFFDIO_COPY, &mut retry_copy) };
-+    //                if retry_ret == 0 {
-+    //                    return Ok((CopyOutcome::EagainRetry));
-+    //                }
-+    //                let retry_err = io::Error::last_os_error();
-+    //                if retry_err.raw_os_error() != Some(libc::EAGAIN) {
-+    //                    if retry_err.raw_os_error() != Some(libc::EEXIST) {
-+    //                        return Err(retry_err).context("UFFDIO_COPY range retry failed");
-+    //                    }
-+    //                    break;
-+    //                }
-+    //            }
-+    //        }
-+    //        Some(libc::EEXIST) => {
-+    //            // 范围里至少有页已存在，走逐页 fallback
-+    //            had_fallback = true;
-+    //        }
-+    //        _ => {
-+    //            return Err(err).context("UFFDIO_COPY range failed");
-+    //        }
-+    //    }
-+
-+    //    eprintln!(
-+    //        "[handler] range copy fallback to per-page: dst=0x{dst:x} src=0x{src:x} len=0x{len:x}"
-+    //    );
-+
-+    //    let mut off = 0u64;
-+    //    while off < len {
-+    //        self.copy_one_page(dst + off, src + off, page_size)?;
-+    //        off += page_size;
-+    //    }
-+
-+    //    if had_fallback {
-+    //        Ok(CopyOutcome::Fallback)
-+    //    } else if had_eagain {
-+    //        Ok(CopyOutcome::EagainRetry)
-+    //    } else {
-+    //        Ok(CopyOutcome::Full)
-+    //    }
-+    //}
-+
-+    fn copy_range(&self, dst: u64, src: u64, len: u64, page_size: u64) -> Result<CopyStats> {
-+        let attempted_pages = len / page_size;
-+
-+        let mut stats = CopyStats {
-+            outcome: CopyOutcome::Full,
-+            attempted_pages,
-+            copied_pages: 0,
-+            skipped_existing_pages: 0,
-+            eagain_retries: 0,
-+            range_copy_calls: 1,
-+            page_copy_calls: 0,
-+        };
-+
-+        let mut copy = uffdio_copy {
-+            dst,
-+            src,
-+            len,
-+            mode: 0,
-+            copy: 0,
-+        };
-+
-+        // SAFETY: 
-+        // To do
-+        let ret = unsafe { ioctl(self.uffd_fd, UFFDIO_COPY, &mut copy) };
-+        if ret == 0 {
-+            stats.copied_pages = attempted_pages;
-+            return Ok(stats);
-+        }
-+
-+        let err = io::Error::last_os_error();
-+        let mut fallback_needed = false;
-+        let mut had_eagain = false;
-+
-+        match err.raw_os_error() {
-+            Some(libc::EAGAIN) => {
-+                had_eagain = true;
-+
-+                for _ in 0..50 {
-+                    stats.eagain_retries += 1;
-+                    std::thread::yield_now();
-+
-+                    let mut retry_copy = uffdio_copy {
-+                        dst,
-+                        src,
-+                        len,
-+                        mode: 0,
-+                        copy: 0,
-+                    };
-+
-+                    // SAFETY: 
-+                    // To do
-+                    let retry_ret = unsafe { ioctl(self.uffd_fd, UFFDIO_COPY, &mut retry_copy) };
-+                    if retry_ret == 0 {
-+                        stats.outcome = CopyOutcome::EagainRetry;
-+                        stats.copied_pages = attempted_pages;
-+                        return Ok(stats);
-+                    }
-+
-+                    let retry_err = io::Error::last_os_error();
-+                    match retry_err.raw_os_error() {
-+                        Some(libc::EAGAIN) => {
-+                            continue;
-+                        }
-+                        Some(libc::EEXIST) => {
-+                            fallback_needed = true;
-+                            break;
-+                        }
-+                        _ => {
-+                            return Err(retry_err).context("UFFDIO_COPY range retry failed");
-+                        }
-+                    }
-+                }
-+
-+                if !fallback_needed {
-+                    fallback_needed = true;
-+                }
-+            }
-+            Some(libc::EEXIST) => {
-+                fallback_needed = true;
-+            }
-+            _ => {
-+                return Err(err).context("UFFDIO_COPY range failed");
-+            }
-+        }
-+
-+        if fallback_needed {
-+            eprintln!(
-+                "[handler] range copy fallback to per-page: dst=0x{dst:x} src=0x{src:x} len=0x{len:x}"
-+            );
-+
-+            let mut off = 0u64;
-+            while off < len {
-+                stats.page_copy_calls += 1;
-+
-+                match self.copy_one_page(dst + off, src + off, page_size)? {
-+                    PageCopyResult::Copied => {
-+                        stats.copied_pages += 1;
-+                    }
-+                    PageCopyResult::AlreadyPresent => {
-+                        stats.skipped_existing_pages += 1;
-+                    }
-+                }
-+
-+                off += page_size;
-+            }
-+
-+            stats.outcome = CopyOutcome::Fallback;
-+            if had_eagain {
-+                // 仍然归类为 Fallback，因为最终走了 fallback 路径
-+                stats.outcome = CopyOutcome::Fallback;
-+            }
-+
-+            return Ok(stats);
-+        }
-+
-+        Ok(stats)
-+    }
-+
-+    fn zeropage_range(&self, start: u64, len: u64) -> Result<()> {
-+        let mut zp = uffdio_zeropage {
-+            range: uffdio_range { start, len },
-+            mode: 0,
-+            zeropage: 0,
-+        };
-+
-+        // SAFETY: 
-+        // To do
-+        let ret = unsafe { ioctl(self.uffd_fd, UFFDIO_ZEROPAGE, &mut zp) };
-+        if ret < 0 {
-+            return Err(io::Error::last_os_error()).context("UFFDIO_ZEROPAGE failed");
-+        }
-+
-+        Ok(())
-+    }
-+
-+    // change #35 - for external UFFD
-+    fn handle_remove_event(&mut self, start: u64, end: u64) -> Result<()> {
-+        for (idx, m) in self.mappings.iter().enumerate() {
-+            let m_start = m.base_host_virt_addr;
-+            let m_end = m.base_host_virt_addr + m.size;
-+            let ov_start = max(start, m_start);
-+            let ov_end = min(end, m_end);
-+
-+            if ov_start < ov_end {
-+                let aligned_s = align_down(ov_start, m.page_size);
-+                let aligned_e = align_up(ov_end, m.page_size);
-+                self.zeropage_range(aligned_s, aligned_e - aligned_s)?;
-+                self.stats[idx].remove_events += 1;
-+                self.stats[idx].zeropage_calls += 1;
-+            }
-+        }
-+
-+        Ok(())
-+    }
-+
-+    // change #54 - for external UFFD
-+    fn read_one_fault(&mut self) -> Result<Option<PendingFault>> {
-+        let msg = match read_pagefault_message(self.uffd_fd) {
-+            Ok(msg) => msg,
-+            Err(e) => {
-+                if e.kind() == std::io::ErrorKind::WouldBlock {
-+                    return Ok(None);
-+                }
-+                if e.kind() == std::io::ErrorKind::Interrupted {
-+                    return self.read_one_fault();
-+                }
-+                return Err(anyhow::Error::new(e).context("read uffd_msg failed"));
-+            }
-+        };
-+
-+        eprintln!(
-+            "[handler] msg.event = {} pf_flags=0x{:x} pf_address=0x{:x}",
-+            msg.event, msg.pf_flags, msg.pf_address
-+        );
-+
-+        if msg.event != EXTERNAL_UFFD_EVENT_PAGEFAULT {
-+            anyhow::bail!("unexpected uffd event {}", msg.event);
-+        }
-+
-+        let addr = msg.pf_address as u64;
-+
-+        let idx = match self.find_mapping_idx(addr) {
-+            Ok(idx) => idx,
-+            Err(e) => {
-+                eprintln!("[handler] mapping miss for addr=0x{addr:x}: {e:#}");
-+                return Ok(None);
-+            }
-+        };
-+
-+        self.handler_stats.fault_count += 1;
-+        self.stats[idx].fault_count += 1;
-+
-+        eprintln!(
-+            "[handler][debug] after fault: global_faults={} region{}_faults={} handler_stats_ptr={:p}",
-+            self.handler_stats.fault_count,
-+            idx,
-+            self.stats[idx].fault_count,
-+            &self.handler_stats,
-+        );
-+
-+        Ok(Some(PendingFault {
-+            addr,
-+            mapping_idx: idx,
-+        }))
-+    }
-+    
-+    // Change #55 - For external UFFD
-+    fn handle_one_fault(&mut self, fault: PendingFault) -> Result<()> {
-+        let mapping = &self.mappings[fault.mapping_idx];
-+        let page = mapping.page_size;
-+        let start_addr = align_down(fault.addr, page);
-+
-+        let src_off = mapping.offset + (start_addr - mapping.base_host_virt_addr);
-+
-+        // SAFETY: 
-+        // To do
-+        let src = unsafe {
-+            // SAFETY: `src_off` is derived from a validated mapping and page-aligned fault
-+            // address. `self.snapshot` is a valid mmap of the snapshot file.
-+            self.snapshot.as_ptr().add(src_off as usize)
-+        };
-+
-+        //self.copy_range(start_addr, src as u64, page)?;
-+        self.copy_range(start_addr, src as u64, 1, self.mappings[0].page_size)?;
-+
-+        eprintln!(
-+                "[handler] copy success: dst=0x{:x}, src_offset=0x{:x}, len={}",
-+                start_addr, src as u64, page
-+        );
-+
-+        self.stats[fault.mapping_idx].copy_calls += 1;
-+        self.stats[fault.mapping_idx].pages_copied += 1;
-+
-+        Ok(())
-+    }
-+
-+    // For optimization of external UFFD by focusing on 
-+    // batching, merging and prefetching
-+    #[allow(unused)]
-+    fn find_mapping_by_addr(&self, addr: u64) -> Option<(usize, &ExternalUffdMapping)> {
-+        self.mappings
-+            .iter()
-+            .enumerate()
-+            .find(|(_, m)| {
-+                addr >= m.base_host_virt_addr
-+                    && addr < m.base_host_virt_addr.saturating_add(m.size)
-+            })
-+    }
-+
-+    fn resolve_file_offset_and_available(
-+        &self,
-+        mapping_idx: usize,
-+        dst_addr: u64,
-+    ) -> Result<(u64, u64)> {
-+        let m = self
-+            .mappings
-+            .get(mapping_idx)
-+            .with_context(|| format!("invalid mapping_idx {mapping_idx}"))?;
-+
-+        let start = m.base_host_virt_addr;
-+        let end = start
-+            .checked_add(m.size)
-+            .with_context(|| format!("mapping[{mapping_idx}] end overflow"))?;
-+
-+        if dst_addr < start || dst_addr >= end {
-+            bail!(
-+                "dst_addr 0x{dst_addr:x} out of mapping[{mapping_idx}] range [0x{start:x}, 0x{end:x})",
-+                //dst_addr,
-+                //mapping_idx,
-+                //start,
-+                //end
-+            );
-+        }
-+
-+        let rel = dst_addr - start;
-+        let file_offset = m.offset
-+            .checked_add(rel)
-+            .with_context(|| format!("file offset overflow for mapping {mapping_idx}"))?;
-+        let available = end - dst_addr;
-+
-+        Ok((file_offset, available))
-+    }
-+
-+    fn read_snapshot_exact(&mut self, src_offset: u64, len: usize) -> io::Result<&[u8]> {
-+        if self.scratch.len() < len {
-+            self.scratch.resize(len, 0);
-+        }
-+
-+        let buf = &mut self.scratch[..len];
-+        self.snapshot.read_exact_at(src_offset, buf)?;
-+        Ok(buf)
-+    }
-+
-+    fn do_uffd_copy(
-+        &mut self,
-+        dst_addr: u64,
-+        src_offset: u64,
-+        len: usize,
-+        page_size: u64,
-+    ) -> io::Result<()> {
-+        if len == 0 {
-+            return Ok(());
-+        }
-+
-+        //if dst_addr % page_size != 0 {
-+        if !dst_addr.is_multiple_of(page_size) {
-+            return Err(Error::new(
-+                ErrorKind::InvalidInput,
-+                format!(
-+                    "dst_addr 0x{dst_addr:x} is not aligned to page_size {page_size}"
-+                ),
-+            ));
-+        }
-+
-+        //if src_offset % page_size != 0 {
-+        if !src_offset.is_multiple_of(page_size) {    
-+            return Err(Error::new(
-+                ErrorKind::InvalidInput,
-+                format!(
-+                    "src_offset 0x{src_offset:x} is not aligned to page_size {page_size}"
-+                ),
-+            ));
-+        }
-+
-+        //if (len as u64) % page_size != 0 {
-+        if !(len as u64).is_multiple_of(page_size) {
-+            return Err(Error::new(
-+                ErrorKind::InvalidInput,
-+                format!("len {len} is not aligned to page_size {page_size}"),
-+            ));
-+        }
-+
-+        let src_buf = self.read_snapshot_exact(src_offset, len)?;
-+
-+        let mut copy = uffdio_copy {
-+            dst: dst_addr,
-+            src: src_buf.as_ptr() as u64,
-+            len: len as u64,
-+            mode: 0,
-+            copy: 0,
-+        };
-+
-+        // SAFETY: 
-+        // To do
-+        let ret = unsafe { libc::ioctl(self.uffd_fd, UFFDIO_COPY as _, &mut copy) };
-+        if ret == -1 {
-+            return Err(io::Error::last_os_error());
-+        }
-+
-+        if copy.copy < 0 {
-+            return Err(io::Error::from_raw_os_error((-copy.copy) as i32));
-+        }
-+
-+        if copy.copy as usize != len {
-+            //return Err(std::io::Error::new(
-+            //    std::io::ErrorKind::Other,
-+            return Err(std::io::Error::other(
-+                format!(
-+                    "UFFDIO_COPY short copy: expected {} bytes, copied {}",
-+                    len, copy.copy
-+                ),
-+            ));
-+        }
-+
-+        Ok(())
-+    }
-+
-+    fn uffd_copy_once(
-+        &mut self,
-+        dst_addr: u64,
-+        src_offset: u64,
-+        len: usize,
-+        mapping_idx: usize,
-+        page_size: u64,
-+    ) -> Result<(), CopyError> {
-+        match self.do_uffd_copy(dst_addr, src_offset, len, page_size) {
-+            Ok(()) => Ok(()),
-+            Err(e) => {
-+                if let Some(raw) = e.raw_os_error() {
-+                    match raw {
-+                        libc::EAGAIN => {
-+                            self.stats[mapping_idx].eagain_retries += 1;
-+                            self.handler_stats.copy_eagain_retries += 1;
-+                            Err(CopyError::TryAgain)
-+                        }
-+                        libc::EEXIST => {
-+                            self.stats[mapping_idx].eexist_fallbacks += 1;
-+                            self.handler_stats.copy_eexist_fallbacks += 1;
-+                            self.stats[mapping_idx].skipped_existing_pages +=
-+                                (len as u64) / page_size;
-+                            self.handler_stats.skipped_existing_pages +=
-+                                (len as u64) / page_size;
-+                            Err(CopyError::AlreadyExists)
-+                        }
-+                        _ => Err(CopyError::Fatal(e.into())),
-+                    }
-+                } else {
-+                    Err(CopyError::Fatal(e.into()))
-+                }
-+            }
-+        }
-+    }
-+
-+    #[allow(unused)]
-+    fn read_pagefault_message_nonblocking(fd: RawFd) -> anyhow::Result<Option<UffdMsg>> {
-+        // SAFETY: 
-+        // To do
-+        let mut msg: UffdMsg = unsafe { std::mem::zeroed() };
-+
-+        // SAFETY: 
-+        // To do
-+        let nread = unsafe {
-+            libc::read(
-+                fd,
-+                &mut msg as *mut _ as *mut libc::c_void,
-+                std::mem::size_of::<UffdMsg>(),
-+            )
-+        };
-+
-+        if nread == std::mem::size_of::<UffdMsg>() as isize {
-+            return Ok(Some(msg));
-+        }
-+
-+        if nread < 0 {
-+            let err = std::io::Error::last_os_error();
-+            match err.raw_os_error() {
-+                Some(libc::EAGAIN) | Some(libc::EWOULDBLOCK) => return Ok(None),
-+                _ => return Err(err.into()),
-+            }
-+        }
-+
-+        bail!(
-+            "short read from userfaultfd: expected {} bytes, got {}",
-+            std::mem::size_of::<UffdMsg>(),
-+            nread
-+        );
-+    }
-+
-+    // For optimization of external UFFD by focusing on 
-+    // batching, merging and prefetching
-+    #[allow(unused)]
-+    fn read_one_fault_nonblocking(&mut self) -> Result<Option<PendingFault>> {
-+        let msg = match Self::read_pagefault_message_nonblocking(self.uffd_fd)? {
-+            Some(msg) => msg,
-+            None => return Ok(None),
-+        };
-+
-+        if msg.event != EXTERNAL_UFFD_EVENT_PAGEFAULT {
-+            bail!("unexpected uffd event {}", msg.event);
-+        }
-+
-+        let addr = msg.pf_address;
-+
-+        let (mapping_idx, _) = self
-+            .find_mapping_by_addr(addr)
-+            .with_context(|| format!("address 0x{addr:x} not found in mappings"))?;
-+
-+        self.stats[mapping_idx].fault_count += 1;
-+        self.handler_stats.fault_count += 1;
-+
-+        Ok(Some(PendingFault { addr, mapping_idx }))
-+    }
-+
-+    // For optimization of external UFFD by focusing on 
-+    // batching, merging and prefetching
-+    fn merge_faults_into_ranges(
-+        &self,
-+        mut faults: Vec<PendingFault>,
-+    ) -> Vec<FaultRange> {
-+        if faults.is_empty() {
-+            return Vec::new();
-+        }
-+
-+        faults.sort_by_key(|f| (f.mapping_idx, f.addr));
-+
-+        let mut ranges = Vec::with_capacity(faults.len());
-+        let mut i = 0;
-+
-+        while i < faults.len() {
-+            let f = faults[i];
-+            let page_size = self.mappings[f.mapping_idx].page_size;
-+
-+            let mut start = align_down(f.addr, page_size);
-+            let mut end = start + page_size;
-+            let mut fault_pages = 1u64;
-+            let mut j = i + 1;
-+
-+            while j < faults.len() {
-+                let next = faults[j];
-+                if next.mapping_idx != f.mapping_idx {
-+                    break;
-+                }
-+
-+                let next_addr = align_down(next.addr, page_size);
-+                if next_addr <= end {
-+                    if next_addr + page_size > end {
-+                        end = next_addr + page_size;
-+                    }
-+                    fault_pages += 1;
-+                    j += 1;
-+                } else if next_addr == end {
-+                    end += page_size;
-+                    fault_pages += 1;
-+                    j += 1;
-+                } else {
-+                    break;
-+                }
-+            }
-+
-+            ranges.push(FaultRange {
-+                mapping_idx: f.mapping_idx,
-+                start_addr: start,
-+                end_addr: end,
-+                fault_pages,
-+                prefetched_pages: 0,
-+            });
-+
-+            i = j;
-+        }
-+
-+        ranges
-+    }
-+
-+    fn copy_range_from_snapshot(&mut self, range: &FaultRange) -> Result<()> {
-+        let idx = range.mapping_idx;
-+        let page_size = self.mappings[idx].page_size;
-+
-+        let mut dst = range.start_addr;
-+        let end = range.end_addr;
-+
-+        self.stats[idx].range_copy_calls += 1;
-+        self.handler_stats.range_copy_calls += 1;
-+
-+        while dst < end {
-+            let (src_offset, available_in_mapping) =
-+                self.resolve_file_offset_and_available(idx, dst)?;
-+
-+            let remaining_in_range = end - dst;
-+            let chunk_len = remaining_in_range
-+                .min(available_in_mapping)
-+                .min(COPY_CHUNK_BYTES);
-+
-+            let chunk_len_usize = usize::try_from(chunk_len)
-+                .context("chunk length does not fit in usize")?;
-+
-+            let pages_in_chunk = chunk_len / page_size;
-+
-+            self.stats[idx].page_copy_calls += pages_in_chunk;
-+            self.handler_stats.page_copy_calls += pages_in_chunk;
-+
-+            match self.uffd_copy_once(dst, src_offset, chunk_len_usize, idx, page_size) {
-+                Ok(()) => {
-+                    self.stats[idx].copy_calls += 1;
-+
-+                    self.stats[idx].copied_pages += pages_in_chunk;
-+                    self.stats[idx].copied_bytes += chunk_len;
-+
-+                    self.handler_stats.copied_pages += pages_in_chunk;
-+                    self.handler_stats.copied_bytes += chunk_len;
-+                }
-+                Err(CopyError::AlreadyExists) => {
-+                    // already counted in skipped_existing_pages inside uffd_copy_once
-+                }
-+                Err(CopyError::TryAgain) => {
-+                    match self.uffd_copy_once(dst, src_offset, chunk_len_usize, idx, page_size) {
-+                        Ok(()) => {
-+                            self.stats[idx].copy_calls += 1;
-+
-+                            self.stats[idx].copied_pages += pages_in_chunk;
-+                            self.stats[idx].copied_bytes += chunk_len;
-+
-+                            self.handler_stats.copied_pages += pages_in_chunk;
-+                            self.handler_stats.copied_bytes += chunk_len;
-+                        }
-+                        Err(CopyError::AlreadyExists) => {}
-+                        Err(CopyError::TryAgain) => {
-+                            bail!(
-+                                "UFFDIO_COPY got EAGAIN twice: mapping={idx} dst=0x{dst} len={chunk_len_usize}",
-+                                //idx,
-+                                //dst,
-+                                //chunk_len_usize
-+                            );
-+                        }
-+                        Err(CopyError::Fatal(e)) => return Err(e),
-+                    }
-+                }
-+                Err(CopyError::Fatal(e)) => return Err(e),
-+            }
-+
-+            dst += chunk_len;
-+        }
-+
-+        self.stats[idx].prefetch_pages += range.prefetched_pages;
-+        self.handler_stats.prefetch_pages += range.prefetched_pages;
-+
-+        Ok(())
-+    }
-+
-+    //fn run(&mut self) -> Result<()> {
-+    //    let epfd = unsafe { libc::epoll_create1(libc::EPOLL_CLOEXEC) };
-+    //    if epfd < 0 {
-+    //        return Err(io::Error::last_os_error()).context("epoll_create1 failed");
-+    //    }
-+
-+    //    let mut ev = libc::epoll_event {
-+    //        events: libc::EPOLLIN as u32,
-+    //        u64: self.uffd_fd as u64,
-+    //    };
-+
-+    //    let ctl = unsafe { 
-+    //        libc::epoll_ctl(
-+    //            epfd, 
-+    //            libc::EPOLL_CTL_ADD, 
-+    //            self.uffd_fd, 
-+    //            &mut ev as *mut libc::epoll_event) 
-+    //    };
-+    //    if ctl < 0 {
-+    //        return Err(io::Error::last_os_error()).context("epoll_ctl failed");
-+    //    }
-+
-+    //    let mut events: [libc::epoll_event; 8] = unsafe { mem::zeroed() };
-+
-+    //    loop {
-+    //        let n = unsafe { libc::epoll_wait(epfd, events.as_mut_ptr(), events.len() as i32, -1) };
-+    //        if n < 0 {
-+    //            return Err(io::Error::last_os_error()).context("epoll_wait failed");
-+    //        }
-+
-+    //        let batch = self.drain_fault_batch()?;
-+    //        if batch.is_empty() {
-+    //            continue;
-+    //        }
-+
-+    //        self.coalesce_and_copy(&batch)?;
-+    //    }
-+    //}
-+
-+    fn update_merge_stats(&mut self, ranges: &[FaultRange]) {
-+        for range in ranges {
-+            let idx = range.mapping_idx;
-+            self.stats[idx].merged_ranges += 1;
-+            if range.fault_pages > 1 {
-+                self.stats[idx].merged_fault_savings += range.fault_pages - 1;
-+            }
-+        }
-+    }
-+
-+    fn print_perf_summary_opti(&self) {
-+        let avg_faults_per_batch = if self.handler_stats.batch_count > 0 {
-+            self.handler_stats.drained_faults_total as f64 / self.handler_stats.batch_count as f64
-+        } else {
-+            0.0
-+        };
-+
-+        let avg_pages_per_batch = if self.handler_stats.batch_count > 0 {
-+            self.handler_stats.copied_pages as f64 / self.handler_stats.batch_count as f64
-+        } else {
-+            0.0
-+        };
-+
-+        eprintln!(
-+            "[handler][summary] avg_faults_per_batch={:.2}, avg_pages_per_batch={:.2}, merged_fault_savings={}, prefetch_pages={}, max_faults_in_batch={}, max_pages_in_batch={}",
-+            avg_faults_per_batch,
-+            avg_pages_per_batch,
-+            self.handler_stats.merged_fault_savings,
-+            self.handler_stats.prefetch_pages,
-+            self.handler_stats.max_faults_in_batch,
-+            self.handler_stats.max_pages_in_batch,
-+        );
-+    }
-+
-+    fn choose_prefetch_pages(
-+        &mut self,
-+        mapping_idx: usize,
-+        fault_addr: u64,
-+    ) -> u64 {
-+        let mapping = &self.mappings[mapping_idx];
-+        let page_size = mapping.page_size;
-+        let heur = &mut self.heuristics[mapping_idx];
-+
-+        let is_sequential =
-+            heur.last_fault_addr != 0 &&
-+            fault_addr == heur.last_fault_addr + page_size;
-+
-+        if is_sequential {
-+            heur.seq_hits += 1;
-+
-+            self.stats[mapping_idx].sequential_hits += 1;
-+            self.handler_stats.sequential_hits += 1;
-+        } else {
-+            heur.seq_hits = 0;
-+            self.handler_stats.random_hits += 1;
-+        }
-+
-+        heur.last_fault_addr = fault_addr;
-+
-+        // --- 决定 prefetch 页数 ---
-+        let prefetch_pages = if heur.seq_hits >= 2 {
-+            2
-+        } else if heur.seq_hits == 1 {
-+            1
-+        } else {
-+            0
-+        };
-+
-+        prefetch_pages.min(MAX_PREFETCH_PAGES)
-+    }
-+
-+    fn maybe_expand_range_with_prefetch(
-+        &mut self,
-+        range: &mut FaultRange,
-+    ) {
-+        let idx = range.mapping_idx;
-+        //let mapping = &self.mappings[idx];
-+        //let page_size = mapping.page_size;
-+        let page_size = self.mappings[idx].page_size;
-+        let mapping_end = self.mappings[idx].base_host_virt_addr + self.mappings[idx].size;
-+        
-+        //test2
-+        let prefetch_pages = self.choose_prefetch_pages(idx, range.start_addr);
-+        
-+        //test1
-+        //let prefetch_pages = 0;
-+
-+        if prefetch_pages == 0 {
-+            return;
-+        }
-+
-+        //let mapping_end = mapping.base_host_virt_addr + mapping.size;
-+        let mut new_end = range.end_addr + prefetch_pages * page_size;
-+        new_end = new_end.min(mapping_end);
-+
-+        let heur = &mut self.heuristics[idx];
-+
-+        if heur.last_prefetch_end != 0 && new_end <= heur.last_prefetch_end {
-+            return;
-+        }
-+
-+        let added_pages = (new_end - range.end_addr) / page_size;
-+
-+        if added_pages > 0 {
-+            range.prefetched_pages = added_pages;
-+            range.end_addr = new_end;
-+            heur.last_prefetch_end = new_end;
-+        }
-+    }
-+
-+    fn run(&mut self) -> Result<()> {
-+        let stop = Arc::new(AtomicBool::new(false));
-+        let stop_flag = Arc::clone(&stop);
-+
-+        ctrlc::set_handler(move || {
-+            eprintln!("\n[handler] Ctrl+C received, stopping...");
-+            stop_flag.store(true, Ordering::SeqCst);
-+        })
-+        .context("failed to install Ctrl+C handler")?;
-+
-+        // SAFETY: 
-+        // To do
-+        let epfd = unsafe { libc::epoll_create1(libc::EPOLL_CLOEXEC) };
-+        if epfd < 0 {
-+            return Err(std::io::Error::last_os_error()).context("epoll_create1 failed");
-+        }
-+
-+        let mut ev = libc::epoll_event {
-+            events: libc::EPOLLIN as u32,
-+            u64: self.uffd_fd as u64,
-+        };
-+
-+        // SAFETY: 
-+        // To do
-+        let ctl = unsafe {
-+            libc::epoll_ctl(
-+                epfd,
-+                libc::EPOLL_CTL_ADD,
-+                self.uffd_fd,
-+                &mut ev as *mut libc::epoll_event,
-+            )
-+        };
-+        if ctl < 0 {
-+            let err = std::io::Error::last_os_error();
-+            // SAFETY: 
-+            // To do
-+            unsafe {
-+                libc::close(epfd);
-+            }
-+            return Err(err).context("epoll_ctl failed");
-+        }
-+
-+        let mut events: [libc::epoll_event; 8] = 
-+            // SAFETY: 
-+            // To do
-+            unsafe {
-+            // SAFETY: epoll_event is a plain C struct and zero-initialization is valid.
-+            std::mem::zeroed()
-+            };
-+
-+        let result = (|| -> Result<()> {
-+            loop {
-+                if stop.load(Ordering::SeqCst) {
-+                    eprintln!("[handler] stop flag set, breaking loop");
-+                    break;
-+                }
-+
-+                //eprintln!("[handler] waiting for epoll event");
-+
-+                let n = 
-+                    // SAFETY: 
-+                    // To do
-+                    unsafe {
-+                        libc::epoll_wait(epfd, events.as_mut_ptr(), events.len() as i32, 100)
-+                    };
-+
-+                if n < 0 {
-+                    let err = std::io::Error::last_os_error();
-+
-+                    if err.kind() == std::io::ErrorKind::Interrupted {
-+                        if stop.load(Ordering::SeqCst) {
-+                            eprintln!("[handler] epoll interrupted and stop requested");
-+                            break;
-+                        }
-+                        continue;
-+                    }
-+
-+                    return Err(err).context("epoll_wait failed");
-+                }
-+
-+                if n == 0 {
-+                    continue;
-+                }
-+
-+                for _ in 0..n {
-+                    if stop.load(Ordering::SeqCst) {
-+                        eprintln!("[handler] stop flag set during event processing");
-+                        break;
-+                    }
-+
-+                    //eprintln!("[handler] epoll woke up");
-+                    //std::thread::sleep(std::time::Duration::from_millis(2));
-+
-+                    // Prior to optimization
-+                    //let batch = self.drain_fault_batch()?;
-+                    //if batch.is_empty() {
-+                    //    continue;
-+                    //}
-+
-+                    //eprintln!("[handler] drained {} fault(s)", batch.len());
-+                    //self.coalesce_and_copy(&batch)?;
-+
-+                    // For optimization
-+                    let batch = self.drain_fault_batch_opti()?;
-+                    if batch.is_empty() {
-+                        continue;
-+                    }
-+
-+                    //eprintln!("[handler] drained {} fault(s)", batch.len());
-+                    self.coalesce_and_copy_opti(&batch)?;
-+                }
-+
-+            }
-+
-+            Ok(())
-+        })();
-+
-+        // SAFETY: 
-+        // To do
-+        unsafe {
-+            libc::close(epfd);
-+        }
-+
-+        eprintln!("\n[handler] exiting run(), dumping stats...");
-+        //self.print_stats();
-+        self.print_stats_opti();
-+        self.print_perf_summary_opti();
-+
-+        result
-+    }
-+
-+    //fn run(&mut self) -> Result<()> {
-+    //    eprintln!("[handler] waiting for pagefault");
-+    //    loop {
-+    //        match self.read_one_fault() {
-+    //            Ok(fault) => {
-+    //                eprintln!(
-+    //                    "[handler] GOT pagefault addr=0x{:x} mapping_idx={}",
-+    //                    fault.addr, fault.mapping_idx
-+    //                );
-+    //                self.handle_one_fault(fault)?;
-+    //            }
-+    //            Err(e) => {
-+    //                eprintln!("[handler] read_one_fault error: {e:?}");
-+    //                return Err(e);
-+    //            }
-+    //        }
-+    //    }
-+    //}
-+
-+
-+}
-+
-+// change #37 - for external UFFD
-+fn main() -> Result<()> {
-+
-+    let socket_path = Path::new("/tmp/uffd.sock");
-+    let _ = std::fs::remove_file(socket_path);
-+
-+    let listener = UnixListener::bind(socket_path)?;
-+    eprintln!("[handler] listening on /tmp/uffd.sock");
-+    
-+    let (hs, uffd_fd) = accept_and_recv_handshake(&listener)?;
-+
-+    eprintln!(
-+        "[handler] version={} mappings={} snapshot={:?}",
-+        hs.version,
-+        hs.mappings.len(),
-+        hs.snapshot_path
-+    );
-+
-+    let file = File::open(&hs.snapshot_path)?;
-+    let snapshot = SnapshotMap::map(&file)?;
-+    eprintln!("[handler] snapshot mmap OK");
-+
-+    let mappings = hs.mappings;
-+    let mappings_len = mappings.len();
-+
-+    let mut handler = ExternalUffdHandler {
-+        uffd_fd,
-+        snapshot,
-+        mappings,
-+        heuristics: vec![RegionHeuristics::default(); mappings_len],
-+        stats: vec![RegionStats::default(); mappings_len],
-+        handler_stats: HandlerStats::default(),
-+        scratch: vec![0u8; COPY_CHUNK_BYTES as usize],
-+    };
-+
-+    handler.run()
-+}
-+
-+
-diff --git a/cloud-hypervisor/examples/run_hot_5x.sh b/cloud-hypervisor/examples/run_hot_5x.sh
-new file mode 100644
-index 000000000..0a5811c0a
---- /dev/null
-+++ b/cloud-hypervisor/examples/run_hot_5x.sh
-@@ -0,0 +1,83 @@
-+#!/usr/bin/env bash
-+##
-+## Copyright 2026 The Kuasar Authors
-+##
-+set -euo pipefail
-+
-+
-+RUNS=5
-+W=/tmp/unified-bench
-+CH=/usr/local/bin/cloud-hypervisor
-+export W CH
-+
-+HANDLER_BIN=/usr/local/bin/external_uffd_handler
-+HANDLER_SOCK=/tmp/uffd.sock
-+WORK_SOCK_GLOB="/tmp/unified-bench/*.sock"
-+RESTORE_SCRIPT=/tmp/unified-bench/restore_snapshot_externalUFFD_opti.sh
-+LOG_DIR=/tmp/unified-bench/hot_runs
-+
-+mkdir -p "$LOG_DIR"
-+
-+echo "=== HOT cache experiment: ${RUNS} runs ==="
-+echo "Logs will be saved under: $LOG_DIR"
-+echo
-+
-+for i in $(seq 1 "$RUNS"); do
-+  echo "===== RUN $i / $RUNS ====="
-+
-+  HANDLER_LOG="$LOG_DIR/handler_run_${i}.log"
-+  RESTORE_LOG="$LOG_DIR/restore_run_${i}.log"
-+
-+  # cleanup old sockets
-+  sudo rm -f "$HANDLER_SOCK"
-+  rm -f $WORK_SOCK_GLOB 2>/dev/null || true
-+
-+  # start handler (line-buffered logs so grep can see output promptly)
-+  sudo stdbuf -oL -eL "$HANDLER_BIN" >"$HANDLER_LOG" 2>&1 &
-+  HANDLER_PID=$!
-+
-+  # wait until handler is listening on the socket
-+  READY=0
-+  for _ in $(seq 1 500); do
-+    if [[ -S "$HANDLER_SOCK" ]] && grep -q "listening on $HANDLER_SOCK" "$HANDLER_LOG" 2>/dev/null; then
-+      READY=1
-+      break
-+    fi
-+    sleep 0.01
-+  done
-+
-+  if [[ "$READY" -ne 1 ]]; then
-+    echo "Handler did not become ready in time for run $i"
-+    echo "Handler log:"
-+    cat "$HANDLER_LOG" || true
-+    sudo kill -9 "$HANDLER_PID" 2>/dev/null || true
-+    wait "$HANDLER_PID" 2>/dev/null || true
-+    exit 1
-+  fi
-+
-+  # run restore
-+  if ! sudo -E sh "$RESTORE_SCRIPT" >"$RESTORE_LOG" 2>&1; then
-+    echo "Restore failed on run $i"
-+    echo "--- restore log ---"
-+    cat "$RESTORE_LOG" || true
-+    echo "--- handler log ---"
-+    cat "$HANDLER_LOG" || true
-+    sudo kill -9 "$HANDLER_PID" 2>/dev/null || true
-+    wait "$HANDLER_PID" 2>/dev/null || true
-+    exit 1
-+  fi
-+
-+  # stop handler after this run
-+  sudo kill -INT "$HANDLER_PID" 2>/dev/null || true
-+  wait "$HANDLER_PID" 2>/dev/null || true
-+
-+  # print a short summary to terminal
-+  echo "--- restore summary ---"
-+  grep -E "restore-|launch_to_paused|paused_to_resume_call|resume_to_ready" "$RESTORE_LOG" || true
-+  echo "--- handler summary ---"
-+  grep -E "^\[handler\]\[stats\]|^\[handler\]\[summary\]" "$HANDLER_LOG" || true
-+  echo
-+done
-+
-+echo "=== DONE ==="
-+echo "Review logs in: $LOG_DIR"
 diff --git a/cloud-hypervisor/src/bin/ch-remote.rs b/cloud-hypervisor/src/bin/ch-remote.rs
-index 6939eaa38..446a8a2d0 100644
+index 236e7438e..da82c2a24 100644
 --- a/cloud-hypervisor/src/bin/ch-remote.rs
 +++ b/cloud-hypervisor/src/bin/ch-remote.rs
 @@ -1,3 +1,5 @@
@@ -4628,7 +2042,7 @@ index 6939eaa38..446a8a2d0 100644
  // Copyright © 2020 Intel Corporation
  //
  // SPDX-License-Identifier: Apache-2.0
-@@ -25,6 +27,7 @@ use vmm::vm_config::{
+@@ -27,6 +29,7 @@ use vmm::vm_config::{
      DeviceConfig, DiskConfig, FsConfig, GenericVhostUserConfig, NetConfig, PmemConfig,
      UserDeviceConfig, VdpaConfig, VsockConfig,
  };
@@ -4644,7 +2058,7 @@ index 6939eaa38..446a8a2d0 100644
              );
              simple_api_command(
                  socket,
-@@ -945,9 +949,20 @@ fn coredump_config(destination_url: &str) -> String {
+@@ -941,9 +945,20 @@ fn coredump_config(destination_url: &str) -> String {
      serde_json::to_string(&coredump_config).unwrap()
  }
  
@@ -4666,7 +2080,7 @@ index 6939eaa38..446a8a2d0 100644
      };
  
      serde_json::to_string(&receive_migration_data).unwrap()
-@@ -1176,6 +1191,23 @@ fn main() {
+@@ -1164,6 +1179,23 @@ fn main() {
  
      let matches = app.get_matches();
  
@@ -4690,7 +2104,7 @@ index 6939eaa38..446a8a2d0 100644
      let mut target_api = match (
          matches.get_one::<String>("api-socket"),
          #[cfg(feature = "dbus_api")]
-@@ -1183,14 +1215,17 @@ fn main() {
+@@ -1171,14 +1203,17 @@ fn main() {
          #[cfg(feature = "dbus_api")]
          matches.get_one::<String>("dbus-object-path"),
      ) {
@@ -4717,7 +2131,7 @@ index 6939eaa38..446a8a2d0 100644
          (Some(api_sock), None, None) => TargetApi::HttpApi(
              UnixStream::connect(api_sock).unwrap_or_else(|e| {
 diff --git a/cloud-hypervisor/src/main.rs b/cloud-hypervisor/src/main.rs
-index 996671182..433bf3eb7 100644
+index 5de2e4c2d..c041cbe04 100644
 --- a/cloud-hypervisor/src/main.rs
 +++ b/cloud-hypervisor/src/main.rs
 @@ -1,3 +1,5 @@
@@ -4726,7 +2140,7 @@ index 996671182..433bf3eb7 100644
  // Copyright © 2019 Intel Corporation
  //
  // SPDX-License-Identifier: Apache-2.0
-@@ -996,6 +998,7 @@ mod unit_tests {
+@@ -988,6 +990,7 @@ mod unit_tests {
                  prefault: false,
                  zones: None,
                  thp: true,
@@ -4735,19 +2149,19 @@ index 996671182..433bf3eb7 100644
              payload: Some(PayloadConfig {
                  kernel: Some(PathBuf::from("/path/to/kernel")),
 diff --git a/vmm/Cargo.toml b/vmm/Cargo.toml
-index ab0278e6d..1c3633a6b 100644
+index 7a38fa500..5e7c57f76 100644
 --- a/vmm/Cargo.toml
 +++ b/vmm/Cargo.toml
-@@ -94,6 +94,7 @@ vm-virtio = { path = "../vm-virtio" }
+@@ -103,6 +103,7 @@ vm-virtio = { path = "../vm-virtio" }
  vmm-sys-util = { workspace = true, features = ["with-serde"] }
- zbus = { version = "5.14.0", optional = true }
+ zbus = { version = "5.15.0", optional = true }
  zerocopy = { workspace = true, features = ["alloc", "derive"] }
 +ctrlc = "3"
  
- [lints]
- workspace = true
+ [dev-dependencies]
+ tempfile = "3"
 diff --git a/vmm/src/api/mod.rs b/vmm/src/api/mod.rs
-index 17ba0011b..e7c9b7683 100644
+index e4ee7235a..3bf5e79ee 100644
 --- a/vmm/src/api/mod.rs
 +++ b/vmm/src/api/mod.rs
 @@ -1,3 +1,5 @@
@@ -4756,7 +2170,7 @@ index 17ba0011b..e7c9b7683 100644
  // Copyright © 2019 Intel Corporation
  // Copyright 2024 Alyssa Ross <hi@alyssa.is>
  //
-@@ -55,6 +57,9 @@ use crate::vm_config::{
+@@ -60,6 +62,9 @@ use crate::vm_config::{
      UserDeviceConfig, VdpaConfig, VmConfig, VsockConfig,
  };
  
@@ -4766,7 +2180,7 @@ index 17ba0011b..e7c9b7683 100644
  /// API errors are sent back from the VMM API server through the ApiResponse.
  #[derive(Error, Debug)]
  pub enum ApiError {
-@@ -260,10 +265,15 @@ pub struct VmCoredumpData {
+@@ -265,10 +270,15 @@ pub struct VmCoredumpData {
      pub destination_url: String,
  }
  
@@ -4782,9 +2196,9 @@ index 17ba0011b..e7c9b7683 100644
 +    pub memory_restore_mode: MemoryRestoreMode,
  }
  
- #[derive(Clone, Deserialize, Serialize, Default, Debug)]
+ #[derive(Copy, Clone, Default, Deserialize, Serialize, Debug, PartialEq, Eq)]
 diff --git a/vmm/src/api/openapi/cloud-hypervisor.yaml b/vmm/src/api/openapi/cloud-hypervisor.yaml
-index e8d3350db..69be785c7 100644
+index e8b72f748..6bc734db5 100644
 --- a/vmm/src/api/openapi/cloud-hypervisor.yaml
 +++ b/vmm/src/api/openapi/cloud-hypervisor.yaml
 @@ -7,7 +7,7 @@ info:
@@ -4796,7 +2210,7 @@ index e8d3350db..69be785c7 100644
    - url: http://localhost/api/v1
  
  paths:
-@@ -1344,7 +1344,7 @@ components:
+@@ -1428,7 +1428,7 @@ components:
  
      MemoryRestoreMode:
        type: string
@@ -4806,7 +2220,7 @@ index e8d3350db..69be785c7 100644
  
      RestoreConfig:
 diff --git a/vmm/src/config.rs b/vmm/src/config.rs
-index 93ec6c891..6937e5d3f 100644
+index 00bf251f3..45a1f4374 100644
 --- a/vmm/src/config.rs
 +++ b/vmm/src/config.rs
 @@ -1,3 +1,5 @@
@@ -4815,7 +2229,7 @@ index 93ec6c891..6937e5d3f 100644
  // Copyright © 2019 Intel Corporation
  //
  // SPDX-License-Identifier: Apache-2.0
-@@ -1035,6 +1037,8 @@ impl MemoryConfig {
+@@ -1111,6 +1113,8 @@ impl MemoryConfig {
              prefault,
              zones,
              thp,
@@ -4824,7 +2238,7 @@ index 93ec6c891..6937e5d3f 100644
          })
      }
  
-@@ -2567,6 +2571,8 @@ where
+@@ -2578,6 +2582,8 @@ where
      }
  }
  
@@ -4833,7 +2247,7 @@ index 93ec6c891..6937e5d3f 100644
  #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, Default)]
  pub enum MemoryRestoreMode {
      /// Restore by eagerly copying the snapshot into guest RAM before resume.
-@@ -2574,14 +2580,20 @@ pub enum MemoryRestoreMode {
+@@ -2585,14 +2591,20 @@ pub enum MemoryRestoreMode {
      Copy,
      /// Restore lazily by faulting snapshot pages into guest RAM on demand.
      OnDemand,
@@ -4854,7 +2268,7 @@ index 93ec6c891..6937e5d3f 100644
  impl FromStr for MemoryRestoreMode {
      type Err = MemoryRestoreModeParseError;
  
-@@ -2589,6 +2601,8 @@ impl FromStr for MemoryRestoreMode {
+@@ -2600,6 +2612,8 @@ impl FromStr for MemoryRestoreMode {
          match s.to_lowercase().as_str() {
              "copy" => Ok(Self::Copy),
              "ondemand" => Ok(Self::OnDemand),
@@ -4863,7 +2277,7 @@ index 93ec6c891..6937e5d3f 100644
              _ => Err(MemoryRestoreModeParseError::InvalidValue(s.to_owned())),
          }
      }
-@@ -4834,6 +4848,8 @@ id=\"{id}\",pci_segment={pci_segment},queue_sizes={queue_sizes}"
+@@ -5020,6 +5034,8 @@ id=\"{id}\",pci_segment={pci_segment},queue_sizes={queue_sizes}"
                  prefault: false,
                  zones: None,
                  thp: true,
@@ -5498,7 +2912,7 @@ index 000000000..e24f86a85
 +    })
 +}
 diff --git a/vmm/src/lib.rs b/vmm/src/lib.rs
-index cb72d69d9..fc4cd094f 100644
+index 6c9d476ab..2dd20093e 100644
 --- a/vmm/src/lib.rs
 +++ b/vmm/src/lib.rs
 @@ -1,3 +1,5 @@
@@ -5507,7 +2921,7 @@ index cb72d69d9..fc4cd094f 100644
  // Copyright © 2019 Intel Corporation
  //
  // SPDX-License-Identifier: Apache-2.0
-@@ -93,6 +95,10 @@ mod userfaultfd;
+@@ -105,6 +107,10 @@ mod userfaultfd;
  pub mod vm;
  pub mod vm_config;
  
@@ -5518,8 +2932,8 @@ index cb72d69d9..fc4cd094f 100644
  type GuestMemoryMmap = vm_memory::GuestMemoryMmap<AtomicBitmap>;
  type GuestRegionMmap = vm_memory::GuestRegionMmap<AtomicBitmap>;
  
-@@ -907,7 +913,7 @@ impl Vmm {
-         socket: &mut SocketStream,
+@@ -883,7 +889,7 @@ impl Vmm {
+         listener: &ReceiveListener,
          state: ReceiveMigrationState,
          req: &Request,
 -        _receive_data_migration: &VmReceiveMigrationData,
@@ -5527,38 +2941,32 @@ index cb72d69d9..fc4cd094f 100644
      ) -> std::result::Result<ReceiveMigrationState, MigratableError> {
          use ReceiveMigrationState::*;
  
-@@ -963,7 +969,13 @@ impl Vmm {
-                     Ok(Configured(memory_manager))
-                 }
-                 Command::State => {
--                    self.vm_receive_state(req, socket, memory_manager.clone())?;
-+                    // Change - For external UFFD (lazy loading) restore
-+                    self.vm_receive_state(
-+                        req, 
-+                        socket, 
-+                        memory_manager.clone(),
-+                        receive_data_migration.memory_restore_mode,
-+                    )?;
-                     Ok(StateReceived)
-                 }
-                 _ => invalid_command(),
-@@ -1075,6 +1087,7 @@ impl Vmm {
+@@ -971,7 +977,7 @@ impl Vmm {
+                     let state_receive_begin = Instant::now();
+                     config_data.connections.cleanup()?;
+                     let (recv_state_dur, restore_vm_dur) =
+-                        self.vm_receive_state(req, socket, config_data.memory_manager)?;
++                        self.vm_receive_state(req, socket, config_data.memory_manager, receive_data_migration.memory_restore_mode,)?;
+                     debug!(
+                         "Migration (incoming): recv_snapshot:{}ms restore:{}ms",
+                         recv_state_dur.as_millis(),
+@@ -1113,6 +1119,7 @@ impl Vmm {
          req: &Request,
          socket: &mut T,
          mm: Arc<Mutex<MemoryManager>>,
 +        memory_restore_mode: MemoryRestoreMode, // Change - For external UFFD (lazy loading) restore
-     ) -> std::result::Result<(), MigratableError>
-     where
-         T: Read,
-@@ -1123,6 +1136,7 @@ impl Vmm {
-             self.console_resize_pipe.clone(),
-             Arc::clone(&self.original_termios_opt),
-             Some(&snapshot),
-+            Some(memory_restore_mode), // Change - For external UFFD restore
-         )
-         .map_err(|e| {
-             MigratableError::MigrateReceive(anyhow!("Error creating VM from snapshot: {e:?}"))
-@@ -1405,8 +1419,13 @@ impl Vmm {
+     ) -> std::result::Result<
+         (
+             Duration, /* state receive + deserialize */
+@@ -1174,6 +1181,7 @@ impl Vmm {
+                 self.console_resize_pipe.clone(),
+                 Arc::clone(&self.original_termios_opt),
+                 Some(&snapshot),
++                Some(memory_restore_mode),
+                 #[cfg(feature = "igvm")]
+                 None,
+             )
+@@ -1460,8 +1468,13 @@ impl Vmm {
              vm_config,
              #[cfg(all(feature = "kvm", target_arch = "x86_64"))]
              common_cpuid,
@@ -5569,11 +2977,11 @@ index cb72d69d9..fc4cd094f 100644
 +                .memory_manager_data()
 +                .map_err(|e| MigratableError::Snapshot(anyhow::anyhow!("memory_manager_data failed: {e}")))?,
          };
-+
-         let config_data = serde_json::to_vec(&vm_migration_config).unwrap();
-         Request::config(config_data.len() as u64).write_to(&mut socket)?;
-         socket
-@@ -2563,6 +2582,7 @@ mod unit_tests {
++        
+         migration_transport::send_config(&mut socket, &vm_migration_config)?;
+ 
+         // Let every Migratable object know about the migration being started.
+@@ -2699,6 +2712,7 @@ mod unit_tests {
                  prefault: false,
                  zones: None,
                  thp: true,
@@ -5582,7 +2990,7 @@ index cb72d69d9..fc4cd094f 100644
              payload: Some(PayloadConfig {
                  kernel: Some(PathBuf::from("/path/to/kernel")),
 diff --git a/vmm/src/memory_manager.rs b/vmm/src/memory_manager.rs
-index ba0313b29..b2bdcd2b9 100644
+index dfe0f3e49..9f2d2d218 100644
 --- a/vmm/src/memory_manager.rs
 +++ b/vmm/src/memory_manager.rs
 @@ -1,3 +1,5 @@
@@ -5591,14 +2999,13 @@ index ba0313b29..b2bdcd2b9 100644
  // Copyright © 2019 Intel Corporation
  //
  // SPDX-License-Identifier: Apache-2.0
-@@ -57,6 +59,35 @@ use crate::migration::url_to_path;
+@@ -58,6 +60,34 @@ use crate::migration::url_to_path;
  use crate::vm_config::{HotplugMethod, MemoryConfig, MemoryZoneConfig};
  use crate::{GuestMemoryMmap, GuestRegionMmap, MEMORY_MANAGER_SNAPSHOT_ID, uffd};
  
-+
 +// Change - For External UFFD (lazy loading) restore
 +use crate::external_uffd::{
-+    ExternalUffdHandshake, 
++    ExternalUffdHandshake,
 +    ExternalUffdMapping,
 +    EXTERNAL_UFFD_HANDSHAKE_VERSION,
 +};
@@ -5624,10 +3031,10 @@ index ba0313b29..b2bdcd2b9 100644
 +    External(ExternalUffdState),
 +}
 +
- struct UffdHandler {
-     stop_event: EventFd,
-     result_rx: Receiver<Result<(), io::Error>>,
-@@ -69,6 +100,7 @@ struct UffdRange {
+ /// Find the next populated (data) extent in `[cursor, end)` of `fd`,
+ /// driven by `lseek(SEEK_DATA)` / `lseek(SEEK_HOLE)`. Returns
+ /// `Ok(Some((offset, len)))` for the next data extent within the window,
+@@ -106,6 +136,7 @@ struct UffdRange {
      file_offset: u64,
      page_size: u64,
  }
@@ -5635,7 +3042,7 @@ index ba0313b29..b2bdcd2b9 100644
  
  pub const MEMORY_MANAGER_ACPI_SIZE: usize = 0x18;
  
-@@ -76,6 +108,12 @@ const DEFAULT_MEMORY_ZONE: &str = "mem0";
+@@ -113,6 +144,12 @@ const DEFAULT_MEMORY_ZONE: &str = "mem0";
  
  const SNAPSHOT_FILENAME: &str = "memory-ranges";
  
@@ -5648,7 +3055,7 @@ index ba0313b29..b2bdcd2b9 100644
  #[cfg(target_arch = "x86_64")]
  const X86_64_IRQ_BASE: u32 = 5;
  
-@@ -91,6 +129,43 @@ const PLATFORM_DEVICE_AREA_SIZE: u64 = 1 << 20;
+@@ -128,6 +165,43 @@ const PLATFORM_DEVICE_AREA_SIZE: u64 = 1 << 20;
  
  const MAX_PREFAULT_THREAD_COUNT: usize = 16;
  
@@ -5692,7 +3099,7 @@ index ba0313b29..b2bdcd2b9 100644
  #[derive(Clone, Default, Serialize, Deserialize)]
  struct HotPlugState {
      base: u64,
-@@ -179,6 +254,7 @@ impl MemoryZone {
+@@ -218,6 +292,7 @@ impl MemoryZone {
  
  pub type MemoryZones = HashMap<String, MemoryZone>;
  
@@ -5700,7 +3107,7 @@ index ba0313b29..b2bdcd2b9 100644
  #[derive(Clone, Serialize, Deserialize)]
  struct GuestRamMapping {
      slot: u32,
-@@ -230,7 +306,9 @@ pub struct MemoryManager {
+@@ -269,7 +344,9 @@ pub struct MemoryManager {
      // This is useful for getting the dirty pages as we need to know the
      // slots that the mapping is created in.
      guest_ram_mappings: Vec<GuestRamMapping>,
@@ -5711,7 +3118,7 @@ index ba0313b29..b2bdcd2b9 100644
  
      pub acpi_address: Option<GuestAddress>,
      #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
-@@ -392,6 +470,77 @@ pub enum Error {
+@@ -439,6 +516,77 @@ pub enum Error {
      /// Memory size is misaligned with default page size or its hugepage size
      #[error("Memory size is misaligned with default page size or its hugepage size")]
      MisalignedMemorySize,
@@ -5789,7 +3196,7 @@ index ba0313b29..b2bdcd2b9 100644
  }
  
  impl From<UffdError> for Error {
-@@ -966,11 +1115,12 @@ impl MemoryManager {
+@@ -1064,11 +1212,12 @@ impl MemoryManager {
              return Err(UffdError::HandlerFailed(e).into());
          }
  
@@ -5804,7 +3211,7 @@ index ba0313b29..b2bdcd2b9 100644
  
          info!("UFFD restore: demand-paged restore enabled");
  
-@@ -988,17 +1138,27 @@ impl MemoryManager {
+@@ -1086,17 +1235,27 @@ impl MemoryManager {
          features
      }
  
@@ -5841,7 +3248,7 @@ index ba0313b29..b2bdcd2b9 100644
              }
          }
      }
-@@ -1174,6 +1334,158 @@ impl MemoryManager {
+@@ -1272,6 +1431,154 @@ impl MemoryManager {
          }
      }
  
@@ -5894,7 +3301,7 @@ index ba0313b29..b2bdcd2b9 100644
 +                .map_err(|_| UffdError::GpaTranslation { gpa: range.gpa })?
 +                as u64;
 +
-+            eprintln!(
++            debug!(
 +                "[restore] register uffd range: host=0x{:x}, len=0x{:x}",
 +                host_addr, range.length
 +            );
@@ -5907,7 +3314,7 @@ index ba0313b29..b2bdcd2b9 100644
 +                }
 +            })?;
 +
-+            eprintln!(
++            debug!(
 +                "[restore] register uffd range: host=0x{:x}, len=0x{:x}, ioctls=0x{:x}",
 +                host_addr, range.length, ioctls
 +            );
@@ -5964,7 +3371,7 @@ index ba0313b29..b2bdcd2b9 100644
 +
 +        let memory_image_path = snapshot_dir.join("memory.img");
 +
-+        eprintln!(
++        debug!(
 +            "[restore] handshake snapshot_path = {memory_image_path:?}"
 +        );
 +
@@ -5974,16 +3381,12 @@ index ba0313b29..b2bdcd2b9 100644
 +            mappings: mappings.clone(),
 +        };
 +
-+        eprintln!(
-+                "[restore] sending handshake to external handler"
-+            );
++        debug!("[restore] sending handshake to external handler");
 +
 +        crate::external_uffd::connect_and_send_handshake(socket_path, &hs, uffd_fd.as_raw_fd())
 +            .map_err(Error::ExternalUffdSocket)?;
 +
-+         eprintln!(
-+                "[restore] handshake sent successfully"
-+            );
++         debug!("[restore] handshake sent successfully");
 +
 +        self.uffd_runtime = Some(UffdRuntime::External(ExternalUffdState {
 +            socket_path: socket_path.to_path_buf(),
@@ -6000,7 +3403,7 @@ index ba0313b29..b2bdcd2b9 100644
      fn validate_memory_config(
          config: &MemoryConfig,
          user_provided_zones: bool,
-@@ -1641,7 +1953,7 @@ impl MemoryManager {
+@@ -1740,7 +2047,7 @@ impl MemoryManager {
              snapshot_memory_ranges: MemoryRangeTable::default(),
              memory_zones,
              guest_ram_mappings: Vec::new(),
@@ -6009,7 +3412,7 @@ index ba0313b29..b2bdcd2b9 100644
              acpi_address,
              log_dirty: dynamic, // Cannot log dirty pages on a TD
              arch_mem_regions,
-@@ -1655,6 +1967,7 @@ impl MemoryManager {
+@@ -1754,6 +2061,7 @@ impl MemoryManager {
          Ok(Arc::new(Mutex::new(memory_manager)))
      }
  
@@ -6017,7 +3420,7 @@ index ba0313b29..b2bdcd2b9 100644
      #[allow(clippy::too_many_arguments)]
      pub fn new_from_snapshot(
          snapshot: &Snapshot,
-@@ -1666,40 +1979,594 @@ impl MemoryManager {
+@@ -1765,40 +2073,597 @@ impl MemoryManager {
          phys_bits: u8,
          exit_evt: &EventFd,
      ) -> Result<Arc<Mutex<MemoryManager>>, Error> {
@@ -6069,8 +3472,7 @@ index ba0313b29..b2bdcd2b9 100644
 +                    phys_bits,
 +                )
 +            }
- 
--            if memory_restore_mode == MemoryRestoreMode::OnDemand {
++
 +            // Change - For external UFFD (lazy loading) restore
 +            MemoryRestoreMode::ExternalUffd => {
 +                let mut memory_file_path = url_to_path(source_url).map_err(Error::Restore)?;
@@ -6078,7 +3480,8 @@ index ba0313b29..b2bdcd2b9 100644
 +
 +                let mem_snapshot: MemoryManagerSnapshotData =
 +                    snapshot.to_state().map_err(Error::Restore)?;
-+
+ 
+-            if memory_restore_mode == MemoryRestoreMode::OnDemand {
 +                let mm = MemoryManager::new(
 +                    vm,
 +                    config,
@@ -6188,7 +3591,7 @@ index ba0313b29..b2bdcd2b9 100644
 +            }
 +            if r.file_offset % page_size != 0 {
 +                return Err(Error::SnapshotImageUnalignedOffset);
-+            }
+             }
 +            if r.file_offset + r.size > image_len {
 +                return Err(Error::SnapshotFileTooSmall);
 +            }
@@ -6220,9 +3623,11 @@ index ba0313b29..b2bdcd2b9 100644
 +                libc::MAP_PRIVATE | libc::MAP_NORESERVE,
 +            ).map_err(Error::GuestMemoryRegion)?;
 +
-+            let guest_region = GuestRegionMmap::new(mmap_region, GuestAddress(r.gpa))
-+                .map_err(Error::GuestMemory)?;
-+
++            let guest_region = GuestRegionMmap::new(mmap_region, GuestAddress(r.gpa)).ok_or_else(|| {
++                Error::GuestMemory(MmapError::InvalidGuestAddress(GuestAddress(r.gpa)))
++            })?;
+ 
+-            Ok(mm)
 +            guest_regions.push(Arc::new(guest_region));
 +
 +            debug!(
@@ -6233,7 +3638,8 @@ index ba0313b29..b2bdcd2b9 100644
 +
 +        debug!("built {} guest regions from snapshot file", guest_regions.len());
 +
-+        let guest_memory = GuestMemoryMmap::from_arc_regions(guest_regions.clone()).map_err(Error::GuestMemory)?;
++        let guest_memory = GuestMemoryMmap::from_arc_regions(guest_regions.clone())
++            .map_err(Error::GuestRegionCollection)?;
 +
 +        Ok((guest_memory, guest_regions))
 +    }
@@ -6260,10 +3666,9 @@ index ba0313b29..b2bdcd2b9 100644
 +                MemoryImageRegionKind::HugeTlb => {
 +                    return Err(Error::FileBackendWithHugepagesUnsupported);
 +                }
-             }
++            }
 +        }
- 
--            Ok(mm)
++
 +        Ok(())
 +    }
 +    
@@ -6286,6 +3691,7 @@ index ba0313b29..b2bdcd2b9 100644
 +                        zone_cfg.shared,
 +                        zone_cfg.hugepages,
 +                        backing_page_size,
++                        zone_cfg.mergeable,
 +                    ),
 +                );
 +            }
@@ -6309,7 +3715,7 @@ index ba0313b29..b2bdcd2b9 100644
 +
 +                memory_zones
 +                    .entry(m.zone_id.clone())
-+                    .or_insert_with(|| MemoryZone::new(false, false, page_size));
++                    .or_insert_with(|| MemoryZone::new(false, false, page_size, false));
 +            }
 +        }
 +
@@ -6335,7 +3741,7 @@ index ba0313b29..b2bdcd2b9 100644
 +            );
 +
 +            zone.regions.push(Arc::clone(region));
-+        }
+         }
 +
 +        Ok(memory_zones)
 +    }
@@ -6397,7 +3803,7 @@ index ba0313b29..b2bdcd2b9 100644
 +            if region.start_addr().raw_value() != m.gpa {
 +                return Err(Error::RestoredRegionSizeMismatch);
 +            }
-         }
++        }
 +
 +        Ok(())
 +    }
@@ -6633,7 +4039,7 @@ index ba0313b29..b2bdcd2b9 100644
      }
  
      fn memfd_create(name: &ffi::CStr, flags: u32) -> Result<RawFd, io::Error> {
-@@ -2463,10 +3330,27 @@ impl MemoryManager {
+@@ -2577,10 +3442,27 @@ impl MemoryManager {
          Ok(table)
      }
  
@@ -6663,7 +4069,7 @@ index ba0313b29..b2bdcd2b9 100644
              start_of_device_area: self.start_of_device_area.0,
              boot_ram: self.boot_ram,
              current_ram: self.current_ram,
-@@ -2475,7 +3359,50 @@ impl MemoryManager {
+@@ -2589,7 +3471,50 @@ impl MemoryManager {
              next_memory_slot: self.next_memory_slot.load(Ordering::SeqCst),
              selected_slot: self.selected_slot,
              next_hotplug_slot: self.next_hotplug_slot,
@@ -6714,7 +4120,7 @@ index ba0313b29..b2bdcd2b9 100644
      }
  
      pub fn memory_slot_fds(&self) -> HashMap<u32, RawFd> {
-@@ -2962,10 +3889,16 @@ impl Drop for MemoryManager {
+@@ -3035,10 +3960,16 @@ impl Drop for MemoryManager {
      }
  }
  
@@ -6731,7 +4137,7 @@ index ba0313b29..b2bdcd2b9 100644
      start_of_device_area: u64,
      boot_ram: u64,
      current_ram: u64,
-@@ -2976,26 +3909,73 @@ pub struct MemoryManagerSnapshotData {
+@@ -3049,26 +3980,73 @@ pub struct MemoryManagerSnapshotData {
      next_hotplug_slot: usize,
  }
  
@@ -6814,11 +4220,11 @@ index ba0313b29..b2bdcd2b9 100644
          )?))
      }
  }
-@@ -3010,6 +3990,11 @@ impl Transportable for MemoryManager {
+@@ -3151,6 +4129,11 @@ impl Transportable for MemoryManager {
              return Ok(());
          }
  
-+        let guest_memory = self.guest_memory.memory();
++        // let guest_memory = self.guest_memory.memory();
 +
 +        //
 +        // 1) legacy path: write memory-ranges for Copy / OnDemand
@@ -6826,23 +4232,10 @@ index ba0313b29..b2bdcd2b9 100644
          let mut memory_file_path = url_to_path(destination_url)?;
          memory_file_path.push(String::from(SNAPSHOT_FILENAME));
  
-@@ -3018,11 +4003,9 @@ impl Transportable for MemoryManager {
-             .read(true)
-             .write(true)
-             .create_new(true)
--            .open(memory_file_path)
-+            .open(&memory_file_path)
-             .map_err(|e| MigratableError::MigrateSend(e.into()))?;
- 
--        let guest_memory = self.guest_memory.memory();
--
-         for range in self.snapshot_memory_ranges.regions() {
-             let mut offset: u64 = 0;
-             // Here we are manually handling the retry in case we can't read
-@@ -3045,6 +4028,44 @@ impl Transportable for MemoryManager {
-                 }
-             }
+@@ -3233,6 +4216,44 @@ impl Transportable for MemoryManager {
          }
+ 
+         debug_assert_eq!(file_cursor, total_len);
 +
 +        // Change - For file-backend MMAP restore
 +        //
@@ -6924,7 +4317,7 @@ index 000000000..55be7350a
 +    },
 +}
 diff --git a/vmm/src/uffd.rs b/vmm/src/uffd.rs
-index eb73f4659..cb2b8cd54 100644
+index 8b4a4e980..12c225ac6 100644
 --- a/vmm/src/uffd.rs
 +++ b/vmm/src/uffd.rs
 @@ -1,3 +1,5 @@
@@ -6933,7 +4326,15 @@ index eb73f4659..cb2b8cd54 100644
  // Copyright © 2026 Cloud Hypervisor Authors
  //
  // SPDX-License-Identifier: Apache-2.0
-@@ -47,7 +49,7 @@ pub(crate) struct UffdioCopy {
+@@ -19,6 +21,7 @@ use std::mem;
+ use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
+ 
+ use crate::userfaultfd;
++use log::debug;
+ 
+ #[repr(C)]
+ pub(crate) struct UffdioApi {
+@@ -51,7 +54,7 @@ pub(crate) struct UffdioCopy {
  /// union is flattened into its pagefault fields here. The trailing
  /// 8 bytes (`arg.pagefault.feat` + padding) are unused.
  #[repr(C)]
@@ -6942,19 +4343,7 @@ index eb73f4659..cb2b8cd54 100644
      pub event: u8,
      _reserved1: u8,
      _reserved2: u16,
-@@ -61,8 +63,11 @@ const _: () = assert!(std::mem::size_of::<UffdMsg>() == 32);
- 
- /// Create a userfaultfd file descriptor and perform the API handshake.
- pub(crate) fn create(required_features: u64) -> Result<OwnedFd, std::io::Error> {
-+
-+    eprintln!("[uffd] create: using non-blocking userfaultfd (O_CLOEXEC | O_NONBLOCK)");
-     // SAFETY: `userfaultfd` syscall with O_CLOEXEC | O_NONBLOCK flags.
-     let fd = unsafe { libc::syscall(libc::SYS_userfaultfd, libc::O_CLOEXEC | libc::O_NONBLOCK) };
-+    
-     if fd < 0 {
-         return Err(std::io::Error::last_os_error());
-     }
-@@ -74,6 +79,7 @@ pub(crate) fn create(required_features: u64) -> Result<OwnedFd, std::io::Error>
+@@ -113,6 +116,7 @@ pub(crate) fn create(required_features: u64) -> Result<OwnedFd, Error> {
          features: required_features,
          ioctls: 0,
      };
@@ -6962,13 +4351,13 @@ index eb73f4659..cb2b8cd54 100644
      // SAFETY: `api` is a valid, correctly-sized struct for this ioctl.
      let ret = unsafe {
          libc::ioctl(
-@@ -82,15 +88,29 @@ pub(crate) fn create(required_features: u64) -> Result<OwnedFd, std::io::Error>
+@@ -121,15 +125,29 @@ pub(crate) fn create(required_features: u64) -> Result<OwnedFd, Error> {
              &mut api,
          )
      };
 +
      if ret < 0 {
-         return Err(std::io::Error::last_os_error());
+         return Err(Error::last_os_error());
      }
  
 +    // Change - For external UFFD (lazy loading) restore
@@ -6983,9 +4372,9 @@ index eb73f4659..cb2b8cd54 100644
  }
  
  /// Register a memory range for missing-page fault handling.
- pub(crate) fn register(fd: BorrowedFd<'_>, addr: u64, len: u64) -> Result<u64, std::io::Error> {
+ pub(crate) fn register(fd: BorrowedFd<'_>, addr: u64, len: u64) -> Result<u64, Error> {
 +    // Change - For external UFFD (lazy loading) restore
-+    eprintln!(
++    debug!(
 +        "[uffd] register: addr=0x{addr:x}, len=0x{len:x}, mode=MISSING"
 +    );
 +
@@ -6993,7 +4382,7 @@ index eb73f4659..cb2b8cd54 100644
          range_start: addr,
          range_len: len,
 diff --git a/vmm/src/vm.rs b/vmm/src/vm.rs
-index 710847fab..4b0683c25 100644
+index 1c3baf865..ed461dd7f 100644
 --- a/vmm/src/vm.rs
 +++ b/vmm/src/vm.rs
 @@ -1,3 +1,5 @@
@@ -7002,26 +4391,27 @@ index 710847fab..4b0683c25 100644
  // Copyright © 2020, Oracle and/or its affiliates.
  //
  // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
-@@ -545,6 +547,7 @@ impl Vm {
+@@ -576,6 +578,7 @@ impl Vm {
          console_resize_pipe: Option<Arc<File>>,
          original_termios: Arc<Mutex<Option<termios>>>,
          snapshot: Option<&Snapshot>,
 +        memory_restore_mode: Option<MemoryRestoreMode>,
+         #[cfg(feature = "igvm")] igvm_file: Option<IgvmFile>,
      ) -> Result<Self> {
          trace_scoped!("Vm::new_from_memory_manager");
- 
-@@ -626,6 +629,7 @@ impl Vm {
+@@ -659,6 +662,7 @@ impl Vm {
              console_resize_pipe.as_ref(),
              &original_termios,
              snapshot,
 +            memory_restore_mode,
+             #[cfg(feature = "igvm")]
+             igvm_file,
          )?;
- 
-         // Load kernel and initramfs files
-@@ -843,7 +847,13 @@ impl Vm {
+@@ -891,8 +895,13 @@ impl Vm {
          console_resize_pipe: Option<&Arc<File>>,
          original_termios: &Arc<Mutex<Option<termios>>>,
          snapshot: Option<&Snapshot>,
+-        #[cfg(feature = "igvm")] igvm_file: Option<IgvmFile>,
 +        memory_restore_mode: Option<MemoryRestoreMode>,
      ) -> Result<Option<thread::JoinHandle<Result<EntryPoint>>>> {
 +        info!(
@@ -7032,7 +4422,7 @@ index 710847fab..4b0683c25 100644
          #[cfg(feature = "mshv")]
          let is_mshv = matches!(
              hypervisor.hypervisor_type(),
-@@ -891,13 +901,20 @@ impl Vm {
+@@ -942,13 +951,20 @@ impl Vm {
                  original_termios,
              )?;
          }
@@ -7057,9 +4447,9 @@ index 710847fab..4b0683c25 100644
 +                .map_err(Error::MemoryManager)?;
 +        }
  
-         // Add UEFI flash for aarch64
-         #[cfg(target_arch = "aarch64")]
-@@ -1265,7 +1282,7 @@ impl Vm {
+         // Load payload asynchronously
+         let load_payload_handle = if snapshot.is_none() {
+@@ -1335,7 +1351,7 @@ impl Vm {
          snapshot: Option<&Snapshot>,
          source_url: Option<&str>,
          prefault: Option<bool>,
@@ -7068,15 +4458,15 @@ index 710847fab..4b0683c25 100644
      ) -> Result<Self> {
          trace_scoped!("Vm::new");
  
-@@ -1338,6 +1355,7 @@ impl Vm {
+@@ -1427,6 +1443,7 @@ impl Vm {
              console_resize_pipe,
              original_termios,
              snapshot,
 +            memory_restore_mode,
+             #[cfg(feature = "igvm")]
+             igvm_file,
          )
-     }
- 
-@@ -2954,8 +2972,10 @@ impl Vm {
+@@ -3124,8 +3141,10 @@ impl Vm {
          unimplemented!()
      }
  
@@ -7090,7 +4480,7 @@ index 710847fab..4b0683c25 100644
  
      #[cfg(feature = "guest_debug")]
 diff --git a/vmm/src/vm_config.rs b/vmm/src/vm_config.rs
-index d453ead2d..a515a6237 100644
+index 6fefc8f06..c920c19de 100644
 --- a/vmm/src/vm_config.rs
 +++ b/vmm/src/vm_config.rs
 @@ -1,3 +1,5 @@
@@ -7099,7 +4489,7 @@ index d453ead2d..a515a6237 100644
  // Copyright © 2022 Intel Corporation
  //
  // SPDX-License-Identifier: Apache-2.0
-@@ -220,6 +222,8 @@ pub struct MemoryConfig {
+@@ -230,6 +232,8 @@ pub struct MemoryConfig {
      pub zones: Option<Vec<MemoryZoneConfig>>,
      #[serde(default = "default_memoryconfig_thp")]
      pub thp: bool,
@@ -7108,7 +4498,7 @@ index d453ead2d..a515a6237 100644
  }
  
  pub const DEFAULT_MEMORY_MB: u64 = 512;
-@@ -238,6 +242,7 @@ impl Default for MemoryConfig {
+@@ -248,6 +252,7 @@ impl Default for MemoryConfig {
              prefault: false,
              zones: None,
              thp: true,
