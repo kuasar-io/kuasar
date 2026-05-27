@@ -53,7 +53,7 @@ use tokio_vsock::{VsockListener, VsockStream};
 
 use crate::{
     device::SYSTEM_DEV_PATH,
-    streaming::{get_output, get_stdin, remove_channel},
+    streaming::{close_output, get_output, get_stdin, remove_channel},
     vsock,
 };
 
@@ -246,42 +246,44 @@ where
 {
     let src = from;
     tokio::spawn(async move {
-        let dst: Box<dyn AsyncWrite + Unpin + Send> = if to.contains(STREAMING) {
-            match get_output(&to).await {
-                Ok(output) => Box::new(output),
-                Err(e) => {
-                    error!("failed to get streaming by {}, {}", to, e);
-                    return;
-                }
-            }
-        } else if to.contains(VSOCK) {
-            tokio::select! {
-                _ = exit_signal.wait() => {
-                    debug!("container already exited, maybe nobody should connect vsock");
-                    return;
-                },
-                res = VsockIo::new(&to, true) => {
-                    match res {
-                        Ok(v) => Box::new(v),
-                        Err(e) => {
-                            error!("failed to new vsock {}, {:?}", to, e);
-                            return;
-                        },
+        {
+            let dst: Box<dyn AsyncWrite + Unpin + Send> = if to.contains(STREAMING) {
+                match get_output(&to).await {
+                    Ok(output) => Box::new(output),
+                    Err(e) => {
+                        error!("failed to get streaming by {}, {}", to, e);
+                        return;
                     }
                 }
-            }
-        } else {
-            match OpenOptions::new().write(true).open(to.as_str()).await {
-                Ok(f) => Box::new(f),
-                Err(e) => {
-                    error!("failed to get open file {}, {}", to, e);
-                    return;
+            } else if to.contains(VSOCK) {
+                tokio::select! {
+                    _ = exit_signal.wait() => {
+                        debug!("container already exited, maybe nobody should connect vsock");
+                        return;
+                    },
+                    res = VsockIo::new(&to, true) => {
+                        match res {
+                            Ok(v) => Box::new(v),
+                            Err(e) => {
+                                error!("failed to new vsock {}, {:?}", to, e);
+                                return;
+                            },
+                        }
+                    }
                 }
-            }
-        };
-        copy(src, dst, exit_signal, on_close).await;
+            } else {
+                match OpenOptions::new().write(true).open(to.as_str()).await {
+                    Ok(f) => Box::new(f),
+                    Err(e) => {
+                        error!("failed to get open file {}, {}", to, e);
+                        return;
+                    }
+                }
+            };
+            copy(src, dst, exit_signal, on_close).await;
+        }
         if to.contains(STREAMING) {
-            remove_channel(&to).await.unwrap_or_default();
+            close_output(&to).await.unwrap_or_default();
         }
         debug!("finished copy io from container to {}", to);
     });
@@ -468,6 +470,80 @@ async fn find_serial_dev(serial_name: &str) -> Result<String> {
         }
     }
     Err(other!("failed to get serial dev of name {}", serial_name))
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::io::AsyncWriteExt;
+
+    use crate::streaming::{
+        close_output, get_output, remove_channel,
+        tests::{has_channel, insert_channel, output_url},
+    };
+
+    #[tokio::test]
+    async fn test_close_output_channel_cleanup() {
+        enum Action {
+            DropWriterBeforeClose,
+            WriteThenCloseBeforeDrop,
+        }
+
+        struct TestCase {
+            name: &'static str,
+            action: Action,
+            expect_present_after_close: bool,
+        }
+
+        let cases = vec![
+            TestCase {
+                name: "streaming_output_is_dropped_before_close",
+                action: Action::DropWriterBeforeClose,
+                expect_present_after_close: false,
+            },
+            TestCase {
+                name: "close_before_drop_leaves_channel_present",
+                action: Action::WriteThenCloseBeforeDrop,
+                expect_present_after_close: true,
+            },
+        ];
+
+        for tc in cases {
+            let url = output_url(tc.name);
+            let stream_id = format!("{}-stdout", tc.name);
+            insert_channel(&stream_id).await;
+
+            let mut output = Some(get_output(&url).await.unwrap());
+
+            match tc.action {
+                Action::DropWriterBeforeClose => {
+                    drop(output.take());
+                    close_output(&url).await.unwrap();
+                }
+                Action::WriteThenCloseBeforeDrop => {
+                    output.as_mut().unwrap().write_all(b"hello").await.unwrap();
+                    close_output(&url).await.unwrap();
+                }
+            }
+
+            assert_eq!(
+                has_channel(&stream_id).await,
+                tc.expect_present_after_close,
+                "case '{}' channel presence after close mismatch",
+                tc.name
+            );
+
+            if tc.expect_present_after_close {
+                drop(output.take());
+                remove_channel(&url).await.unwrap();
+
+                assert!(
+                    !has_channel(&stream_id).await,
+                    "case '{}' cleanup should remove the test channel",
+                    tc.name
+                );
+            }
+        }
+    }
 }
 
 pin_project_lite::pin_project! {
