@@ -216,18 +216,7 @@ where
             .unwrap_or(DEFAULT_CGROUP_PARENT_PATH.to_string());
         // Currently only support cgroup V1, cgroup V2 is not supported now
         if !cgroups_rs::hierarchies::is_cgroup2_unified_mode() {
-            // Create sandbox's cgroup and apply sandbox's resources limit
-            let create_and_update_sandbox_cgroup = (|| {
-                sandbox_cgroups =
-                    SandboxCgroup::create_sandbox_cgroups(&cgroup_parent_path, &s.sandbox.id)?;
-                sandbox_cgroups.update_res_for_sandbox_cgroups(&s.sandbox)?;
-                Ok(())
-            })();
-            // If create and update sandbox cgroup failed, do rollback operation
-            if let Err(e) = create_and_update_sandbox_cgroup {
-                let _ = sandbox_cgroups.remove_sandbox_cgroups();
-                return Err(e);
-            }
+            sandbox_cgroups.cgroup_parent_path = cgroup_parent_path;
         }
         let vm = self.factory.create_vm(id, &s).await?;
         let mut sandbox = KuasarSandbox {
@@ -275,15 +264,6 @@ where
         let sandbox_clone = sandbox_mutex.clone();
         monitor(sandbox_clone);
 
-        if let Err(e) = sandbox.add_to_cgroup().await {
-            if let Err(re) = sandbox.stop(true).await {
-                warn!("roll back in add to cgroup {}", re);
-                return Err(e);
-            }
-            sandbox.destroy_network().await;
-            return Err(e);
-        }
-
         if let Err(e) = self.hooks.post_start(&mut sandbox).await {
             if let Err(re) = sandbox.stop(true).await {
                 warn!("roll back in sandbox post start {}", re);
@@ -300,6 +280,22 @@ where
             }
             sandbox.destroy_network().await;
             return Err(e);
+        }
+
+        // Trigger asynchronous cgroup setup and process binding after start.
+        // The task is spawned only after all start-time rollback points complete.
+        if !cgroups_rs::hierarchies::is_cgroup2_unified_mode() {
+            let sb_mutex = self.sandbox(id).await?;
+            tokio::spawn(async move {
+                let mut sb = sb_mutex.lock().await;
+                let sandbox_id = sb.id.clone();
+                if let Err(e) = sb.bind_cgroups_if_running().await {
+                    error!(
+                        "sandbox {}: async cgroup creation failed: {}",
+                        sandbox_id, e
+                    );
+                }
+            });
         }
 
         Ok(())
@@ -355,8 +351,14 @@ where
 
             // Currently only support cgroup V1, cgroup V2 is not supported now
             if !cgroups_rs::hierarchies::is_cgroup2_unified_mode() {
-                // remove the sandbox cgroups
-                sb.sandbox_cgroups.remove_sandbox_cgroups()?;
+                // remove the sandbox cgroups asynchronously
+                let sandbox_cgroups = std::mem::take(&mut sb.sandbox_cgroups);
+                tokio::task::spawn_blocking(move || -> Result<()> {
+                    sandbox_cgroups.remove_sandbox_cgroups()?;
+                    Ok(())
+                })
+                .await
+                .map_err(|e| Error::Other(anyhow!("spawn_blocking error: {}", e)))??;
             }
 
             cleanup_mounts(&sb.base_dir).await?;
@@ -502,7 +504,7 @@ where
             .map_err(Error::IO)?;
         let mut sb = serde_json::from_slice::<KuasarSandbox<V>>(content.as_slice())
             .map_err(|e| anyhow!("failed to deserialize sandbox, {}", e))?;
-        if let SandboxStatus::Running(_) = sb.status {
+        if let SandboxStatus::Running(vmm_pid) = sb.status {
             if let Err(e) = sb.vm.recover().await {
                 warn!("failed to recover vm {}: {}, then force kill it!", sb.id, e);
                 if let Err(re) = sb.stop(true).await {
@@ -520,10 +522,16 @@ where
             }
             sb.sync_clock().await;
             sb.forward_events().await;
+            if !cgroups_rs::hierarchies::is_cgroup2_unified_mode() {
+                if let Err(e) = sb.create_and_bind_cgroups(vmm_pid).await {
+                    if let Err(re) = sb.stop(true).await {
+                        warn!("roll back in recover, bind cgroup and stop: {}", re);
+                        return Err(e);
+                    }
+                    return Err(e);
+                }
+            }
         }
-        // recover the sandbox_cgroups in the sandbox object
-        sb.sandbox_cgroups =
-            SandboxCgroup::create_sandbox_cgroups(&sb.sandbox_cgroups.cgroup_parent_path, &sb.id)?;
 
         info!(
             "recover sandbox {} takes {}ms",
@@ -603,6 +611,9 @@ where
         }
 
         self.vm.stop(force).await?;
+        let ts = time::OffsetDateTime::now_utc().unix_timestamp_nanos();
+        self.status = SandboxStatus::Stopped(0, ts);
+        self.exit_signal.signal();
         self.destroy_network().await;
         Ok(())
     }
@@ -791,30 +802,47 @@ where
     }
 
     #[instrument(skip_all)]
-    pub async fn add_to_cgroup(&self) -> Result<()> {
-        // Currently only support cgroup V1, cgroup V2 is not supported now
-        if !cgroups_rs::hierarchies::is_cgroup2_unified_mode() {
-            // add vmm process into sandbox cgroup
-            if let SandboxStatus::Running(vmm_pid) = self.status {
-                let vcpu_threads = self.vm.vcpus().await?;
-                debug!(
-                    "vmm process pid: {}, vcpu threads pid: {:?}",
-                    vmm_pid, vcpu_threads
-                );
-                self.sandbox_cgroups
-                    .add_process_into_sandbox_cgroups(vmm_pid, Some(vcpu_threads))?;
-                // move all vmm-related process into sandbox cgroup
-                for pid in self.vm.pids().affiliated_pids {
-                    self.sandbox_cgroups
-                        .add_process_into_sandbox_cgroups(pid, None)?;
+    async fn create_and_bind_cgroups(&mut self, vmm_pid: u32) -> Result<()> {
+        let vcpu_threads = self.vm.vcpus().await?;
+        let data = self.data.clone();
+        let cgroup_parent = self.sandbox_cgroups.cgroup_parent_path.clone();
+        let sandbox_id = self.id.clone();
+        let affiliated_pids = self.vm.pids().affiliated_pids.clone();
+
+        // Execute the cgroup creation and binding inside a blocking task.
+        // It is important that `&mut self` is held across this await point to ensure
+        // exclusive access to the sandbox object. This prevents other operations (e.g., delete)
+        // from concurrently modifying or removing the sandbox while the background cgroup setup
+        // is in progress.
+        self.sandbox_cgroups = tokio::task::spawn_blocking(move || -> Result<SandboxCgroup> {
+            let mut cgroups = SandboxCgroup::default();
+            let create_res = (|| -> Result<()> {
+                cgroups = SandboxCgroup::create_sandbox_cgroups(&cgroup_parent, &sandbox_id)?;
+                cgroups.update_res_for_sandbox_cgroups(&data)?;
+                cgroups.add_process_into_sandbox_cgroups(vmm_pid, Some(vcpu_threads))?;
+                for pid in affiliated_pids {
+                    cgroups.add_process_into_sandbox_cgroups(pid, None)?;
                 }
-            } else {
-                return Err(Error::Other(anyhow!(
-                    "sandbox status is not Running after started!"
-                )));
+                Ok(())
+            })();
+            if let Err(e) = create_res {
+                let _ = cgroups.remove_sandbox_cgroups();
+                return Err(e);
             }
-        }
+            Ok(cgroups)
+        })
+        .await
+        .map_err(|e| Error::Other(anyhow!("spawn_blocking error: {}", e)))??;
         Ok(())
+    }
+
+    #[instrument(skip_all)]
+    async fn bind_cgroups_if_running(&mut self) -> Result<bool> {
+        if let SandboxStatus::Running(vmm_pid) = self.status {
+            self.create_and_bind_cgroups(vmm_pid).await?;
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     pub(crate) async fn forward_events(&mut self) {
@@ -1194,6 +1222,36 @@ mod tests {
                 "force"
             );
             assert!(sandboxer.sandboxes.read().await.is_empty());
+        }
+
+        #[tokio::test]
+        async fn test_stop_marks_sandbox_stopped_before_pending_cgroup_bind() {
+            let temp_dir = TempDir::new().unwrap();
+            let stop_marker = temp_dir.path().join("stop.marker");
+            let mut sandbox = mock_sandbox(
+                temp_dir.path().to_str().unwrap(),
+                SandboxStatus::Running(42),
+                MockVM {
+                    fail_recover: false,
+                    socket_address: String::new(),
+                    stop_marker: stop_marker.to_string_lossy().to_string(),
+                },
+            );
+
+            sandbox.stop(true).await.unwrap();
+
+            assert!(matches!(sandbox.status, SandboxStatus::Stopped(0, _)));
+            assert_eq!(
+                tokio::fs::read_to_string(&stop_marker).await.unwrap(),
+                "force"
+            );
+            assert!(
+                !sandbox.bind_cgroups_if_running().await.unwrap(),
+                "pending cgroup bind should skip stopped sandboxes"
+            );
+            assert!(sandbox.sandbox_cgroups.sandbox_cgroup.is_none());
+            assert!(sandbox.sandbox_cgroups.vcpu_cgroup.is_none());
+            assert!(sandbox.sandbox_cgroups.pod_overhead_cgroup.is_none());
         }
     }
 
