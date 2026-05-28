@@ -1,0 +1,4508 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index d0a21c5f0..0fe9e8830 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -353,6 +353,15 @@ dependencies = [
+  "hybrid-array",
+ ]
+ 
++[[package]]
++name = "block2"
++version = "0.6.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "cdeb9d870516001442e364c5220d3574d2da8dc765554b4a617230d33fa58ef5"
++dependencies = [
++ "objc2",
++]
++
+ [[package]]
+ name = "blocking"
+ version = "1.6.2"
+@@ -396,6 +405,12 @@ version = "1.0.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
+ 
++[[package]]
++name = "cfg_aliases"
++version = "0.2.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
++
+ [[package]]
+ name = "chacha20"
+ version = "0.10.0"
+@@ -443,6 +458,7 @@ dependencies = [
+  "api_client",
+  "block",
+  "clap",
++ "ctrlc",
+  "dhat",
+  "dirs",
+  "env_logger",
+@@ -455,6 +471,7 @@ dependencies = [
+  "net_util",
+  "option_parser",
+  "seccompiler",
++ "serde",
+  "serde_json",
+  "signal-hook",
+  "test_infra",
+@@ -541,6 +558,17 @@ dependencies = [
+  "hybrid-array",
+ ]
+ 
++[[package]]
++name = "ctrlc"
++version = "3.5.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e0b1fab2ae45819af2d0731d60f2afe17227ebb1a1538a236da84c93e9a60162"
++dependencies = [
++ "dispatch2",
++ "nix",
++ "windows-sys",
++]
++
+ [[package]]
+ name = "darling"
+ version = "0.23.0"
+@@ -657,6 +685,18 @@ dependencies = [
+  "windows-sys",
+ ]
+ 
++[[package]]
++name = "dispatch2"
++version = "0.3.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1e0e367e4e7da84520dedcac1901e4da967309406d1e51017ae1abfb97adbd38"
++dependencies = [
++ "bitflags 2.11.1",
++ "block2",
++ "libc",
++ "objc2",
++]
++
+ [[package]]
+ name = "either"
+ version = "1.15.0"
+@@ -1446,6 +1486,18 @@ dependencies = [
+  "vmm-sys-util",
+ ]
+ 
++[[package]]
++name = "nix"
++version = "0.31.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "cf20d2fde8ff38632c426f1165ed7436270b44f199fc55284c38276f9db47c3d"
++dependencies = [
++ "bitflags 2.11.1",
++ "cfg-if",
++ "cfg_aliases",
++ "libc",
++]
++
+ [[package]]
+ name = "no-std-net"
+ version = "0.6.0"
+@@ -1483,6 +1535,21 @@ dependencies = [
+  "syn",
+ ]
+ 
++[[package]]
++name = "objc2"
++version = "0.6.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "3a12a8ed07aefc768292f076dc3ac8c48f3781c8f2d5851dd3d98950e8c5a89f"
++dependencies = [
++ "objc2-encode",
++]
++
++[[package]]
++name = "objc2-encode"
++version = "4.1.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ef25abbcd74fb2609453eb695bd2f860d389e457f67dc17cafc8b8cbc89d0c33"
++
+ [[package]]
+ name = "object"
+ version = "0.37.3"
+@@ -2594,6 +2661,7 @@ dependencies = [
+  "blocking",
+  "cfg-if",
+  "clap",
++ "ctrlc",
+  "devices",
+  "dhat",
+  "epoll",
+diff --git a/cloud-hypervisor/Cargo.toml b/cloud-hypervisor/Cargo.toml
+index 39bcd3ff4..46409a786 100644
+--- a/cloud-hypervisor/Cargo.toml
++++ b/cloud-hypervisor/Cargo.toml
+@@ -33,6 +33,7 @@ vm-memory = { workspace = true }
+ vmm = { path = "../vmm" }
+ vmm-sys-util = { workspace = true }
+ zbus = { version = "5.15.0", optional = true }
++ctrlc = "3"
+ 
+ [dev-dependencies]
+ block = { path = "../block" }
+@@ -41,6 +42,7 @@ net_util = { path = "../net_util" }
+ serde_json = { workspace = true }
+ test_infra = { path = "../test_infra" }
+ wait-timeout = { workspace = true }
++serde = { version = "1", features = ["derive"] }
+ 
+ # Please adjust `vmm::feature_list()` accordingly when changing the
+ # feature list below
+diff --git a/cloud-hypervisor/examples/external_uffd_handler.rs b/cloud-hypervisor/examples/external_uffd_handler.rs
+new file mode 100644
+index 000000000..5070a347b
+--- /dev/null
++++ b/cloud-hypervisor/examples/external_uffd_handler.rs
+@@ -0,0 +1,1873 @@
++// Copyright 2026 The Kuasar Author
++//
++// SPDX-License-Identifier: Apache-2.0
++//
++
++// Change - The start for external UFFD (lazy loading) restore
++#[allow(unused)]
++use std::{
++    path::Path,
++    ffi::c_void,
++    fs::File,
++    io::{self, Error, ErrorKind},
++    os::unix::{
++        io::{RawFd, AsRawFd},
++        net::UnixListener,
++        fs::FileExt
++    },
++    cmp::{max,min},
++    sync::{
++        atomic::{AtomicBool, Ordering},
++    Arc},
++    mem,
++    ptr,
++};
++
++use anyhow::{bail, Context, Result};
++
++#[allow(unused)]
++use libc::{
++    read,
++    iovec,
++    msghdr,
++    recvmsg,
++    mmap,
++    madvise,
++    ioctl,
++    CMSG_FIRSTHDR,
++    CMSG_DATA,
++    PROT_READ,
++    MAP_PRIVATE,
++    MAP_FAILED,
++    MADV_WILLNEED,
++};
++
++use log::debug;
++
++#[allow(unused)]
++use vmm::external_uffd::{
++    accept_and_recv_handshake,
++    read_pagefault_message,
++    ExternalUffdMapping,
++    UffdPagefaultMsg,
++    EXTERNAL_UFFD_EVENT_PAGEFAULT,
++};
++
++const IOC_NRBITS: u64 = 8;
++const IOC_TYPEBITS: u64 = 8;
++const IOC_SIZEBITS: u64 = 14;
++
++const IOC_NRSHIFT: u64 = 0;
++const IOC_TYPESHIFT: u64 = IOC_NRSHIFT + IOC_NRBITS;
++const IOC_SIZESHIFT: u64 = IOC_TYPESHIFT + IOC_TYPEBITS;
++const IOC_DIRSHIFT: u64 = IOC_SIZESHIFT + IOC_SIZEBITS;
++
++const IOC_WRITE: u64 = 1;
++const IOC_READ: u64 = 2;
++
++const UFFDIO: u64 = 0xAA;
++
++const fn ioc(dir: u64, ty: u64, nr: u64, size: u64) -> u64 {
++    (dir << IOC_DIRSHIFT)
++        | (ty << IOC_TYPESHIFT)
++        | (nr << IOC_NRSHIFT)
++        | (size << IOC_SIZESHIFT)
++}
++
++const fn iowr(ty: u64, nr: u64, size: u64) -> u64 {
++    ioc(IOC_READ | IOC_WRITE, ty, nr, size)
++}
++
++const UFFDIO_COPY: libc::c_ulong =
++    iowr(UFFDIO, 3, std::mem::size_of::<uffdio_copy>() as u64) as libc::c_ulong;
++
++#[allow(unused)]  
++const UFFDIO_ZEROPAGE: libc::c_ulong = 
++    iowr(UFFDIO, 4, std::mem::size_of::<uffdio_zeropage>() as u64) as libc::c_ulong;
++// Change - the end for external UFFD (lazy loading) restore
++
++#[allow(unused)]
++const MAX_BATCHED_FAULTS: usize = 64; // if more aggressive, change to 128
++
++#[allow(unused)]
++const MAX_DRAIN_PER_WAKE: usize = 128;
++
++#[allow(unused)]
++const DEFAULT_PREFETCH_PAGES: u64 = 2;
++
++#[allow(unused)]
++const MAX_PREFETCH_PAGES: u64 = 16; // if more aggressive, change to 128
++
++#[allow(unused)]
++const SEQUENTIAL_PROMOTE_THRESHOLD: u64 = 3;
++
++#[allow(unused)]
++const DRAIN_TIMEOUT_SPINS: usize = 8;
++
++#[allow(unused)]
++const DRAIN_SPIN_ROUNDS: usize = 8;
++
++#[allow(unused)]
++const COPY_CHUNK_BYTES: u64 = 256 * 1024;
++
++#[allow(unused)]
++const MIN_COPY_CHUNK_BYTES: u64 = 16 * 1024;
++
++// Change - For external UFFD (lazy loading) restore
++#[repr(C)]
++#[derive(Debug, Copy, Clone)]
++struct uffdio_copy {
++    dst: u64,
++    src: u64,
++    len: u64,
++    mode: u64,
++    copy: i64,
++}
++
++// Change - For external UFFD (lazy loading) restore
++#[repr(C)]
++#[derive(Debug, Copy, Clone)]
++struct uffdio_range {
++    start: u64,
++    len: u64,
++}
++
++// Change - For external UFFD (lazy loading) restore
++#[repr(C)]
++#[derive(Debug, Copy, Clone)]
++#[allow(unused)]
++struct uffdio_zeropage {
++    range: uffdio_range,
++    mode: u64,
++    zeropage: i64,
++}
++
++// Change - For external UFFD (lazy loading) restore
++#[allow(unused)]
++fn recv_fd(sock: RawFd) -> Result<(Vec<u8>, RawFd)> {
++    let mut buf = [0u8; 16 * 1024];
++    let mut iov = [iovec {
++        iov_base: buf.as_mut_ptr() as *mut c_void,
++        iov_len: buf.len(),
++    }];
++
++    let mut cmsgspace = [0u8; 64];
++
++    let mut msg: msghdr =
++        // SAFETY: 
++        // `msghdr` is a C struct without invalid zero bit patterns (no Rust references
++        // or NonZero types). Zero-initialization is valid. All required fields are
++        // initialized before the struct is used in a system call.
++        unsafe { mem::zeroed() };
++    msg.msg_iov = iov.as_mut_ptr();
++    msg.msg_iovlen = 1;
++    msg.msg_control = cmsgspace.as_mut_ptr() as *mut c_void;
++    msg.msg_controllen = cmsgspace.len();
++
++    let size = 
++        // SAFETY: 
++        // `recvmsg` is invoked with a valid socket descriptor and a properly
++        // initialized `msghdr`. All buffers referenced by `msg_iov` and
++        // `msg_control` are valid and writable for their specified lengths.
++        // The kernel writes only within these bounds, and no Rust aliasing rules
++        // are violated. The return value is the number of bytes received or a
++        // negative error code.
++        unsafe { recvmsg(sock, &mut msg, 0) };
++    if size <= 0 {
++        return Err(io::Error::last_os_error()).context("recvmsg failed");
++    }
++
++    let mut fd = -1;
++    // SAFETY: 
++    // `msg` was filled by a successful `recvmsg` call with a control buffer large
++    // enough to hold the expected SCM_RIGHTS control message. `CMSG_FIRSTHDR` may
++    // return null, which is checked before use. When non-null, `CMSG_DATA(cmsg)`
++    // points to the ancillary data owned by `msg`, and we read exactly one RawFd
++    // that was sent by the peer.
++    unsafe {
++        let cmsg = CMSG_FIRSTHDR(&msg);
++        if !cmsg.is_null() {
++            let data = CMSG_DATA(cmsg) as *const RawFd;
++            fd = *data;
++        }
++    }
++
++    Ok((buf[..size as usize].to_vec(), fd))
++}
++
++// change - for external UFFD (lazy loading) restore
++struct SnapshotMap {
++    ptr: *mut c_void,
++    len: usize,
++}
++
++// change - for external UFFD (lazy loading) restore
++impl SnapshotMap {
++    pub fn read_exact_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
++        let start = usize::try_from(offset).map_err(|_| {
++            Error::new(
++                ErrorKind::InvalidInput,
++                format!("offset {offset} does not fit in usize"),
++            )
++        })?;
++
++        let end = start.checked_add(buf.len()).ok_or_else(|| {
++            Error::new(
++                ErrorKind::InvalidInput,
++                format!("offset {} + len {} overflow", offset, buf.len()),
++            )
++        })?;
++
++        if end > self.len {
++            return Err(Error::new(
++                ErrorKind::UnexpectedEof,
++                format!(
++                    "snapshot out of range: [{}..{}) exceeds snapshot len {}",
++                    start, end, self.len
++                ),
++            ));
++        }
++
++        // SAFETY: 
++        // - self.ptr points to a valid mapped memory region of length self.len
++        // - range [start, end) has been bounds-checked above
++        // - buf is a valid writable slice of length buf.len()
++        unsafe {
++            std::ptr::copy_nonoverlapping(
++                (self.ptr as *const u8).add(start),
++                buf.as_mut_ptr(),
++                buf.len(),
++            );
++        }
++
++        Ok(())
++    }
++
++    fn map(file: &File) -> Result<Self> {
++        let len = file.metadata()?.len() as usize;
++        // SAFETY: 
++        // `mmap` is called with a valid file descriptor, a null hint address, read-only
++        // protection, and MAP_PRIVATE. The requested length `len` is the file-backed
++        // mapping size expected by the caller. No Rust references are created here;
++        // the returned pointer is checked against MAP_FAILED before use and must be
++        // unmapped with `munmap` when no longer needed.
++        let ptr = unsafe { 
++            mmap(
++                ptr::null_mut(), 
++                len, 
++                PROT_READ,
++                MAP_PRIVATE, 
++                file.as_raw_fd(), 
++                0) };
++        
++        if ptr == MAP_FAILED {
++            return Err(io::Error::last_os_error()).context("mmap snapshot failed");
++        }
++
++        // SAFETY: 
++        // `ptr` points to a valid memory region previously returned by `mmap`,
++        // and `len` is the exact length of that mapping. The region remains
++        // mapped for the duration of this call. `madvise` does not dereference
++        // pointers in Rust terms; it only provides a hint to the kernel and
++        // does not violate Rust's aliasing or memory safety guarantees.
++        //
++        // Errors from madvise are ignored as it is only a performance hint.
++        unsafe {
++            let _ = madvise(ptr, len, MADV_WILLNEED);
++        }
++
++        Ok(Self { ptr, len })
++    }
++
++    fn as_ptr(&self) -> *const u8 {
++        self.ptr as *const u8
++    }
++}
++
++// Change - for external UFFD (lazy loading) restore
++struct ExternalUffdHandler {
++    uffd_fd: RawFd,
++    snapshot: SnapshotMap,
++    mappings: Vec<ExternalUffdMapping>,
++    heuristics: Vec<RegionHeuristics>,
++    stats: Vec<RegionStats>, // per-region stats
++    handler_stats: HandlerStats,  // global stats
++    // recommended: reusable copy buffer for snapshot -> uffdio_copy
++    scratch: Vec<u8>,
++}
++
++#[derive(Default, Debug, Clone)]
++struct HandlerStats {
++    fault_count: u64,
++    batch_count: u64,
++    drained_faults_total: u64,
++
++    copied_pages: u64,
++    copied_bytes: u64,
++    prefetch_pages: u64,
++
++    sequential_hits: u64,
++    random_hits: u64,
++
++    copy_eagain_retries: u64,
++    copy_eexist_fallbacks: u64,
++
++    range_copy_calls: u64,
++    page_copy_calls: u64,
++    skipped_existing_pages: u64,
++
++    merged_ranges: u64,
++    merged_fault_savings: u64, // Original faults - merged ranges
++
++    prefetch_useful_pages: u64,
++    prefetch_wasted_pages: u64,
++
++    max_faults_in_batch: u64,
++    max_pages_in_batch: u64,
++}
++
++#[derive(Default, Clone)]
++struct RegionHeuristics {
++    last_fault_addr: u64,
++    last_prefetch_end: u64,
++    seq_hits: u32,
++
++    // 当前最近一次 prefetch window
++    prefetch_start: u64,
++    prefetch_end: u64,
++
++    // 这个 window 里还有多少页没被后续 fault 命中
++    prefetched_pages_outstanding: u64,
++}
++
++#[derive(Default, Debug, Clone)]
++struct RegionStats {
++    fault_count: u64,
++    batch_count: u64,
++    drained_faults: u64,
++
++    // legacy
++    copy_calls: u64,
++    pages_copied: u64,
++    zeropage_calls: u64,
++    remove_events: u64,
++
++    // precise copy stats
++    range_copy_calls: u64,
++    page_copy_calls: u64,
++    copied_pages: u64,
++    copied_bytes: u64,
++    skipped_existing_pages: u64,
++
++    // prefetch / heuristic stats
++    prefetch_pages: u64,
++    sequential_hits: u64,
++
++    // retry / fallback
++    eagain_retries: u64,
++    eexist_fallbacks: u64,
++
++    // UFFD optimization
++    merged_ranges: u64,
++    merged_fault_savings: u64,
++}
++
++// Change - For optimization of external UFFD by focusing on 
++// batching, merging and prefetching
++#[derive(Debug, Clone)]
++struct FaultRange {
++    mapping_idx: usize,
++    start_addr: u64,   // inclusive, page aligned
++    end_addr: u64,     // exclusive, page aligned
++    fault_pages: u64,  // original fault counts, how many original faults got merged into this range
++    prefetched_pages: u64,
++}
++
++// The change - For optimization of external UFFD by focusing on 
++// batching, merging and prefetching
++#[allow(unused)]
++impl FaultRange {
++    fn len_bytes(&self) -> u64 {
++        self.end_addr - self.start_addr
++    }
++
++    fn total_pages(&self, page_size: u64) -> u64 {
++        (self.end_addr - self.start_addr) / page_size
++    }
++}
++
++// The change - For optimization of external UFFD by focusing on 
++// batching, merging and prefetching
++#[derive(Debug, Clone,Copy)]
++struct PendingFault {
++    addr: u64,
++    mapping_idx: usize,
++}
++
++// Change - For optimization of external UFFD by focusing on 
++// batching, merging and prefetching
++#[allow(unused)]
++#[derive(Debug, Default, Clone)]
++struct MappingHeuristics {
++    last_fault_addr: u64,
++    last_fault_end: u64,
++    sequential_hits: u64,
++    random_hits: u64,
++    current_prefetch_pages: u64,
++}
++
++// Change - For optimization of external UFFD by focusing on 
++// batching, merging and prefetching
++impl MappingHeuristics {
++    #[allow(unused)]
++    fn observe_fault(&mut self, addr: u64, page_size: u64) {
++        if self.last_fault_addr != 0 && addr == self.last_fault_end {
++            self.sequential_hits += 1;
++        } else {
++            self.random_hits += 1;
++            self.sequential_hits = 0;
++        }
++
++        self.last_fault_addr = addr;
++        self.last_fault_end = addr + page_size;
++
++        if self.current_prefetch_pages == 0 {
++            self.current_prefetch_pages = DEFAULT_PREFETCH_PAGES;
++        }
++
++        if self.sequential_hits >= SEQUENTIAL_PROMOTE_THRESHOLD {
++            self.current_prefetch_pages =
++                (self.current_prefetch_pages.saturating_mul(2)).min(MAX_PREFETCH_PAGES);
++        } else if self.random_hits > self.sequential_hits + 4 {
++            self.current_prefetch_pages =
++                (self.current_prefetch_pages / 2).max(1);
++        }
++    }
++
++    #[allow(unused)]
++    fn suggested_prefetch_pages(&self) -> u64 {
++        self.current_prefetch_pages.max(1)
++
++        //let should_prefetch =
++        //heur.last_fault_addr != 0 &&
++        //range.start_addr >= heur.last_fault_addr &&
++        //range.start_addr - heur.last_fault_addr <= page_size * 2;
++
++        //match self.sequential_hits {
++        //    0..=1 => 1,
++        //    2..=4 => 4,
++        //    5..=8 => 8,
++        //    _ => 16,
++        //}
++    }
++}
++
++#[allow(unused)]
++#[derive(Debug, Clone, Copy)]
++struct PrefetchWindow {
++    start: u64,
++    end: u64,
++    mapping_idx: usize,
++}
++
++#[derive(Debug)]
++enum CopyError {
++    TryAgain,
++    AlreadyExists,
++    Fatal(anyhow::Error),
++}
++
++#[derive(Default,Debug, Clone, Copy)]
++enum CopyOutcome {
++    #[default]
++    Full,
++    EagainRetry,
++    Fallback,
++}
++
++#[derive(Debug, Clone, Copy)]
++enum PageCopyResult {
++    Copied,
++    AlreadyPresent,
++}
++
++#[allow(unused)]
++#[derive(Default,Debug, Clone, Copy)]
++struct CopyStats {
++    outcome: CopyOutcome,
++    attempted_pages: u64,
++    copied_pages: u64,
++    skipped_existing_pages: u64,
++    eagain_retries: u64,
++    range_copy_calls: u64,
++    page_copy_calls: u64,
++}
++
++#[repr(C)]
++#[derive(Copy, Clone)]
++struct UffdMsg {
++    event: u8,
++    _reserved1: u8,
++    _reserved2: u16,
++    _reserved3: u32,
++    pf_flags: u64,
++    pf_address: u64,
++    _pad: [u8; 8],
++}
++
++impl std::fmt::Debug for UffdMsg {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        f.debug_struct("UffdMsg")
++            .field("event", &self.event)
++            .field("pf_flags", &self.pf_flags)
++            .field("pf_address", &format_args!("{:#x}", self.pf_address))
++            .finish()
++    }
++}
++
++// change - For external UFFD (lazy loading) restore
++// Use this version when need optimization
++#[allow(unused)]
++fn align_down(addr: u64, page_size: u64) -> u64 {
++    addr & !(page_size - 1)
++}
++
++// change  - For external UFFD (lazy loading) restore
++fn align_up(addr: u64, page_size: u64) -> u64 {
++    (addr + page_size - 1) & !(page_size - 1)
++}
++
++impl ExternalUffdHandler {
++    fn finalize_prefetch_window(&mut self, mapping_idx: usize) {
++        let heur = &mut self.heuristics[mapping_idx];
++        let wasted = heur.prefetched_pages_outstanding;
++
++        if wasted > 0 {
++            self.handler_stats.prefetch_wasted_pages += wasted;
++            heur.prefetched_pages_outstanding = 0;
++        }
++
++        heur.prefetch_start = 0;
++        heur.prefetch_end = 0;
++    }
++
++    fn record_prefetch_hit_if_any(&mut self, mapping_idx: usize, fault_addr: u64) {
++        let heur = &mut self.heuristics[mapping_idx];
++
++        if heur.prefetch_start == 0 || heur.prefetch_end == 0 {
++            return;
++        }
++
++        if fault_addr >= heur.prefetch_start && fault_addr < heur.prefetch_end {
++            self.handler_stats.prefetch_useful_pages += 1;
++
++            if heur.prefetched_pages_outstanding > 0 {
++                heur.prefetched_pages_outstanding -= 1;
++            }
++
++            // 如果这个 fault 正好把 window 用完了，可以清空
++            if heur.prefetched_pages_outstanding == 0 {
++                heur.prefetch_start = 0;
++                heur.prefetch_end = 0;
++            }
++        }
++    }
++
++    // Optimization version
++    // Print out stats when type Ctr+C in side of external Handler 
++    fn print_stats_opti(&self) {
++        eprintln!(
++            "[handler][stats] faults={} batches={} drained_faults={} copied_pages={} copied_bytes={} prefetch_pages={} range_copy_calls={} page_copy_calls={} skipped_existing_pages={} merged_ranges={} merged_fault_savings={} eagain_retries={} eexist_fallbacks={}",
++            self.handler_stats.fault_count,
++            self.handler_stats.batch_count,
++            self.handler_stats.drained_faults_total,
++            self.handler_stats.copied_pages,
++            self.handler_stats.copied_bytes,
++            self.handler_stats.prefetch_pages,
++            self.handler_stats.range_copy_calls,
++            self.handler_stats.page_copy_calls,
++            self.handler_stats.skipped_existing_pages,
++            self.handler_stats.merged_ranges,
++            self.handler_stats.merged_fault_savings,
++            self.handler_stats.copy_eagain_retries,
++            self.handler_stats.copy_eexist_fallbacks,
++        );
++
++        for (idx, s) in self.stats.iter().enumerate() {
++            debug!(
++                "[handler][region {}] faults={} batches={} drained_faults={} copy_calls={} range_copy_calls={} page_copy_calls={} copied_pages={} copied_bytes={} skipped_existing_pages={} prefetch_pages={} sequential_hits={} merged_ranges={} merged_fault_savings={} eagain_retries={} eexist_fallbacks={} zeropage_calls={} remove_events={}",
++                idx,
++                s.fault_count,
++                s.batch_count,
++                s.drained_faults,
++                s.copy_calls,
++                s.range_copy_calls,
++                s.page_copy_calls,
++                s.copied_pages,
++                s.copied_bytes,
++                s.skipped_existing_pages,
++                s.prefetch_pages,
++                s.sequential_hits,
++                s.merged_ranges,
++                s.merged_fault_savings,
++                s.eagain_retries,
++                s.eexist_fallbacks,
++                s.zeropage_calls,
++                s.remove_events,
++            );
++        }
++    }
++
++    // help function - For external UFFD (lazy loading) restore
++    fn find_mapping_idx(&self, addr: u64) -> Result<usize> {
++        for (idx, m) in self.mappings.iter().enumerate() {
++            let start = m.base_host_virt_addr;
++            let end = m.base_host_virt_addr + m.size;
++
++            if addr >= start && addr < end {
++                return Ok(idx);
++            }
++        }
++
++        Err(anyhow::anyhow!("address 0x{addr:x} not found in mappings"))
++    }
++
++    #[allow(unused)]
++    fn drain_fault_batch(&mut self) -> Result<Vec<PendingFault>> {
++        let mut out = Vec::with_capacity(64);
++
++        loop {
++            let msg = match read_pagefault_message(self.uffd_fd) {
++                Ok(msg) => msg,
++                Err(e) => {
++                    if e.kind() == std::io::ErrorKind::WouldBlock {
++                        break;
++                    }
++                    if e.kind() == std::io::ErrorKind::Interrupted {
++                        continue;
++                    }
++                    return Err(anyhow::Error::new(e).context("read uffd_msg failed"));
++                }
++            };
++
++            debug!(
++                "[handler] msg.event = {} pf_flags=0x{:x} pf_address=0x{:x}",
++                msg.event, msg.pf_flags, msg.pf_address
++            );
++
++            if msg.event != EXTERNAL_UFFD_EVENT_PAGEFAULT {
++                debug!("[handler] skipping non-pagefault event {}", msg.event);
++                continue;
++            }
++
++            let addr = msg.pf_address as u64;
++
++            let idx = match self.find_mapping_idx(addr) {
++                Ok(idx) => idx,
++                Err(e) => {
++                    debug!("[handler] mapping miss for addr=0x{addr:x}: {e:#}");
++                    continue;
++                }
++            };
++
++            self.stats[idx].fault_count += 1;
++
++            out.push(PendingFault {
++                addr,
++                mapping_idx: idx,
++            });
++
++            if out.len() >= 64 {
++                break;
++            }
++        }
++
++        out.sort_by_key(|f| (f.mapping_idx, f.addr));
++        Ok(out)
++    }
++
++    // Optimization version
++    fn drain_fault_batch_opti(&mut self) -> Result<Vec<PendingFault>> {
++        let first = match self.read_one_fault_nonblocking()? {
++            Some(f) => f,
++            None => return Ok(Vec::new()),
++        };
++
++        let mut faults = Vec::with_capacity(MAX_BATCHED_FAULTS);
++        faults.push(first);
++
++        for _ in 0..MAX_DRAIN_PER_WAKE {
++            if faults.len() >= MAX_BATCHED_FAULTS {
++                break;
++            }
++
++            match self.read_one_fault_nonblocking()? {
++                Some(f) => faults.push(f),
++                None => break,
++            }
++        }
++
++        for _ in 0..DRAIN_SPIN_ROUNDS {
++            if faults.len() >= MAX_BATCHED_FAULTS {
++                break;
++            }
++
++            std::hint::spin_loop();
++
++            #[allow(clippy::single_match)]
++            match self.read_one_fault_nonblocking()? {
++                Some(f) => faults.push(f),
++                None => {}
++            }
++        }
++
++        Ok(faults)
++    }
++
++    // change - for external UFFD (lazy loading) restore
++    #[allow(unused)]
++    fn coalesce_and_copy(&mut self, faults: &[PendingFault]) -> Result<()> {
++        
++        self.handler_stats.batch_count += 1;
++        self.handler_stats.drained_faults_total += faults.len() as u64;
++        
++        let mut i = 0;
++
++        while i < faults.len() {
++            let idx = faults[i].mapping_idx;
++
++            let base_host_virt_addr = self.mappings[idx].base_host_virt_addr;
++            let mapping_size = self.mappings[idx].size;
++            let mapping_offset = self.mappings[idx].offset;
++            let page = self.mappings[idx].page_size;
++
++            let start_addr = align_down(faults[i].addr, page);
++            let mut end_addr = start_addr + page;
++
++            let mut j = i + 1;
++
++            while j < faults.len() && faults[j].mapping_idx == idx {
++                let next = align_down(faults[j].addr, page);
++                if next <= end_addr + 2 * page {
++                    end_addr = std::cmp::max(end_addr, next + page);
++                    j += 1;
++                } else {
++                    break;
++                }
++            }
++
++            let extra_pages = self.choose_prefetch_pages(idx, start_addr);
++            let desired_end = end_addr + extra_pages * page;
++
++            let region_end = base_host_virt_addr + mapping_size;
++            let final_end = std::cmp::min(desired_end, region_end);
++            let len = final_end - start_addr;
++
++            let fault_pages = (end_addr - start_addr) / page;
++            let total_pages = len / page;
++            let prefetch_pages = total_pages.saturating_sub(fault_pages);
++
++            eprintln!(
++                "[handler] coalesced copy: idx={idx} start=0x{start_addr:x} end=0x{final_end:x} len=0x{len:x} fault_pages={fault_pages} total_pages={total_pages} prefetch_pages={prefetch_pages}",
++            );
++
++            if prefetch_pages > 0 {
++                self.handler_stats.prefetch_pages += prefetch_pages;
++                self.handler_stats.sequential_hits += 1;
++
++                self.stats[idx].prefetch_pages += prefetch_pages;
++                self.stats[idx].sequential_hits += 1;
++            }
++
++            let src_off = mapping_offset + (start_addr - base_host_virt_addr);
++
++            let src =
++                // SAFETY: 
++                // src_off is derived from a validated mapping and snapshot mmap.
++                unsafe {
++                    self.snapshot.as_ptr().add(src_off as usize)
++                };
++
++            eprintln!(
++                "[handler] coalesced copy: mapping_idx={idx} start=0x{start_addr:x} end=0x{final_end:x} src_off=0x{src_off:x} len=0x{len:x} extra_pages={extra_pages}",
++            );
++
++            let copy_stats = self.copy_range(
++                start_addr,
++                src as u64,
++                len as u64,
++                self.mappings[idx].page_size,
++            )?;
++
++            match copy_stats.outcome {
++                CopyOutcome::Full => {}
++
++                CopyOutcome::EagainRetry => {
++                    self.handler_stats.copy_eagain_retries += copy_stats.eagain_retries.max(1);
++                    self.stats[idx].eagain_retries += copy_stats.eagain_retries.max(1);
++                }
++
++                CopyOutcome::Fallback => {
++                    self.handler_stats.copy_eexist_fallbacks += 1;
++                    self.stats[idx].eexist_fallbacks += 1;
++
++                    self.handler_stats.copy_eagain_retries += copy_stats.eagain_retries;
++                    self.stats[idx].eagain_retries += copy_stats.eagain_retries;
++                }
++            }
++
++            // ===== global stats =====
++            self.handler_stats.copied_pages += copy_stats.copied_pages;
++            self.handler_stats.copied_bytes += copy_stats.copied_pages * page;
++            self.handler_stats.copy_eagain_retries += 0; // 已在上面处理
++            self.handler_stats.copy_eexist_fallbacks += 0; // 已在上面处理
++
++            self.handler_stats.range_copy_calls += copy_stats.range_copy_calls;
++            self.handler_stats.page_copy_calls += copy_stats.page_copy_calls;
++            self.handler_stats.skipped_existing_pages += copy_stats.skipped_existing_pages;
++
++            // ===== per-region stats =====
++            self.stats[idx].copied_pages += copy_stats.copied_pages;
++            self.stats[idx].copied_bytes += copy_stats.copied_pages * page;
++
++            // legacy stats（保持兼容）
++            self.stats[idx].copy_calls += copy_stats.range_copy_calls + copy_stats.page_copy_calls;
++            self.stats[idx].pages_copied += copy_stats.copied_pages;
++
++            let h = &mut self.heuristics[idx];
++            h.last_fault_addr = start_addr;
++            h.last_prefetch_end = final_end;
++
++            i = j;
++        }
++
++        Ok(())
++    }
++
++    // for external UFFD optimization
++    fn coalesce_and_copy_opti(&mut self, batch: &[PendingFault]) -> Result<()> {
++        if batch.is_empty() {
++            return Ok(());
++        }
++
++        let batch_faults = batch.len() as u64;
++        if batch_faults > self.handler_stats.max_faults_in_batch {
++            self.handler_stats.max_faults_in_batch = batch_faults;
++        }
++
++        let mut ranges = self.merge_faults_into_ranges(batch.to_vec());
++
++        self.handler_stats.batch_count += 1;
++        self.handler_stats.drained_faults_total += batch_faults;
++
++
++        for range in &mut ranges {
++            self.maybe_expand_range_with_prefetch(range);
++        }
++
++        for range in &ranges {
++            let idx = range.mapping_idx;
++            let page_size = self.mappings[idx].page_size;
++            let pages_in_range = range.total_pages(page_size);
++
++            self.stats[idx].batch_count += 1;
++            self.stats[idx].drained_faults += range.fault_pages;
++            self.stats[idx].merged_ranges += 1;
++
++            if range.fault_pages > 1 {
++                self.stats[idx].merged_fault_savings += range.fault_pages - 1;
++            }
++
++            if pages_in_range > self.handler_stats.max_pages_in_batch {
++                self.handler_stats.max_pages_in_batch = pages_in_range;
++            }
++
++            self.handler_stats.merged_ranges += 1;
++            if range.fault_pages > 1 {
++                self.handler_stats.merged_fault_savings += range.fault_pages - 1;
++            }
++
++            self.copy_range_from_snapshot(range)?;
++        }
++
++        Ok(())
++    }
++
++    fn copy_one_page(&self, dst: u64, src: u64, page_size: u64) -> Result<PageCopyResult> {
++        let mut eagain_retries = 0u32;
++
++        loop {
++            let mut copy = uffdio_copy {
++                dst,
++                src,
++                len: page_size,
++                mode: 0,
++                copy: 0,
++            };
++
++            // SAFETY: 
++            // `self.uffd_fd` is a valid userfaultfd file descriptor. `copy` is a valid
++            // and initialized `uffdio_copy` value whose dst/src/len fields describe
++            // page-aligned memory ranges prepared by the handler. Passing `&mut copy` is
++            // safe because the kernel may write the result back into the structure, and
++            // the structure remains alive for the duration of the ioctl call.
++            let ret = unsafe { ioctl(self.uffd_fd, UFFDIO_COPY, &mut copy) };
++            if ret == 0 {
++                return Ok(PageCopyResult::Copied);
++            }
++
++            let err = io::Error::last_os_error();
++            match err.raw_os_error() {
++                Some(libc::EEXIST) => {
++                    eprintln!(
++                        "[handler] page already present: dst=0x{dst:x} src=0x{src:x} len=0x{page_size:x}"
++                    );
++                    return Ok(PageCopyResult::AlreadyPresent);
++                }
++                Some(libc::EAGAIN) if eagain_retries < 50 => {
++                    eagain_retries += 1;
++                    std::thread::yield_now();
++                }
++                _ => {
++                    return Err(err).context("UFFDIO_COPY page failed");
++                }
++            }
++        }
++    }
++
++    fn copy_range(&self, dst: u64, src: u64, len: u64, page_size: u64) -> Result<CopyStats> {
++        let attempted_pages = len / page_size;
++
++        let mut stats = CopyStats {
++            outcome: CopyOutcome::Full,
++            attempted_pages,
++            copied_pages: 0,
++            skipped_existing_pages: 0,
++            eagain_retries: 0,
++            range_copy_calls: 1,
++            page_copy_calls: 0,
++        };
++
++        let mut copy = uffdio_copy {
++            dst,
++            src,
++            len,
++            mode: 0,
++            copy: 0,
++        };
++
++        // SAFETY: 
++        // `self.uffd_fd` is a valid userfaultfd file descriptor. `copy` is a valid
++        // and initialized `uffdio_copy` value whose dst/src/len fields describe
++        // page-aligned memory ranges prepared by the handler. Passing `&mut copy` is
++        // safe because the kernel may write the result back into the structure, and
++        // the structure remains alive for the duration of the ioctl call.
++        let ret = unsafe { ioctl(self.uffd_fd, UFFDIO_COPY, &mut copy) };
++        if ret == 0 {
++            stats.copied_pages = attempted_pages;
++            return Ok(stats);
++        }
++
++        let err = io::Error::last_os_error();
++        let mut fallback_needed = false;
++        let mut had_eagain = false;
++
++        match err.raw_os_error() {
++            Some(libc::EAGAIN) => {
++                had_eagain = true;
++
++                for _ in 0..50 {
++                    stats.eagain_retries += 1;
++                    std::thread::yield_now();
++
++                    let mut retry_copy = uffdio_copy {
++                        dst,
++                        src,
++                        len,
++                        mode: 0,
++                        copy: 0,
++                    };
++
++                    // SAFETY: 
++                    // `self.uffd_fd` is a valid userfaultfd file descriptor. `retry_copy` is a
++                    // properly initialized `uffdio_copy` structure with page-aligned dst/src/len
++                    // describing a valid memory range prepared earlier. This is a retry of a
++                    // previous UFFDIO_COPY, and the underlying memory mappings remain valid and
++                    // unchanged. Passing `&mut retry_copy` is safe because the kernel may write
++                    // result fields back into the structure, and it lives for the duration of
++                    // the ioctl call.
++                    let retry_ret = unsafe { ioctl(self.uffd_fd, UFFDIO_COPY, &mut retry_copy) };
++                    if retry_ret == 0 {
++                        stats.outcome = CopyOutcome::EagainRetry;
++                        stats.copied_pages = attempted_pages;
++                        return Ok(stats);
++                    }
++
++                    let retry_err = io::Error::last_os_error();
++                    match retry_err.raw_os_error() {
++                        Some(libc::EAGAIN) => {
++                            continue;
++                        }
++                        Some(libc::EEXIST) => {
++                            fallback_needed = true;
++                            break;
++                        }
++                        _ => {
++                            return Err(retry_err).context("UFFDIO_COPY range retry failed");
++                        }
++                    }
++                }
++
++                if !fallback_needed {
++                    fallback_needed = true;
++                }
++            }
++            Some(libc::EEXIST) => {
++                fallback_needed = true;
++            }
++            _ => {
++                return Err(err).context("UFFDIO_COPY range failed");
++            }
++        }
++
++        if fallback_needed {
++            eprintln!(
++                "[handler] range copy fallback to per-page: dst=0x{dst:x} src=0x{src:x} len=0x{len:x}"
++            );
++
++            let mut off = 0u64;
++            while off < len {
++                stats.page_copy_calls += 1;
++
++                match self.copy_one_page(dst + off, src + off, page_size)? {
++                    PageCopyResult::Copied => {
++                        stats.copied_pages += 1;
++                    }
++                    PageCopyResult::AlreadyPresent => {
++                        stats.skipped_existing_pages += 1;
++                    }
++                }
++
++                off += page_size;
++            }
++
++            stats.outcome = CopyOutcome::Fallback;
++            if had_eagain {
++                // 仍然归类为 Fallback，因为最终走了 fallback 路径
++                stats.outcome = CopyOutcome::Fallback;
++            }
++
++            return Ok(stats);
++        }
++
++        Ok(stats)
++    }
++
++    #[allow(unused)]
++    fn zeropage_range(&self, start: u64, len: u64) -> Result<()> {
++        let mut zp = uffdio_zeropage {
++            range: uffdio_range { start, len },
++            mode: 0,
++            zeropage: 0,
++        };
++
++        // SAFETY: 
++        // `self.uffd_fd` is a valid userfaultfd file descriptor. `zp` is a properly
++        // initialized `uffdio_zeropage` structure. The destination address and length
++        // describe a page-aligned range within a valid userfaultfd-registered memory
++        // region. Passing `&mut zp` is safe because the kernel may update result fields
++        // in the structure, and it remains valid for the duration of the ioctl call.
++        let ret = unsafe { ioctl(self.uffd_fd, UFFDIO_ZEROPAGE, &mut zp) };
++        if ret < 0 {
++            return Err(io::Error::last_os_error()).context("UFFDIO_ZEROPAGE failed");
++        }
++
++        Ok(())
++    }
++
++    // change - For external UFFD (lazy loading) restore
++    #[allow(unused)]
++    fn handle_remove_event(&mut self, start: u64, end: u64) -> Result<()> {
++        for (idx, m) in self.mappings.iter().enumerate() {
++            let m_start = m.base_host_virt_addr;
++            let m_end = m.base_host_virt_addr + m.size;
++            let ov_start = max(start, m_start);
++            let ov_end = min(end, m_end);
++
++            if ov_start < ov_end {
++                let aligned_s = align_down(ov_start, m.page_size);
++                let aligned_e = align_up(ov_end, m.page_size);
++                self.zeropage_range(aligned_s, aligned_e - aligned_s)?;
++                self.stats[idx].remove_events += 1;
++                self.stats[idx].zeropage_calls += 1;
++            }
++        }
++
++        Ok(())
++    }
++
++    // change - For external UFFD (lazy loading) restore
++    #[allow(unused)]
++    fn read_one_fault(&mut self) -> Result<Option<PendingFault>> {
++        let msg = match read_pagefault_message(self.uffd_fd) {
++            Ok(msg) => msg,
++            Err(e) => {
++                if e.kind() == std::io::ErrorKind::WouldBlock {
++                    return Ok(None);
++                }
++                if e.kind() == std::io::ErrorKind::Interrupted {
++                    return self.read_one_fault();
++                }
++                return Err(anyhow::Error::new(e).context("read uffd_msg failed"));
++            }
++        };
++
++        eprintln!(
++            "[handler] msg.event = {} pf_flags=0x{:x} pf_address=0x{:x}",
++            msg.event, msg.pf_flags, msg.pf_address
++        );
++
++        if msg.event != EXTERNAL_UFFD_EVENT_PAGEFAULT {
++            anyhow::bail!("unexpected uffd event {}", msg.event);
++        }
++
++        let addr = msg.pf_address as u64;
++
++        let idx = match self.find_mapping_idx(addr) {
++            Ok(idx) => idx,
++            Err(e) => {
++                eprintln!("[handler] mapping miss for addr=0x{addr:x}: {e:#}");
++                return Ok(None);
++            }
++        };
++
++        self.handler_stats.fault_count += 1;
++        self.stats[idx].fault_count += 1;
++
++        eprintln!(
++            "[handler][debug] after fault: global_faults={} region{}_faults={} handler_stats_ptr={:p}",
++            self.handler_stats.fault_count,
++            idx,
++            self.stats[idx].fault_count,
++            &self.handler_stats,
++        );
++
++        Ok(Some(PendingFault {
++            addr,
++            mapping_idx: idx,
++        }))
++    }
++    
++    // Change - For external UFFD (lazy loading) restore
++    #[allow(unused)]
++    fn handle_one_fault(&mut self, fault: PendingFault) -> Result<()> {
++        let mapping = &self.mappings[fault.mapping_idx];
++        let page = mapping.page_size;
++        let start_addr = align_down(fault.addr, page);
++
++        let src_off = mapping.offset + (start_addr - mapping.base_host_virt_addr);
++
++        let src =
++            // SAFETY: 
++            // `src_off` is derived from a validated mapping and page-aligned fault
++            // address. `self.snapshot` is a valid mmap of the snapshot file.
++            unsafe {
++                self.snapshot.as_ptr().add(src_off as usize)
++            };
++
++        self.copy_range(start_addr, src as u64, 1, self.mappings[0].page_size)?;
++
++        eprintln!(
++                "[handler] copy success: dst=0x{:x}, src_offset=0x{:x}, len={}",
++                start_addr, src as u64, page
++        );
++
++        self.stats[fault.mapping_idx].copy_calls += 1;
++        self.stats[fault.mapping_idx].pages_copied += 1;
++
++        Ok(())
++    }
++
++    // For optimization of external UFFD by focusing on 
++    // batching, merging and prefetching
++    fn find_mapping_by_addr(&self, addr: u64) -> Option<(usize, &ExternalUffdMapping)> {
++        self.mappings
++            .iter()
++            .enumerate()
++            .find(|(_, m)| {
++                addr >= m.base_host_virt_addr
++                    && addr < m.base_host_virt_addr.saturating_add(m.size)
++            })
++    }
++
++    // For optimization of external UFFD by focusing on 
++    // batching, merging and prefetching
++    fn resolve_file_offset_and_available(
++        &self,
++        mapping_idx: usize,
++        dst_addr: u64,
++    ) -> Result<(u64, u64)> {
++        let m = self
++            .mappings
++            .get(mapping_idx)
++            .with_context(|| format!("invalid mapping_idx {mapping_idx}"))?;
++
++        let start = m.base_host_virt_addr;
++        let end = start
++            .checked_add(m.size)
++            .with_context(|| format!("mapping[{mapping_idx}] end overflow"))?;
++
++        if dst_addr < start || dst_addr >= end {
++            bail!(
++                "dst_addr 0x{dst_addr:x} out of mapping[{mapping_idx}] range [0x{start:x}, 0x{end:x})",
++            );
++        }
++
++        let rel = dst_addr - start;
++        let file_offset = m.offset
++            .checked_add(rel)
++            .with_context(|| format!("file offset overflow for mapping {mapping_idx}"))?;
++        let available = end - dst_addr;
++
++        Ok((file_offset, available))
++    }
++
++    fn read_snapshot_exact(&mut self, src_offset: u64, len: usize) -> io::Result<&[u8]> {
++        if self.scratch.len() < len {
++            self.scratch.resize(len, 0);
++        }
++
++        let buf = &mut self.scratch[..len];
++        self.snapshot.read_exact_at(src_offset, buf)?;
++        Ok(buf)
++    }
++
++    fn do_uffd_copy(
++        &mut self,
++        dst_addr: u64,
++        src_offset: u64,
++        len: usize,
++        page_size: u64,
++    ) -> io::Result<()> {
++        if len == 0 {
++            return Ok(());
++        }
++
++        if !dst_addr.is_multiple_of(page_size) {
++            return Err(Error::new(
++                ErrorKind::InvalidInput,
++                format!(
++                    "dst_addr 0x{dst_addr:x} is not aligned to page_size {page_size}"
++                ),
++            ));
++        }
++
++        if !src_offset.is_multiple_of(page_size) {    
++            return Err(Error::new(
++                ErrorKind::InvalidInput,
++                format!(
++                    "src_offset 0x{src_offset:x} is not aligned to page_size {page_size}"
++                ),
++            ));
++        }
++
++        if !(len as u64).is_multiple_of(page_size) {
++            return Err(Error::new(
++                ErrorKind::InvalidInput,
++                format!("len {len} is not aligned to page_size {page_size}"),
++            ));
++        }
++
++        let src_buf = self.read_snapshot_exact(src_offset, len)?;
++
++        let mut copy = uffdio_copy {
++            dst: dst_addr,
++            src: src_buf.as_ptr() as u64,
++            len: len as u64,
++            mode: 0,
++            copy: 0,
++        };
++
++        // SAFETY: 
++        // `self.uffd_fd` is a valid userfaultfd file descriptor. `copy` is a properly
++        // initialized `uffdio_copy` structure whose dst/src/len fields describe valid,
++        // page-aligned memory ranges prepared by the handler. Passing `&mut copy` is
++        // safe because the kernel may update result fields in the structure, and the
++        // structure remains alive for the duration of the ioctl call.
++        let ret = unsafe { libc::ioctl(self.uffd_fd, UFFDIO_COPY as _, &mut copy) };
++        if ret == -1 {
++            return Err(io::Error::last_os_error());
++        }
++
++        if copy.copy < 0 {
++            return Err(io::Error::from_raw_os_error((-copy.copy) as i32));
++        }
++
++        if copy.copy as usize != len {
++            return Err(std::io::Error::other(
++                format!(
++                    "UFFDIO_COPY short copy: expected {} bytes, copied {}",
++                    len, copy.copy
++                ),
++            ));
++        }
++
++        Ok(())
++    }
++
++    fn uffd_copy_once(
++        &mut self,
++        dst_addr: u64,
++        src_offset: u64,
++        len: usize,
++        mapping_idx: usize,
++        page_size: u64,
++    ) -> Result<(), CopyError> {
++        match self.do_uffd_copy(dst_addr, src_offset, len, page_size) {
++            Ok(()) => Ok(()),
++            Err(e) => {
++                if let Some(raw) = e.raw_os_error() {
++                    match raw {
++                        libc::EAGAIN => {
++                            self.stats[mapping_idx].eagain_retries += 1;
++                            self.handler_stats.copy_eagain_retries += 1;
++                            Err(CopyError::TryAgain)
++                        }
++                        libc::EEXIST => {
++                            self.stats[mapping_idx].eexist_fallbacks += 1;
++                            self.handler_stats.copy_eexist_fallbacks += 1;
++                            self.stats[mapping_idx].skipped_existing_pages +=
++                                (len as u64) / page_size;
++                            self.handler_stats.skipped_existing_pages +=
++                                (len as u64) / page_size;
++                            Err(CopyError::AlreadyExists)
++                        }
++                        _ => Err(CopyError::Fatal(e.into())),
++                    }
++                } else {
++                    Err(CopyError::Fatal(e.into()))
++                }
++            }
++        }
++    }
++
++    fn read_pagefault_message_nonblocking(fd: RawFd) -> anyhow::Result<Option<UffdMsg>> {
++        // SAFETY: 
++        // `UffdMsg` is a plain data struct (repr(C)) without invalid zero bit patterns
++        // such as Rust references or NonZero types. Zero-initialization is valid for
++        // this type, and all fields are filled by the kernel (e.g., via read/recv)
++        // before being used.
++        let mut msg: UffdMsg = unsafe { std::mem::zeroed() };
++
++        // SAFETY: 
++        // `fd` is a valid userfaultfd file descriptor. `msg` points to a valid,
++        // writable `UffdMsg` buffer, and the provided length is exactly the size of
++        // that buffer. The kernel writes at most this many bytes into `msg`, which
++        // remains alive for the duration of the call.
++        let nread = unsafe {
++            libc::read(
++                fd,
++                &mut msg as *mut _ as *mut libc::c_void,
++                std::mem::size_of::<UffdMsg>(),
++            )
++        };
++
++        if nread == std::mem::size_of::<UffdMsg>() as isize {
++            return Ok(Some(msg));
++        }
++
++        if nread < 0 {
++            let err = std::io::Error::last_os_error();
++            match err.raw_os_error() {
++                #[allow(unused)]
++                Some(libc::EAGAIN) | Some(libc::EWOULDBLOCK) => return Ok(None),
++                _ => return Err(err.into()),
++            }
++        }
++
++        bail!(
++            "short read from userfaultfd: expected {} bytes, got {}",
++            std::mem::size_of::<UffdMsg>(),
++            nread
++        );
++    }
++
++    // For optimization of external UFFD by focusing on 
++    // batching, merging and prefetching
++    fn read_one_fault_nonblocking(&mut self) -> Result<Option<PendingFault>> {
++        let msg = match Self::read_pagefault_message_nonblocking(self.uffd_fd)? {
++            Some(msg) => msg,
++            None => return Ok(None),
++        };
++
++        if msg.event != EXTERNAL_UFFD_EVENT_PAGEFAULT {
++            bail!("unexpected uffd event {}", msg.event);
++        }
++
++        let addr = msg.pf_address;
++
++        let (mapping_idx, _) = self
++            .find_mapping_by_addr(addr)
++            .with_context(|| format!("address 0x{addr:x} not found in mappings"))?;
++
++        self.stats[mapping_idx].fault_count += 1;
++        self.handler_stats.fault_count += 1;
++
++        // 新增：如果这个 fault 落在最近 prefetch window 内，则记 useful
++        self.record_prefetch_hit_if_any(mapping_idx, addr);
++
++        Ok(Some(PendingFault { addr, mapping_idx }))
++    }
++
++    // For optimization of external UFFD by focusing on 
++    // batching, merging and prefetching
++    fn merge_faults_into_ranges(
++        &self,
++        mut faults: Vec<PendingFault>,
++    ) -> Vec<FaultRange> {
++        if faults.is_empty() {
++            return Vec::new();
++        }
++
++        faults.sort_by_key(|f| (f.mapping_idx, f.addr));
++
++        let mut ranges = Vec::with_capacity(faults.len());
++        let mut i = 0;
++
++        while i < faults.len() {
++            let f = faults[i];
++            let page_size = self.mappings[f.mapping_idx].page_size;
++
++            //let mut start = align_down(f.addr, page_size);
++            let start = align_down(f.addr, page_size);
++            let mut end = start + page_size;
++            let mut fault_pages = 1u64;
++            let mut j = i + 1;
++
++            while j < faults.len() {
++                let next = faults[j];
++                if next.mapping_idx != f.mapping_idx {
++                    break;
++                }
++
++                let next_addr = align_down(next.addr, page_size);
++                if next_addr <= end {
++                    if next_addr + page_size > end {
++                        end = next_addr + page_size;
++                    }
++                    fault_pages += 1;
++                    j += 1;
++                } else if next_addr == end {
++                    end += page_size;
++                    fault_pages += 1;
++                    j += 1;
++                } else {
++                    break;
++                }
++            }
++
++            ranges.push(FaultRange {
++                mapping_idx: f.mapping_idx,
++                start_addr: start,
++                end_addr: end,
++                fault_pages,
++                prefetched_pages: 0,
++            });
++
++            i = j;
++        }
++
++        ranges
++    }
++
++    fn copy_range_from_snapshot(&mut self, range: &FaultRange) -> Result<()> {
++        let idx = range.mapping_idx;
++        let page_size = self.mappings[idx].page_size;
++
++        let mut dst = range.start_addr;
++        let end = range.end_addr;
++
++        self.stats[idx].range_copy_calls += 1;
++        self.handler_stats.range_copy_calls += 1;
++
++        while dst < end {
++            let (src_offset, available_in_mapping) =
++                self.resolve_file_offset_and_available(idx, dst)?;
++
++            let remaining_in_range = end - dst;
++
++            let base_len = remaining_in_range.min(available_in_mapping);
++
++            // 关键改动：
++            // 如果当前 base_len 太小，则主动扩大到一个最小 copy chunk，
++            // 但不能越过 mapping 边界，也不能超过总的 COPY_CHUNK_BYTES。
++            let desired_len = base_len.max(MIN_COPY_CHUNK_BYTES);
++
++            // 对齐到 page size，避免非页对齐 copy
++            let aligned_desired_len =
++                (desired_len / page_size) * page_size;
++
++            let chunk_len = aligned_desired_len
++                .max(page_size)
++                .min(available_in_mapping)
++                .min(COPY_CHUNK_BYTES);
++
++            let chunk_len_usize = usize::try_from(chunk_len)
++                .context("chunk length does not fit in usize")?;
++
++            let pages_in_chunk = chunk_len / page_size;
++
++            self.stats[idx].page_copy_calls += pages_in_chunk;
++            self.handler_stats.page_copy_calls += pages_in_chunk;
++
++            match self.uffd_copy_once(dst, src_offset, chunk_len_usize, idx, page_size) {
++                Ok(()) => {
++                    self.stats[idx].copy_calls += 1;
++
++                    self.stats[idx].copied_pages += pages_in_chunk;
++                    self.stats[idx].copied_bytes += chunk_len;
++
++                    self.handler_stats.copied_pages += pages_in_chunk;
++                    self.handler_stats.copied_bytes += chunk_len;
++                }
++                Err(CopyError::AlreadyExists) => {
++                    // already counted in skipped_existing_pages inside uffd_copy_once
++                }
++                Err(CopyError::TryAgain) => {
++                    match self.uffd_copy_once(dst, src_offset, chunk_len_usize, idx, page_size) {
++                        Ok(()) => {
++                            self.stats[idx].copy_calls += 1;
++
++                            self.stats[idx].copied_pages += pages_in_chunk;
++                            self.stats[idx].copied_bytes += chunk_len;
++
++                            self.handler_stats.copied_pages += pages_in_chunk;
++                            self.handler_stats.copied_bytes += chunk_len;
++                        }
++                        Err(CopyError::AlreadyExists) => {}
++                        Err(CopyError::TryAgain) => {
++                            bail!(
++                                "UFFDIO_COPY got EAGAIN twice: mapping={idx} dst=0x{dst} len={chunk_len_usize}",
++                            );
++                        }
++                        Err(CopyError::Fatal(e)) => return Err(e),
++                    }
++                }
++                Err(CopyError::Fatal(e)) => return Err(e),
++            }
++
++            // 因为这次已经主动把 [dst, dst + chunk_len) 都填进去了，
++            // 不需要只推进到 range_end，而是直接推进到本次真正 copy 的末尾
++            dst += chunk_len;
++        }
++
++        self.stats[idx].prefetch_pages += range.prefetched_pages;
++        self.handler_stats.prefetch_pages += range.prefetched_pages;
++
++        Ok(())
++    }
++
++    #[allow(unused)]
++    fn update_merge_stats(&mut self, ranges: &[FaultRange]) {
++        for range in ranges {
++            let idx = range.mapping_idx;
++            self.stats[idx].merged_ranges += 1;
++            if range.fault_pages > 1 {
++                self.stats[idx].merged_fault_savings += range.fault_pages - 1;
++            }
++        }
++    }
++
++    fn print_perf_summary_opti(&self) {
++        let avg_faults_per_batch = if self.handler_stats.batch_count > 0 {
++            self.handler_stats.drained_faults_total as f64 / self.handler_stats.batch_count as f64
++        } else {
++            0.0
++        };
++
++        let avg_pages_per_batch = if self.handler_stats.batch_count > 0 {
++            self.handler_stats.copied_pages as f64 / self.handler_stats.batch_count as f64
++        } else {
++            0.0
++        };
++
++        eprintln!(
++            "[handler][summary] avg_faults_per_batch={:.2} avg_pages_per_batch={:.2} sequential_hits={} random_hits={} max_faults_in_batch={} max_pages_in_batch={} prefetch_useful_pages={} prefetch_wasted_pages={}",
++            avg_faults_per_batch,
++            avg_pages_per_batch,
++            self.handler_stats.sequential_hits,
++            self.handler_stats.random_hits,
++            self.handler_stats.max_faults_in_batch,
++            self.handler_stats.max_pages_in_batch,
++            self.handler_stats.prefetch_useful_pages,
++            self.handler_stats.prefetch_wasted_pages,
++        );
++    }
++
++    fn choose_prefetch_pages(
++        &mut self,
++        mapping_idx: usize,
++        fault_addr: u64,
++    ) -> u64 {
++        let page_size = self.mappings[mapping_idx].page_size;
++        let heur = &mut self.heuristics[mapping_idx];
++
++        let is_sequential =
++            heur.last_fault_addr != 0 &&
++            fault_addr == heur.last_fault_addr + page_size;
++
++        if is_sequential {
++            heur.seq_hits += 1;
++
++            self.stats[mapping_idx].sequential_hits += 1;
++            self.handler_stats.sequential_hits += 1;
++        } else {
++            heur.seq_hits = 0;
++            self.handler_stats.random_hits += 1;
++        }
++
++        heur.last_fault_addr = fault_addr;
++
++        // --- 决定 prefetch 页数 ---
++        let prefetch_pages = if heur.seq_hits >= 2 {
++            2
++        } else if heur.seq_hits == 1 {
++            1
++        } else {
++            0
++        };
++
++        // Maybe try this pages of prefetch
++        //let prefetch_pages = match heur.seq_hits {
++        //    0 => 0,
++        //    1 => 1,
++        //    2 | 3 => 2,
++        //    _ => 4,
++        //};
++
++        prefetch_pages.min(MAX_PREFETCH_PAGES)
++    }
++
++    fn maybe_expand_range_with_prefetch(
++        &mut self,
++        range: &mut FaultRange,
++    ) {
++        let idx = range.mapping_idx;
++        let page_size = self.mappings[idx].page_size;
++        let mapping_end =
++            self.mappings[idx].base_host_virt_addr + self.mappings[idx].size;
++
++        let original_end = range.end_addr;
++
++        let prefetch_pages = self.choose_prefetch_pages(idx, range.start_addr);
++        if prefetch_pages == 0 {
++            return;
++        }
++
++        let mut new_end = original_end + prefetch_pages * page_size;
++        new_end = new_end.min(mapping_end);
++
++        {
++            let heur = &self.heuristics[idx];
++
++            // if the new prefetch does not extend beyond previous prefetch coverage,
++            // skip it to avoid redundant work
++            if heur.last_prefetch_end != 0 && new_end <= heur.last_prefetch_end {
++                return;
++            }
++        }
++
++        let added_pages = (new_end - original_end) / page_size;
++        if added_pages == 0 {
++            return;
++        }
++
++        // finalize previous window before opening a new one
++        self.finalize_prefetch_window(idx);
++
++        range.prefetched_pages = added_pages;
++        range.end_addr = new_end;
++
++        let heur = &mut self.heuristics[idx];
++        heur.last_prefetch_end = new_end;
++
++        // the actual prefetched portion is [original_end, new_end)
++        heur.prefetch_start = original_end;
++        heur.prefetch_end = new_end;
++        heur.prefetched_pages_outstanding = added_pages;
++    }
++
++    fn run(&mut self) -> Result<()> {
++        let stop = Arc::new(AtomicBool::new(false));
++        let stop_flag = Arc::clone(&stop);
++
++        ctrlc::set_handler(move || {
++            eprintln!("\n[handler] Ctrl+C received, stopping...");
++            stop_flag.store(true, Ordering::SeqCst);
++        })
++        .context("failed to install Ctrl+C handler")?;
++
++        // SAFETY: 
++        // This calls the `epoll_create1` syscall via libc. The function is safe to call
++        // as long as the provided flags are valid. We pass `EPOLL_CLOEXEC`, which is a
++        // valid constant. The function does not access memory through pointers.
++        // The returned file descriptor must be checked for errors (fd >= 0) before use.
++        let epfd = unsafe { libc::epoll_create1(libc::EPOLL_CLOEXEC) };
++        if epfd < 0 {
++            return Err(std::io::Error::last_os_error()).context("epoll_create1 failed");
++        }
++
++        let mut ev = libc::epoll_event {
++            events: libc::EPOLLIN as u32,
++            u64: self.uffd_fd as u64,
++        };
++
++        // SAFETY: 
++        // `epoll_ctl` is a libc syscall wrapper. We pass a valid epoll file descriptor
++        // (`epfd`) and a valid target file descriptor (`self.uffd_fd`). The pointer
++        // to `ev` is valid and points to initialized memory for the duration of the call.
++        // `epoll_ctl` does not retain the pointer after returning, so no aliasing or
++        // lifetime issues occur.
++        let ctl = unsafe {
++            libc::epoll_ctl(
++                epfd,
++                libc::EPOLL_CTL_ADD,
++                self.uffd_fd,
++                &mut ev as *mut libc::epoll_event,
++            )
++        };
++        if ctl < 0 {
++            let err = std::io::Error::last_os_error();
++            // SAFETY: 
++            // `close` is a libc syscall that does not dereference pointers. We pass a file
++            // descriptor (`epfd`) obtained from `epoll_create1`. The fd is assumed to be
++            // valid and not already closed. No further use of `epfd` occurs after this call,
++            // preventing use-after-close.
++            unsafe {
++                libc::close(epfd);
++            }
++            return Err(err).context("epoll_ctl failed");
++        }
++
++        let mut events: [libc::epoll_event; 8] = 
++            // SAFETY: 
++            // epoll_event is a plain C struct and zero-initialization is valid.
++            unsafe {
++                std::mem::zeroed()
++            };
++
++        let result = (|| -> Result<()> {
++            loop {
++                if stop.load(Ordering::SeqCst) {
++                    debug!("[handler] stop flag set, breaking loop");
++                    break;
++                }
++
++                let n = 
++                    // SAFETY: 
++                    // `epoll_wait` is a libc syscall that writes up to `events.len()` initialized
++                    // `epoll_event` entries into the provided buffer. `events.as_mut_ptr()` points
++                    // to valid, writable memory for `events.len()` elements, and the buffer lives
++                    // for the duration of the call. The length passed matches the buffer capacity,
++                    // so no out-of-bounds writes occur.
++                    unsafe {
++                        libc::epoll_wait(epfd, events.as_mut_ptr(), events.len() as i32, 100)
++                    };
++
++                if n < 0 {
++                    let err = std::io::Error::last_os_error();
++
++                    if err.kind() == std::io::ErrorKind::Interrupted {
++                        if stop.load(Ordering::SeqCst) {
++                            eprintln!("[handler] epoll interrupted and stop requested");
++                            break;
++                        }
++                        continue;
++                    }
++
++                    return Err(err).context("epoll_wait failed");
++                }
++
++                if n == 0 {
++                    continue;
++                }
++
++                for _ in 0..n {
++                    if stop.load(Ordering::SeqCst) {
++                        eprintln!("[handler] stop flag set during event processing");
++                        break;
++                    }
++
++                    // For optimization
++                    let batch = self.drain_fault_batch_opti()?;
++                    if batch.is_empty() {
++                        continue;
++                    }
++
++                    self.coalesce_and_copy_opti(&batch)?;
++                }
++
++            }
++
++            Ok(())
++        })();
++
++        // SAFETY: 
++        // `epfd` is a valid file descriptor previously returned by `epoll_create1`
++        // and has not been closed yet. Calling `close` releases the descriptor and
++        // does not violate Rust memory safety guarantees.
++        unsafe {
++            libc::close(epfd);
++        }
++
++        for idx in 0..self.heuristics.len() {
++            self.finalize_prefetch_window(idx);
++        }
++
++        eprintln!("\n[handler] exiting run(), dumping stats...");
++        self.print_stats_opti();
++        self.print_perf_summary_opti();
++
++        result
++    }
++}
++
++// change - for external UFFD (lazy loading) restore
++fn main() -> Result<()> {
++
++    let socket_path = Path::new("/tmp/uffd.sock");
++    let _ = std::fs::remove_file(socket_path);
++
++    let listener = UnixListener::bind(socket_path)?;
++    eprintln!("[handler] listening on /tmp/uffd.sock");
++    
++    let (hs, uffd_fd) = accept_and_recv_handshake(&listener)?;
++
++    eprintln!(
++        "[handler] version={} mappings={} snapshot={:?}",
++        hs.version,
++        hs.mappings.len(),
++        hs.snapshot_path
++    );
++
++    let file = File::open(&hs.snapshot_path)?;
++    let snapshot = SnapshotMap::map(&file)?;
++    eprintln!("[handler] snapshot mmap OK");
++
++    let mappings = hs.mappings;
++    let mappings_len = mappings.len();
++
++    let mut handler = ExternalUffdHandler {
++        uffd_fd,
++        snapshot,
++        mappings,
++        heuristics: vec![RegionHeuristics::default(); mappings_len],
++        stats: vec![RegionStats::default(); mappings_len],
++        handler_stats: HandlerStats::default(),
++        scratch: vec![0u8; COPY_CHUNK_BYTES as usize],
++    };
++
++    handler.run()
++}
++
++
+diff --git a/cloud-hypervisor/src/bin/ch-remote.rs b/cloud-hypervisor/src/bin/ch-remote.rs
+index 236e7438e..da82c2a24 100644
+--- a/cloud-hypervisor/src/bin/ch-remote.rs
++++ b/cloud-hypervisor/src/bin/ch-remote.rs
+@@ -1,3 +1,5 @@
++// Copyright 2026 The Kuasar Authors
++//
+ // Copyright © 2020 Intel Corporation
+ //
+ // SPDX-License-Identifier: Apache-2.0
+@@ -27,6 +29,7 @@ use vmm::vm_config::{
+     DeviceConfig, DiskConfig, FsConfig, GenericVhostUserConfig, NetConfig, PmemConfig,
+     UserDeviceConfig, VdpaConfig, VsockConfig,
+ };
++use vmm::config::MemoryRestoreMode;
+ #[cfg(feature = "dbus_api")]
+ use zbus::{proxy, zvariant::Optional};
+ 
+@@ -534,6 +537,7 @@ fn rest_api_do_command(matches: &ArgMatches, socket: &mut UnixStream) -> ApiResu
+                     .unwrap()
+                     .get_one::<String>("receive_migration_config")
+                     .unwrap(),
++                MemoryRestoreMode::FileBackend, // do not hardcode
+             );
+             simple_api_command(
+                 socket,
+@@ -941,9 +945,20 @@ fn coredump_config(destination_url: &str) -> String {
+     serde_json::to_string(&coredump_config).unwrap()
+ }
+ 
+-fn receive_migration_data(url: &str) -> String {
++//fn receive_migration_data(url: &str) -> String {
++//    let receive_migration_data = vmm::api::VmReceiveMigrationData {
++//        receiver_url: url.to_owned(),
++//    };
++//
++//    serde_json::to_string(&receive_migration_data).unwrap()
++//}
++
++//use vmm::config::MemoryRestoreMode;
++
++fn receive_migration_data(url: &str, memory_restore_mode: MemoryRestoreMode) -> String {
+     let receive_migration_data = vmm::api::VmReceiveMigrationData {
+         receiver_url: url.to_owned(),
++        memory_restore_mode,
+     };
+ 
+     serde_json::to_string(&receive_migration_data).unwrap()
+@@ -1164,6 +1179,23 @@ fn main() {
+ 
+     let matches = app.get_matches();
+ 
++
++    #[cfg(not(feature = "dbus_api"))]
++    let mut target_api = match matches.get_one::<String>("api-socket") {
++        Some(api_sock) => TargetApi::HttpApi(
++            UnixStream::connect(api_sock).unwrap_or_else(|e| {
++                error!("Error opening HTTP socket: {e}");
++                process::exit(1)
++            }),
++            PhantomData,
++        ),
++        None => {
++            error!("Please provide the api-socket option");
++            process::exit(1);
++        }
++    };
++
++    #[cfg(feature = "dbus_api")]
+     let mut target_api = match (
+         matches.get_one::<String>("api-socket"),
+         #[cfg(feature = "dbus_api")]
+@@ -1171,14 +1203,17 @@ fn main() {
+         #[cfg(feature = "dbus_api")]
+         matches.get_one::<String>("dbus-object-path"),
+     ) {
+-        #[cfg(not(feature = "dbus_api"))]
+-        (Some(api_sock),) => TargetApi::HttpApi(
+-            UnixStream::connect(api_sock).unwrap_or_else(|e| {
+-                error!("Error opening HTTP socket: {e}");
+-                process::exit(1)
+-            }),
+-            PhantomData,
+-        ),
++        
++        //#[cfg(not(feature = "dbus_api"))]
++        //(Some(api_sock),) => TargetApi::HttpApi(
++        //    UnixStream::connect(api_sock).unwrap_or_else(|e| {
++        //        error!("Error opening HTTP socket: {e}");
++        //        process::exit(1)
++        //    }),
++        //    PhantomData,
++        //),
++
++
+         #[cfg(feature = "dbus_api")]
+         (Some(api_sock), None, None) => TargetApi::HttpApi(
+             UnixStream::connect(api_sock).unwrap_or_else(|e| {
+diff --git a/cloud-hypervisor/src/main.rs b/cloud-hypervisor/src/main.rs
+index 5de2e4c2d..c041cbe04 100644
+--- a/cloud-hypervisor/src/main.rs
++++ b/cloud-hypervisor/src/main.rs
+@@ -1,3 +1,5 @@
++// Copyright 2026 The Kuasar Authors
++//
+ // Copyright © 2019 Intel Corporation
+ //
+ // SPDX-License-Identifier: Apache-2.0
+@@ -988,6 +990,7 @@ mod unit_tests {
+                 prefault: false,
+                 zones: None,
+                 thp: true,
++                external_uffd_socket: None,
+             },
+             payload: Some(PayloadConfig {
+                 kernel: Some(PathBuf::from("/path/to/kernel")),
+diff --git a/vmm/Cargo.toml b/vmm/Cargo.toml
+index 7a38fa500..5e7c57f76 100644
+--- a/vmm/Cargo.toml
++++ b/vmm/Cargo.toml
+@@ -103,6 +103,7 @@ vm-virtio = { path = "../vm-virtio" }
+ vmm-sys-util = { workspace = true, features = ["with-serde"] }
+ zbus = { version = "5.15.0", optional = true }
+ zerocopy = { workspace = true, features = ["alloc", "derive"] }
++ctrlc = "3"
+ 
+ [dev-dependencies]
+ tempfile = "3"
+diff --git a/vmm/src/api/mod.rs b/vmm/src/api/mod.rs
+index e4ee7235a..3bf5e79ee 100644
+--- a/vmm/src/api/mod.rs
++++ b/vmm/src/api/mod.rs
+@@ -1,3 +1,5 @@
++// Copyright 2026 The Kuasar Authors
++//
+ // Copyright © 2019 Intel Corporation
+ // Copyright 2024 Alyssa Ross <hi@alyssa.is>
+ //
+@@ -60,6 +62,9 @@ use crate::vm_config::{
+     UserDeviceConfig, VdpaConfig, VmConfig, VsockConfig,
+ };
+ 
++// Change - For external UFFD (lazy loading) restore
++use crate::config::MemoryRestoreMode;
++
+ /// API errors are sent back from the VMM API server through the ApiResponse.
+ #[derive(Error, Debug)]
+ pub enum ApiError {
+@@ -265,10 +270,15 @@ pub struct VmCoredumpData {
+     pub destination_url: String,
+ }
+ 
+-#[derive(Clone, Deserialize, Serialize, Default, Debug)]
++//#[derive(Clone, Deserialize, Serialize, Default, Debug)]
++#[derive(Clone, Deserialize, Serialize, Debug)]
+ pub struct VmReceiveMigrationData {
+     /// URL for the reception of migration state
+     pub receiver_url: String,
++
++    // Change - For external UFFD (lazy loading) restore
++    /// Memory restore mode used during VM restore
++    pub memory_restore_mode: MemoryRestoreMode,
+ }
+ 
+ #[derive(Copy, Clone, Default, Deserialize, Serialize, Debug, PartialEq, Eq)]
+diff --git a/vmm/src/api/openapi/cloud-hypervisor.yaml b/vmm/src/api/openapi/cloud-hypervisor.yaml
+index e8b72f748..6bc734db5 100644
+--- a/vmm/src/api/openapi/cloud-hypervisor.yaml
++++ b/vmm/src/api/openapi/cloud-hypervisor.yaml
+@@ -7,7 +7,7 @@ info:
+     url: http://www.apache.org/licenses/LICENSE-2.0.html
+   version: 0.3.0
+ 
+-servers:
++servers::
+   - url: http://localhost/api/v1
+ 
+ paths:
+@@ -1428,7 +1428,7 @@ components:
+ 
+     MemoryRestoreMode:
+       type: string
+-      enum: [Copy, OnDemand]
++      enum: [Copy, OnDemand, FileBackend]
+       default: Copy
+ 
+     RestoreConfig:
+diff --git a/vmm/src/config.rs b/vmm/src/config.rs
+index 00bf251f3..45a1f4374 100644
+--- a/vmm/src/config.rs
++++ b/vmm/src/config.rs
+@@ -1,3 +1,5 @@
++// Copyright 2026 The Kuasar Authors
++//
+ // Copyright © 2019 Intel Corporation
+ //
+ // SPDX-License-Identifier: Apache-2.0
+@@ -1111,6 +1113,8 @@ impl MemoryConfig {
+             prefault,
+             zones,
+             thp,
++            // Change - For external UFFD (lazy loading) restore
++            external_uffd_socket: None,
+         })
+     }
+ 
+@@ -2578,6 +2582,8 @@ where
+     }
+ }
+ 
++// Change - for file-backend MMAP restore
++// AND Change - External UFFD (lazy loading) restore
+ #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, Default)]
+ pub enum MemoryRestoreMode {
+     /// Restore by eagerly copying the snapshot into guest RAM before resume.
+@@ -2585,14 +2591,20 @@ pub enum MemoryRestoreMode {
+     Copy,
+     /// Restore lazily by faulting snapshot pages into guest RAM on demand.
+     OnDemand,
++    /// new - File-backend MMAP restore (kernal page fault)
++    FileBackend,
++    /// new- External UFFD (lazy loading) restore (User Page fault)
++    ExternalUffd,
+ }
+ 
++
+ #[derive(Debug, Error)]
+ pub enum MemoryRestoreModeParseError {
+     #[error("Invalid value: {0}")]
+     InvalidValue(String),
+ }
+ 
++// Change - for file-backend MMAP restore and External UFFD (lazy loading) restore
+ impl FromStr for MemoryRestoreMode {
+     type Err = MemoryRestoreModeParseError;
+ 
+@@ -2600,6 +2612,8 @@ impl FromStr for MemoryRestoreMode {
+         match s.to_lowercase().as_str() {
+             "copy" => Ok(Self::Copy),
+             "ondemand" => Ok(Self::OnDemand),
++            "file" | "filebackend" => Ok(Self::FileBackend), 
++            "externaluffd" => Ok(Self::ExternalUffd),
+             _ => Err(MemoryRestoreModeParseError::InvalidValue(s.to_owned())),
+         }
+     }
+@@ -5020,6 +5034,8 @@ id=\"{id}\",pci_segment={pci_segment},queue_sizes={queue_sizes}"
+                 prefault: false,
+                 zones: None,
+                 thp: true,
++                // Change - For external UFFD (lazy loading) restore
++                external_uffd_socket: None,
+             },
+             payload: Some(PayloadConfig {
+                 kernel: Some(PathBuf::from("/path/to/kernel")),
+diff --git a/vmm/src/external_uffd.rs b/vmm/src/external_uffd.rs
+new file mode 100644
+index 000000000..e24f86a85
+--- /dev/null
++++ b/vmm/src/external_uffd.rs
+@@ -0,0 +1,619 @@
++// Copyright 2026 The Kuasar Authors
++// 
++// SPDX-License-Identifier: Apache-2.0
++//
++// 1. Imports（放最顶部）
++use serde::{Deserialize, Serialize};
++use std::io;
++use std::mem::{size_of, zeroed};
++use std::os::fd::{AsRawFd, RawFd};
++use std::os::unix::net::{UnixStream,UnixListener};
++use std::path::{Path, PathBuf};
++use std::fs::File;
++
++// 2. protocol（握手层
++// ======================
++// protocol
++// ======================
++pub const EXTERNAL_UFFD_HANDSHAKE_VERSION: u16 = 1;
++const CONTROL_BUF_SIZE: usize = 64;
++
++pub const EXTERNAL_UFFD_EVENT_PAGEFAULT: u8 = crate::userfaultfd::UFFD_EVENT_PAGEFAULT;
++
++#[derive(Clone, Debug, Serialize, Deserialize)]
++pub struct ExternalUffdHandshake {
++    pub version: u16,
++    pub snapshot_path: PathBuf,
++    pub mappings: Vec<ExternalUffdMapping>,
++}
++
++#[derive(Clone, Debug, Serialize, Deserialize)]
++pub struct ExternalUffdMapping {
++    pub base_host_virt_addr: u64,
++    pub size: u64,
++    pub offset: u64,
++    pub page_size: u64,
++    pub gpa: u64,
++    pub zone_id: Option<String>,
++}
++
++// 5. runtime mapping（核心逻辑层）
++// ======================
++// runtime mapping
++// ======================
++#[derive(Debug, Clone)]
++pub struct RegionTable {
++    mappings: Vec<ExternalUffdMapping>,
++}
++
++// Change - for external UFFD (lazy loading) restore
++// For external handler
++#[derive(Debug, Clone)]
++pub struct ResolvedFault {
++    pub fault_addr: u64,
++    pub page_addr: u64,
++    pub file_offset: u64,
++    pub mapping_index: usize,
++}
++
++union ControlBuf {
++    buf: [u8; CONTROL_BUF_SIZE],
++}
++
++// Change - For external UFFD (lazy loading) restore
++// For external handler
++impl RegionTable {
++    pub fn new(mut mappings: Vec<ExternalUffdMapping>) -> io::Result<Self> {
++        if mappings.is_empty() {
++            return Err(io::Error::new(
++                io::ErrorKind::InvalidInput,
++                "empty mappings",
++            ));
++        }
++
++        // 排序（非常重要）
++        mappings.sort_by_key(|m| m.base_host_virt_addr);
++
++        // 校验（强烈建议）
++        for m in &mappings {
++            if m.size == 0 {
++                return Err(io::Error::new(
++                    io::ErrorKind::InvalidData,
++                    "mapping size must be > 0",
++                ));
++            }
++
++            if m.page_size == 0 {
++                return Err(io::Error::new(
++                    io::ErrorKind::InvalidData,
++                    "page_size must be > 0",
++                ));
++            }
++
++            if m.base_host_virt_addr % m.page_size != 0
++                || m.size % m.page_size != 0
++                || m.offset % m.page_size != 0
++            {
++                return Err(io::Error::new(
++                    io::ErrorKind::InvalidData,
++                    "mapping not page aligned",
++                ));
++            }
++        }
++
++        // overlap 检查
++        for pair in mappings.windows(2) {
++            let a = &pair[0];
++            let b = &pair[1];
++
++            let a_end = a.base_host_virt_addr + a.size;
++
++            if a_end > b.base_host_virt_addr {
++                return Err(io::Error::new(
++                    io::ErrorKind::InvalidData,
++                    "overlapping mappings",
++                ));
++            }
++        }
++
++        Ok(Self { mappings })
++    }
++
++    // Change - for external UFFD (lazy loading) restore
++    // for external handler
++    pub fn resolve_fault(&self, fault_addr: u64) -> io::Result<ResolvedFault> {
++        for (idx, m) in self.mappings.iter().enumerate() {
++            let start = m.base_host_virt_addr;
++            let end = m.base_host_virt_addr + m.size;
++
++            if fault_addr >= start && fault_addr < end {
++                let page_size = m.page_size;
++
++                let page_addr = fault_addr - (fault_addr % page_size);
++
++                let delta = page_addr - start;
++                let file_offset = m.offset + delta;
++
++                eprintln!(
++                        "[handler] resolve: addr=0x{fault_addr:x} page_addr=0x{page_addr:x} -> mapping_idx={idx} offset=0x{file_offset:x}"
++                    );
++
++                return Ok(ResolvedFault {
++                    fault_addr,
++                    page_addr,
++                    file_offset,
++                    mapping_index: idx,
++                });
++            }
++        }
++
++        Err(io::Error::new(
++            io::ErrorKind::NotFound,
++            format!("fault addr {fault_addr:#x} not covered by any mapping"),
++        ))
++    }
++
++    pub fn find_mapping_by_addr(&self, addr: u64) -> Option<(usize, &ExternalUffdMapping)> {
++        self.mappings
++            .iter()
++            .enumerate()
++            .find(|(_, m)| {
++                addr >= m.base_host_virt_addr
++                    && addr < m.base_host_virt_addr.saturating_add(m.size)
++            })
++    }
++
++    pub fn validate(&self) -> anyhow::Result<()> {
++        for (i, m) in self.mappings.iter().enumerate() {
++            if m.size == 0 {
++                anyhow::bail!("mapping[{i}] has zero size");
++            }
++            if m.page_size == 0 {
++                anyhow::bail!("mapping[{i}] has zero page_size");
++            }
++            if m.base_host_virt_addr % m.page_size != 0 {
++                anyhow::bail!(
++                    "mapping[{}] base_host_virt_addr 0x{:x} not aligned to page_size {}",
++                    i,
++                    m.base_host_virt_addr,
++                    m.page_size
++                );
++            }
++            if m.offset % m.page_size != 0 {
++                anyhow::bail!(
++                    "mapping[{}] offset 0x{:x} not aligned to page_size {}",
++                    i,
++                    m.offset,
++                    m.page_size
++                );
++            }
++            if m.size % m.page_size != 0 {
++                anyhow::bail!(
++                    "mapping[{}] size 0x{:x} not multiple of page_size {}",
++                    i,
++                    m.size,
++                    m.page_size
++                );
++            }
++        }
++        Ok(())
++    }
++}
++
++// 4. handshake helpers（sender / receiver 对称）
++// ======================
++// handshake helpers
++// ======================
++// Change - For external UFFD (lazy loading) restore
++// For external handler side
++pub fn connect_and_send_handshake(
++    socket_path: &Path,
++    hs: &ExternalUffdHandshake,
++    uffd_fd: RawFd,
++) -> io::Result<()> {
++    let sock = UnixStream::connect(socket_path)?;
++    let payload = serde_json::to_vec(hs).map_err(io::Error::other)?;
++    send_with_fd(sock.as_raw_fd(), &payload, uffd_fd)
++}
++
++// Change - For external UFFD
++// For external handler side
++pub fn accept_and_recv_handshake(
++    listener: &UnixListener,
++) -> io::Result<(ExternalUffdHandshake, RawFd)> {
++    let (stream, _) = listener.accept()?;
++
++    let (payload, uffd_fd) = recv_with_fd(stream.as_raw_fd())?;
++
++    let hs: ExternalUffdHandshake = serde_json::from_slice(&payload)
++        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
++
++    if hs.version != EXTERNAL_UFFD_HANDSHAKE_VERSION {
++        return Err(io::Error::new(
++            io::ErrorKind::InvalidData,
++            format!("unsupported handshake version: {}", hs.version),
++        ));
++    }
++
++    Ok((hs, uffd_fd))
++}
++// ======================
++// 3, fd passing
++// ======================
++//
++// send_with_fd(...)
++// recv_with_fd(...)
++//
++// Change - for external UFFD (lazy loading) restore 
++// For external handler side
++pub fn send_with_fd(sock_fd: RawFd, data: &[u8], fd: RawFd) -> io::Result<()> {
++    let mut iov = libc::iovec {
++        iov_base: data.as_ptr() as *mut libc::c_void,
++        iov_len: data.len(),
++    };
++
++    let fd_size = size_of::<RawFd>() as u32;
++
++    // SAFETY: CMSG_SPACE only computes the required buffer size for ancillary data.
++    // It does not dereference pointers or access memory. `fd_size` is a valid length.
++    let control_len = unsafe { libc::CMSG_SPACE(fd_size) as usize };
++
++    // This fixed-size buffer is intentionally aligned as `cmsghdr` by the union.
++    let mut control =
++        // SAFETY: Initializing the `buf` field with zeroed bytes is valid.
++        // The union is used as raw storage, and we will treat it as a byte buffer
++        // for constructing ancillary data.
++        unsafe {
++            std::mem::zeroed::<ControlBuf>()
++        };
++
++    assert!(
++        control_len <= 64,
++        "control buffer too small: need {control_len} bytes"
++    );
++
++    let control_ptr =
++        // SAFETY: Accessing the `buf` field is safe here because we are treating the
++        // union storage as a raw byte buffer for ancillary data construction.
++        unsafe {
++            control.buf.as_mut_ptr()
++        };
++
++    debug_assert_eq!(
++        (control_ptr as usize) % std::mem::align_of::<libc::cmsghdr>(),
++        0,
++        "control buffer is not properly aligned for cmsghdr"
++    );
++
++    let mut msg: libc::msghdr =
++        // SAFETY: `libc::msghdr` is a plain C struct for which zero-initialization is valid.
++        // Null pointers and zero lengths form a valid initial state, and required fields are
++        // set before the syscall.
++        unsafe { zeroed() };
++
++    msg.msg_iov = &mut iov;
++    msg.msg_iovlen = 1;
++    msg.msg_control = control_ptr as *mut libc::c_void;
++    msg.msg_controllen = control_len;
++
++    // SAFETY:
++    // - `msg.msg_control` points to a writable ancillary-data buffer aligned for `cmsghdr`.
++    // - The buffer is at least `CMSG_SPACE(sizeof(RawFd))` bytes long.
++    // - `CMSG_FIRSTHDR(&msg)` is checked for null before dereference.
++    // - We initialize exactly one `cmsghdr` for `SOL_SOCKET/SCM_RIGHTS`.
++    // - `CMSG_DATA(cmsg)` points to space sufficient for one `RawFd`, matching `CMSG_LEN(fd_size)`.
++    unsafe {
++        let cmsg = libc::CMSG_FIRSTHDR(&msg);
++        if cmsg.is_null() {
++            return Err(io::Error::other("CMSG_FIRSTHDR returned null"));
++        }
++
++        let cmsg_len = libc::CMSG_LEN(fd_size) as usize;
++
++        (*cmsg).cmsg_level = libc::SOL_SOCKET;
++        (*cmsg).cmsg_type = libc::SCM_RIGHTS;
++        (*cmsg).cmsg_len = cmsg_len;
++
++        debug_assert_eq!((*cmsg).cmsg_level, libc::SOL_SOCKET);
++        debug_assert_eq!((*cmsg).cmsg_type, libc::SCM_RIGHTS);
++        debug_assert_eq!((*cmsg).cmsg_len, cmsg_len);
++        debug_assert!(control_len >= cmsg_len);
++        debug_assert!(cmsg_len >= size_of::<libc::cmsghdr>());
++
++        let data_ptr = libc::CMSG_DATA(cmsg) as *mut RawFd;
++
++        debug_assert_eq!(
++            (data_ptr as usize) % std::mem::align_of::<RawFd>(),
++            0,
++            "CMSG_DATA is not properly aligned for RawFd"
++        );
++
++        *data_ptr = fd;
++    }
++
++    // SAFETY:
++    // - `sock_fd` is assumed to be a valid socket fd supplied by the caller.
++    // - `msg` is fully initialized.
++    // - `iov` and ancillary control storage remain alive for the duration of the call.
++    let ret = unsafe { libc::sendmsg(sock_fd, &msg, 0) };
++
++    if ret < 0 {
++        return Err(io::Error::last_os_error());
++    }
++
++    if ret as usize != data.len() {
++        return Err(io::Error::new(
++            io::ErrorKind::WriteZero,
++            format!("short sendmsg: sent {ret} bytes, expected {}", data.len()),
++        ));
++    }
++
++    Ok(())
++}
++
++// Change - For external UFFD (lazy loading) restore
++// For external handler side
++pub fn recv_with_fd(sock_fd: RawFd) -> io::Result<(Vec<u8>, RawFd)> {
++    let mut data = vec![0u8; 4096];
++
++    let mut iov = libc::iovec {
++        iov_base: data.as_mut_ptr() as *mut libc::c_void,
++        iov_len: data.len(),
++    };
++
++    let fd_size = size_of::<RawFd>() as u32;
++
++    // SAFETY: CMSG_SPACE only computes the ancillary buffer size for one fd.
++    // It does not dereference pointers or access memory.
++    let control_len = unsafe { libc::CMSG_SPACE(fd_size) as usize };
++
++    if control_len > CONTROL_BUF_SIZE {
++        return Err(io::Error::other(format!(
++            "control buffer too small: need {control_len}, have {CONTROL_BUF_SIZE}"
++        )));
++    }
++
++    let mut control =
++        // SAFETY: ControlBuf is used as raw aligned storage for ancillary data.
++        // Zero initialization is valid because both fields are plain C-compatible data
++        unsafe {
++            zeroed::<ControlBuf>()
++    };
++
++    let control_ptr = 
++        // SAFETY: We access the union byte field only as raw backing storage for
++        // ancillary data, relying on the union for proper cmsghdr alignment.
++        unsafe {
++        control.buf.as_mut_ptr()
++    };
++
++    let mut msg: libc::msghdr =
++        // SAFETY: msghdr is a plain C struct where zero initialization is valid.
++        // Required fields are initialized before recvmsg.
++        unsafe {
++            zeroed()
++    };
++
++    msg.msg_iov = &mut iov;
++    msg.msg_iovlen = 1;
++    msg.msg_control = control_ptr as *mut libc::c_void;
++    msg.msg_controllen = control_len;
++
++    let ret =
++        // SAFETY:
++        // - sock_fd is assumed to be a valid Unix-domain socket fd from the caller.
++        // - msg points to valid writable payload and ancillary buffers for the duration
++        //   of the syscall.
++        unsafe {
++            libc::recvmsg(sock_fd, &mut msg, 0)
++    };
++
++    if ret < 0 {
++        return Err(io::Error::last_os_error());
++    }
++
++    let data_len = ret as usize;
++    data.truncate(data_len);
++
++    if (msg.msg_flags & libc::MSG_CTRUNC) != 0 {
++        return Err(io::Error::other("ancillary data was truncated"));
++    }
++
++    let received_fd =
++         // SAFETY:
++        // - msg.msg_control points to a valid ancillary-data buffer filled by recvmsg.
++        // - We check each cmsghdr pointer for null before dereferencing.
++        // - We only read a RawFd from CMSG_DATA when the header is for SOL_SOCKET /
++        //   SCM_RIGHTS and cmsg_len is large enough to contain one RawFd.
++        unsafe {
++            let mut cmsg = libc::CMSG_FIRSTHDR(&msg);
++
++            while !cmsg.is_null() {
++                if (*cmsg).cmsg_level == libc::SOL_SOCKET
++                    && (*cmsg).cmsg_type == libc::SCM_RIGHTS
++                {
++                    let min_len = libc::CMSG_LEN(fd_size) as usize;
++                    if (*cmsg).cmsg_len < min_len {
++                        return Err(io::Error::other(format!(
++                            "SCM_RIGHTS control message too short: got {}, need at least {}",
++                            (*cmsg).cmsg_len,
++                            min_len
++                        )));
++                    }
++
++                    let data_ptr = libc::CMSG_DATA(cmsg) as *const RawFd;
++
++                    debug_assert_eq!(
++                        (data_ptr as usize) % std::mem::align_of::<RawFd>(),
++                        0,
++                        "CMSG_DATA not aligned for RawFd"
++                    );
++
++                    let fd = *data_ptr;
++                    if fd < 0 {
++                        return Err(io::Error::other(format!(
++                            "received invalid fd: {fd}"
++                        )));
++                    }
++
++                    return Ok((data, fd));
++                }
++
++                cmsg = libc::CMSG_NXTHDR(&msg, cmsg);
++            }
++
++            Err(io::Error::other("did not receive SCM_RIGHTS fd"))
++        }?;
++
++    Ok((data, received_fd))
++}
++
++// Change - for external UFFD (lazy loading) restore
++// For external handler side
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::os::fd::RawFd;
++
++    #[test]
++    fn test_send_and_recv_fd() -> io::Result<()> {
++        let mut sv = [0 as RawFd; 2];
++        let rc = unsafe {
++            // SAFETY: `sv` points to space for two fds as required by socketpair.
++            libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, sv.as_mut_ptr())
++        };
++        if rc < 0 {
++            return Err(io::Error::last_os_error());
++        }
++
++        let sender = sv[0];
++        let receiver = sv[1];
++
++        let mut pipefds = [0 as RawFd; 2];
++        let rc = unsafe {
++            // SAFETY: `pipefds` points to space for two fds as required by pipe.
++            libc::pipe(pipefds.as_mut_ptr())
++        };
++        if rc < 0 {
++            unsafe {
++                libc::close(sender);
++                libc::close(receiver);
++            }
++            return Err(io::Error::last_os_error());
++        }
++
++        let read_fd = pipefds[0];
++        let write_fd = pipefds[1];
++
++        let payload = b"hello-fd";
++
++        send_with_fd(sender, payload, write_fd)?;
++
++        let (received_payload, received_fd) = recv_with_fd(receiver)?;
++
++        assert_eq!(received_payload, payload);
++
++        let msg = b"ping-through-passed-fd";
++        let write_rc = unsafe {
++            // SAFETY: `received_fd` is expected to be a valid writable pipe fd,
++            // and `msg` points to readable memory of length `msg.len()`.
++            libc::write(
++                received_fd,
++                msg.as_ptr() as *const libc::c_void,
++                msg.len(),
++            )
++        };
++        assert_eq!(write_rc as usize, msg.len());
++
++        let mut buf = vec![0u8; msg.len()];
++        let read_rc = unsafe {
++            // SAFETY: `read_fd` is expected to be a valid readable pipe fd,
++            // and `buf` points to writable memory of length `buf.len()`.
++            libc::read(
++                read_fd,
++                buf.as_mut_ptr() as *mut libc::c_void,
++                buf.len(),
++            )
++        };
++        assert_eq!(read_rc as usize, msg.len());
++        assert_eq!(buf, msg);
++
++        unsafe {
++            // SAFETY: These are raw fds created in this test and not yet closed.
++            libc::close(sender);
++            libc::close(receiver);
++            libc::close(read_fd);
++            libc::close(write_fd);
++            libc::close(received_fd);
++        }
++
++        Ok(())
++    }
++}
++
++// 6. handler runtime（真正执行层)
++// ======================
++// handler runtime
++// ======================
++#[derive(Debug, Clone, Copy)]
++pub struct FaultEvent {
++    pub fault_addr: u64,
++    pub flags: u64,
++}
++
++pub struct ExternalUffdContext {
++    pub uffd_fd: RawFd,
++    pub snapshot_file: File,
++    pub region_table: RegionTable,
++}
++
++// 7. help function
++pub struct UffdPagefaultMsg {
++    pub event: u8,
++    pub pf_flags: u64,
++    pub pf_address: u64,
++}
++
++pub fn read_pagefault_message(fd: RawFd) -> io::Result<UffdPagefaultMsg> {
++    let mut msg: crate::uffd::UffdMsg =
++        // SAFETY: `UffdMsg` is a plain C-compatible struct used for reading one
++        // pagefault message from userfaultfd.
++        unsafe {
++            // SAFETY: `UffdMsg` is a plain C-compatible struct used for reading one
++            // pagefault message from userfaultfd.
++            std::mem::zeroed()
++        };
++
++    let r = 
++        // SAFETY: `fd` is expected to be a valid userfaultfd, and `msg`
++        // points to writable memory large enough for one `UffdMsg`.
++        unsafe {
++            libc::read(
++                fd,
++                &mut msg as *mut _ as *mut libc::c_void,
++                std::mem::size_of::<crate::uffd::UffdMsg>(),
++            )
++    };
++
++    if r < 0 {
++        return Err(std::io::Error::last_os_error());
++    }
++
++    if r == 0 {
++        return Err(std::io::Error::other("read returned EOF on uffd"));
++    }
++
++    if r as usize != std::mem::size_of::<crate::uffd::UffdMsg>() {
++        return Err(std::io::Error::other(format!(
++            "short read on uffd msg: got {}, expected {}",
++            r,
++            std::mem::size_of::<crate::uffd::UffdMsg>()
++        )));
++    }
++
++    Ok(UffdPagefaultMsg {
++        event: msg.event,
++        pf_flags: msg.pf_flags,
++        pf_address: msg.pf_address,
++    })
++}
+diff --git a/vmm/src/lib.rs b/vmm/src/lib.rs
+index 6c9d476ab..2dd20093e 100644
+--- a/vmm/src/lib.rs
++++ b/vmm/src/lib.rs
+@@ -1,3 +1,5 @@
++// Copyright 2026 The Kuasar Authors
++//
+ // Copyright © 2019 Intel Corporation
+ //
+ // SPDX-License-Identifier: Apache-2.0
+@@ -105,6 +107,10 @@ mod userfaultfd;
+ pub mod vm;
+ pub mod vm_config;
+ 
++// Change - For External UFFD (lazy loading) restore
++pub mod external_uffd;
++pub mod snapshot_manifest;
++
+ type GuestMemoryMmap = vm_memory::GuestMemoryMmap<AtomicBitmap>;
+ type GuestRegionMmap = vm_memory::GuestRegionMmap<AtomicBitmap>;
+ 
+@@ -883,7 +889,7 @@ impl Vmm {
+         listener: &ReceiveListener,
+         state: ReceiveMigrationState,
+         req: &Request,
+-        _receive_data_migration: &VmReceiveMigrationData,
++        receive_data_migration: &VmReceiveMigrationData,
+     ) -> std::result::Result<ReceiveMigrationState, MigratableError> {
+         use ReceiveMigrationState::*;
+ 
+@@ -971,7 +977,7 @@ impl Vmm {
+                     let state_receive_begin = Instant::now();
+                     config_data.connections.cleanup()?;
+                     let (recv_state_dur, restore_vm_dur) =
+-                        self.vm_receive_state(req, socket, config_data.memory_manager)?;
++                        self.vm_receive_state(req, socket, config_data.memory_manager, receive_data_migration.memory_restore_mode,)?;
+                     debug!(
+                         "Migration (incoming): recv_snapshot:{}ms restore:{}ms",
+                         recv_state_dur.as_millis(),
+@@ -1113,6 +1119,7 @@ impl Vmm {
+         req: &Request,
+         socket: &mut T,
+         mm: Arc<Mutex<MemoryManager>>,
++        memory_restore_mode: MemoryRestoreMode, // Change - For external UFFD (lazy loading) restore
+     ) -> std::result::Result<
+         (
+             Duration, /* state receive + deserialize */
+@@ -1174,6 +1181,7 @@ impl Vmm {
+                 self.console_resize_pipe.clone(),
+                 Arc::clone(&self.original_termios_opt),
+                 Some(&snapshot),
++                Some(memory_restore_mode),
+                 #[cfg(feature = "igvm")]
+                 None,
+             )
+@@ -1460,8 +1468,13 @@ impl Vmm {
+             vm_config,
+             #[cfg(all(feature = "kvm", target_arch = "x86_64"))]
+             common_cpuid,
+-            memory_manager_data: vm.memory_manager_data(),
++
++            // Change - For file-backend MMAP restore
++            memory_manager_data: vm
++                .memory_manager_data()
++                .map_err(|e| MigratableError::Snapshot(anyhow::anyhow!("memory_manager_data failed: {e}")))?,
+         };
++        
+         migration_transport::send_config(&mut socket, &vm_migration_config)?;
+ 
+         // Let every Migratable object know about the migration being started.
+@@ -2699,6 +2712,7 @@ mod unit_tests {
+                 prefault: false,
+                 zones: None,
+                 thp: true,
++                external_uffd_socket: None,
+             },
+             payload: Some(PayloadConfig {
+                 kernel: Some(PathBuf::from("/path/to/kernel")),
+diff --git a/vmm/src/memory_manager.rs b/vmm/src/memory_manager.rs
+index dfe0f3e49..9f2d2d218 100644
+--- a/vmm/src/memory_manager.rs
++++ b/vmm/src/memory_manager.rs
+@@ -1,3 +1,5 @@
++// Copyright 2026 The Kuasar Authors
++//
+ // Copyright © 2019 Intel Corporation
+ //
+ // SPDX-License-Identifier: Apache-2.0
+@@ -58,6 +60,34 @@ use crate::migration::url_to_path;
+ use crate::vm_config::{HotplugMethod, MemoryConfig, MemoryZoneConfig};
+ use crate::{GuestMemoryMmap, GuestRegionMmap, MEMORY_MANAGER_SNAPSHOT_ID, uffd};
+ 
++// Change - For External UFFD (lazy loading) restore
++use crate::external_uffd::{
++    ExternalUffdHandshake,
++    ExternalUffdMapping,
++    EXTERNAL_UFFD_HANDSHAKE_VERSION,
++};
++
++// Change - For External UFFD (lazy loading) restore
++#[allow(unused)]
++use crate::snapshot_manifest::{
++    SnapshotDataSource,
++    SnapshotMemoryManifest,
++    SnapshotMemoryManifestEntry,
++};
++
++// Change - the start for External UFFD (lazy loading) restore
++#[allow(unused)]
++struct ExternalUffdState {
++    socket_path: PathBuf,
++    mappings: Vec<ExternalUffdMapping>,
++    snapshot_path: PathBuf,
++}
++
++enum UffdRuntime {
++    Internal(UffdHandler),
++    External(ExternalUffdState),
++}
++
+ /// Find the next populated (data) extent in `[cursor, end)` of `fd`,
+ /// driven by `lseek(SEEK_DATA)` / `lseek(SEEK_HOLE)`. Returns
+ /// `Ok(Some((offset, len)))` for the next data extent within the window,
+@@ -106,6 +136,7 @@ struct UffdRange {
+     file_offset: u64,
+     page_size: u64,
+ }
++// Change - the end for External UFFD (lazy loading) restore
+ 
+ pub const MEMORY_MANAGER_ACPI_SIZE: usize = 0x18;
+ 
+@@ -113,6 +144,12 @@ const DEFAULT_MEMORY_ZONE: &str = "mem0";
+ 
+ const SNAPSHOT_FILENAME: &str = "memory-ranges";
+ 
++// change - For file-backend MMAP restore
++const SNAPSHOT_IMAGE_FILENAME: &str = "memory.img";
++
++// change - For External UFFD (lazy loading) restore
++const SNAPSHOT_MANIFEST_FILENAME: &str = "memory-ranges.manifest";
++
+ #[cfg(target_arch = "x86_64")]
+ const X86_64_IRQ_BASE: u32 = 5;
+ 
+@@ -128,6 +165,43 @@ const PLATFORM_DEVICE_AREA_SIZE: u64 = 1 << 20;
+ 
+ const MAX_PREFAULT_THREAD_COUNT: usize = 16;
+ 
++// change - the start for file-backend MMAP restore
++#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
++pub enum MemoryImageFormat {
++    LegacyRanges,
++    DirectMappedV1,
++}
++
++#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
++pub enum MemoryImageRegionKind {
++    Dram,
++    Hotplug,
++    VirtioMem,
++    Shared,
++    HugeTlb,
++}
++
++#[derive(Clone, Debug, Serialize, Deserialize)]
++pub struct MemoryImageRegion {
++    pub gpa: u64,
++    pub size: u64,
++    pub file_offset: u64,
++    pub slot: u32,
++    pub zone_id: String,
++    pub kind: MemoryImageRegionKind,
++    pub writable: bool,
++    pub plugged: bool,
++}
++
++fn align_up(v: u64, align: u64) -> u64 {
++    if align == 0 {
++        v
++    } else {
++        v.div_ceil(align) * align
++    }
++}
++// change - the end of file-backend MMAP restore
++
+ #[derive(Clone, Default, Serialize, Deserialize)]
+ struct HotPlugState {
+     base: u64,
+@@ -218,6 +292,7 @@ impl MemoryZone {
+ 
+ pub type MemoryZones = HashMap<String, MemoryZone>;
+ 
++// Change - for file-backend MMAP restore
+ #[derive(Clone, Serialize, Deserialize)]
+ struct GuestRamMapping {
+     slot: u32,
+@@ -269,7 +344,9 @@ pub struct MemoryManager {
+     // This is useful for getting the dirty pages as we need to know the
+     // slots that the mapping is created in.
+     guest_ram_mappings: Vec<GuestRamMapping>,
+-    uffd_handler: Option<UffdHandler>,
++
++    // Change - For external UFFD (lazy loading) restore
++    uffd_runtime: Option<UffdRuntime>,
+ 
+     pub acpi_address: Option<GuestAddress>,
+     #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+@@ -439,6 +516,77 @@ pub enum Error {
+     /// Memory size is misaligned with default page size or its hugepage size
+     #[error("Memory size is misaligned with default page size or its hugepage size")]
+     MisalignedMemorySize,
++
++    /// Change - the following errors are for file-backend MMAP restore
++    #[error("Unsupported snapshot image format")]
++    UnsupportedSnapshotImageFormat,
++
++    #[error("No guest memory regions found in snapshot image")]
++    NoGuestMemoryRegions,
++
++    #[error("Snapshot image GPA is not page aligned")]
++    SnapshotImageUnalignedGpa,
++
++    #[error("Snapshot image size is not page aligned")]
++    SnapshotImageUnalignedSize,
++
++    #[error("Snapshot image file offset is not page aligned")]
++    SnapshotImageUnalignedOffset,
++
++    #[error("Snapshot image contains overlapping guest memory regions")]
++    OverlappingGuestMemoryRegions,
++
++    #[error("Snapshot file is too small for requested mappings")]
++    SnapshotFileTooSmall,
++
++    #[error("Missing guest region for restored mapping")]
++    MissingGuestRegionForMapping,
++
++    #[error("Restored region size does not match mapping size")]
++    RestoredRegionSizeMismatch,
++
++    #[error("File backend does not support shared memory zones")]
++    FileBackendWithSharedMemoryUnsupported,
++
++    #[error("File backend does not support hugepage-backed zones")]
++    FileBackendWithHugepagesUnsupported,
++
++    #[error("File backend does not support virtio-mem zones")]
++    FileBackendWithVirtioMemUnsupported,
++
++    #[error("File backend does not support VFIO-backed restore path")]
++    FileBackendWithVfioUnsupported,
++
++    #[error("Short write while writing snapshot image")]
++    SnapshotShortWrite,
++
++    #[error("Guest memory access error: {0}")]
++    GuestMemoryAccess(#[from] GuestMemoryError),
++
++    // Change - the following errors are for External UFFD (lazy loading) restore
++    #[error("External UFFD restore is not supported for this VM configuration")]
++    UnsupportedExternalUffd,
++
++    #[error("External UFFD socket failure")]
++    ExternalUffdSocket(#[source] io::Error),
++
++    #[error("Failed to create external userfaultfd")]
++    ExternalUffdCreate(#[source] UffdError),
++
++    #[error("Failed to register range with external userfaultfd")]
++    ExternalUffdRegister(#[source] UffdError),
++
++    #[error("Failed to read snapshot manifest")]
++    ExternalUffdManifestRead(#[source] io::Error),
++
++    #[error("Failed to parse snapshot manifest")]
++    ExternalUffdManifestParse(#[source] serde_json::Error),
++
++    #[error("Failed to write snapshot manifest")]
++    SnapshotManifestWrite(#[source] io::Error),
++
++    #[error("Failed to serialize snapshot manifest")]
++    SnapshotManifestSerialize(#[source] serde_json::Error),
+ }
+ 
+ impl From<UffdError> for Error {
+@@ -1064,11 +1212,12 @@ impl MemoryManager {
+             return Err(UffdError::HandlerFailed(e).into());
+         }
+ 
+-        self.uffd_handler = Some(UffdHandler {
++        // Change - For external UFFD (lazy loading) restore
++        self.uffd_runtime = Some(UffdRuntime::Internal(UffdHandler {
+             stop_event,
+             result_rx,
+             handle,
+-        });
++        }));
+ 
+         info!("UFFD restore: demand-paged restore enabled");
+ 
+@@ -1086,17 +1235,27 @@ impl MemoryManager {
+         features
+     }
+ 
++    // Change - For external UFFD (lazy loading) restore
++    // Stop external UFFD handler
+     fn stop_uffd_handler(&mut self) {
+-        if let Some(uffd_handler) = self.uffd_handler.take() {
+-            uffd_handler.stop_event.write(1).ok();
+-            uffd_handler.handle.join().ok();
+-
+-            match uffd_handler.result_rx.try_recv() {
+-                Ok(Err(e)) => error!("UFFD handler terminated with error: {e}"),
+-                Err(mpsc::TryRecvError::Disconnected) => {
+-                    warn!("UFFD handler terminated unexpectedly (possible panic)");
++        if let Some(uffd_runtime) = self.uffd_runtime.take() {
++            match uffd_runtime {
++                UffdRuntime::Internal(uffd_handler) => {
++                    uffd_handler.stop_event.write(1).ok();
++                    uffd_handler.handle.join().ok();
++
++                    match uffd_handler.result_rx.try_recv() {
++                        Ok(Err(e)) => error!("UFFD handler terminated with error: {e}"),
++                        Err(mpsc::TryRecvError::Disconnected) => {
++                            warn!("UFFD handler terminated unexpectedly (possible panic)");
++                        }
++                        _ => {}
++                    }
++                }
++                UffdRuntime::External(_ext) => {
++                    // MVP: dropping the external state / fd is enough.
++                    // Later we can add explicit socket notification or health reporting.
+                 }
+-                _ => {}
+             }
+         }
+     }
+@@ -1272,6 +1431,154 @@ impl MemoryManager {
+         }
+     }
+ 
++    // Change - for External UFFD (lazy loading) restore
++    // it is a little different from ondemand feature (internal UFFD/lazy loading)
++    // External handler is outside of Cloud-hypervisor
++    fn restore_by_external_uffd(
++        &mut self,
++        file_path: &Path,
++        saved_regions: &MemoryRangeTable,
++        manifest: &SnapshotMemoryManifest,
++        socket_path: &Path,
++    ) -> Result<(), Error> {
++        if saved_regions.is_empty() {
++            return Ok(());
++        }
++
++        self.validate_external_uffd_compatibility()?;
++
++        let guest_memory = self.guest_memory.memory();
++        let required_uffd_features = self.required_uffd_features();
++
++        // SAFETY: FFI call. Trivially safe.
++        let base_page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as u64;
++
++        info!(
++            "External UFFD restore: attempting demand-paged restore for {} region(s)",
++            saved_regions.regions().len()
++        );
++
++        if saved_regions
++            .regions()
++            .iter()
++            .any(|range| range.gpa % base_page_size != 0 || range.length % base_page_size != 0)
++        {
++            return Err(UffdError::UnalignedRanges.into());
++        }
++
++        // Open snapshot memory file. External handler will mmap this file too.
++        let _snapshot_file = File::open(file_path).map_err(Error::SnapshotOpen)?;
++
++        let uffd_fd = uffd::create(required_uffd_features).map_err(UffdError::Create)?;
++
++        let mut mappings: Vec<ExternalUffdMapping> = Vec::new();
++        let mut file_offset: u64 = 0;
++
++        for range in saved_regions.regions() {
++            let host_addr = guest_memory
++                .get_host_address(GuestAddress(range.gpa))
++                .map_err(|_| UffdError::GpaTranslation { gpa: range.gpa })?
++                as u64;
++
++            debug!(
++                "[restore] register uffd range: host=0x{:x}, len=0x{:x}",
++                host_addr, range.length
++            );
++
++            let ioctls = uffd::register(uffd_fd.as_fd(), host_addr, range.length).map_err(|e| {
++                UffdError::Register {
++                    addr: host_addr,
++                    len: range.length,
++                    source: e,
++                }
++            })?;
++
++            debug!(
++                "[restore] register uffd range: host=0x{:x}, len=0x{:x}, ioctls=0x{:x}",
++                host_addr, range.length, ioctls
++            );
++
++            if ioctls & crate::userfaultfd::UFFD_API_RANGE_IOCTLS_BASIC
++                != crate::userfaultfd::UFFD_API_RANGE_IOCTLS_BASIC
++            {
++                return Err(UffdError::MissingIoctlSupport {
++                    addr: host_addr,
++                    len: range.length,
++                }
++                .into());
++            }
++
++           let page_size = manifest
++                .entries
++                .iter()
++                .find(|e| e.gpa == range.gpa && e.size == range.length)
++                .map_or_else(
++                    || {
++                        self.memory_zones
++                            .values()
++                            .find_map(|zone| zone.backing_page_size_for_gpa(range.gpa))
++                            .unwrap_or(base_page_size)
++                    },
++                    |e| e.page_size,
++                ); 
++
++            let offset = manifest.entries
++                .iter()
++                .find(|e| e.gpa == range.gpa && e.size == range.length)
++                .and_then(|e| e.snapshot_offset)
++                .unwrap_or(file_offset);
++
++            mappings.push(ExternalUffdMapping {
++                base_host_virt_addr: host_addr,
++                size: range.length,
++                offset,
++                page_size,
++                gpa: range.gpa,
++                zone_id: self
++                    .guest_ram_mappings
++                    .iter()
++                    .find(|m| m.gpa == range.gpa && m.size == range.length)
++                    .map(|m| m.zone_id.clone()),
++            });
++
++            file_offset += range.length;
++        }
++
++        let snapshot_dir = file_path
++            .parent()
++            .ok_or(Error::RestoreMissingSourceUrl)?;
++
++        let memory_image_path = snapshot_dir.join("memory.img");
++
++        debug!(
++            "[restore] handshake snapshot_path = {memory_image_path:?}"
++        );
++
++        let hs = ExternalUffdHandshake {
++            version: EXTERNAL_UFFD_HANDSHAKE_VERSION,
++            snapshot_path: memory_image_path,
++            mappings: mappings.clone(),
++        };
++
++        debug!("[restore] sending handshake to external handler");
++
++        crate::external_uffd::connect_and_send_handshake(socket_path, &hs, uffd_fd.as_raw_fd())
++            .map_err(Error::ExternalUffdSocket)?;
++
++         debug!("[restore] handshake sent successfully");
++
++        self.uffd_runtime = Some(UffdRuntime::External(ExternalUffdState {
++            socket_path: socket_path.to_path_buf(),
++            mappings,
++            snapshot_path: file_path.to_path_buf(),
++        }));
++
++        info!("External UFFD restore: external fault handler registered");
++        info!("External VM resumed");
++
++        Ok(())
++    }
++
+     fn validate_memory_config(
+         config: &MemoryConfig,
+         user_provided_zones: bool,
+@@ -1740,7 +2047,7 @@ impl MemoryManager {
+             snapshot_memory_ranges: MemoryRangeTable::default(),
+             memory_zones,
+             guest_ram_mappings: Vec::new(),
+-            uffd_handler: None,
++            uffd_runtime: None, // Change - For external UFFD (lazy loading) restore
+             acpi_address,
+             log_dirty: dynamic, // Cannot log dirty pages on a TD
+             arch_mem_regions,
+@@ -1754,6 +2061,7 @@ impl MemoryManager {
+         Ok(Arc::new(Mutex::new(memory_manager)))
+     }
+ 
++    // Change - For file-backend MMAP restore
+     #[allow(clippy::too_many_arguments)]
+     pub fn new_from_snapshot(
+         snapshot: &Snapshot,
+@@ -1765,40 +2073,597 @@ impl MemoryManager {
+         phys_bits: u8,
+         exit_evt: &EventFd,
+     ) -> Result<Arc<Mutex<MemoryManager>>, Error> {
+-        if let Some(source_url) = source_url {
+-            let mut memory_file_path = url_to_path(source_url).map_err(Error::Restore)?;
+-            memory_file_path.push(String::from(SNAPSHOT_FILENAME));
+-
+-            let mem_snapshot: MemoryManagerSnapshotData =
+-                snapshot.to_state().map_err(Error::Restore)?;
+-
+-            let mm = MemoryManager::new(
+-                vm,
+-                config,
+-                Some(prefault),
+-                phys_bits,
+-                #[cfg(feature = "tdx")]
+-                false,
+-                Some(&mem_snapshot),
+-                Default::default(),
+-            )?;
++        let source_url = source_url.ok_or(Error::RestoreMissingSourceUrl)?;
++
++        match memory_restore_mode {
++            MemoryRestoreMode::FileBackend => {
++                let mem_snapshot: MemoryManagerSnapshotData =
++                    snapshot.to_state().map_err(Error::Restore)?;
++
++                if mem_snapshot.memory_image_format != MemoryImageFormat::DirectMappedV1 {
++                    return Err(Error::UnsupportedSnapshotImageFormat);
++                }
++
++                Self::validate_file_backend_restorability(&mem_snapshot, config)?;
++
++                let snapshot_dir = url_to_path(source_url).map_err(Error::Restore)?;
++                let image_path = snapshot_dir.join(&mem_snapshot.memory_image_filename);
++
++                let (guest_memory, memory_regions) = Self::guest_memory_from_snapshot_file(
++                    &image_path,
++                    &mem_snapshot.memory_image_regions,
++                )?;
++
++                MemoryManager::build_memory_manager_from_restored_guest_memory(
++                    vm,
++                    config,
++                    guest_memory,
++                    memory_regions,
++                    &mem_snapshot,
++                    prefault,
++                    phys_bits,
++                )
++            }
++
++            // Change - For external UFFD (lazy loading) restore
++            MemoryRestoreMode::ExternalUffd => {
++                let mut memory_file_path = url_to_path(source_url).map_err(Error::Restore)?;
++                memory_file_path.push(String::from(SNAPSHOT_FILENAME));
++
++                let mem_snapshot: MemoryManagerSnapshotData =
++                    snapshot.to_state().map_err(Error::Restore)?;
+ 
+-            if memory_restore_mode == MemoryRestoreMode::OnDemand {
++                let mm = MemoryManager::new(
++                    vm,
++                    config,
++                    Some(prefault),
++                    phys_bits,
++                    #[cfg(feature = "tdx")]
++                    false,
++                    Some(&mem_snapshot),
++                    Default::default(),
++                )?;
++
++                let snapshot_dir = memory_file_path
++                    .parent()
++                    .ok_or(Error::RestoreMissingSourceUrl)?;
++
++                let manifest = Self::load_snapshot_manifest(snapshot_dir)?;
++                let socket_path = PathBuf::from("/tmp/uffd.sock");
++
++                mm.lock().unwrap().restore_by_external_uffd(
++                    &memory_file_path,
++                    &mem_snapshot.memory_ranges,
++                    &manifest,
++                    &socket_path,
++                )?;
++
++                Ok(mm)
++            }
++
++            MemoryRestoreMode::OnDemand => {
++                let mut memory_file_path = url_to_path(source_url).map_err(Error::Restore)?;
++                memory_file_path.push(String::from(SNAPSHOT_FILENAME));
++
++                let mem_snapshot: MemoryManagerSnapshotData =
++                    snapshot.to_state().map_err(Error::Restore)?;
++
++                let mm = MemoryManager::new(
++                    vm,
++                    config,
++                    Some(prefault),
++                    phys_bits,
++                    #[cfg(feature = "tdx")]
++                    false,
++                    Some(&mem_snapshot),
++                    Default::default(),
++                )?;
+                 mm.lock().unwrap().restore_by_uffd(
+                     &memory_file_path,
+                     &mem_snapshot.memory_ranges,
+                     exit_evt,
+                 )?;
+-            } else {
++
++                Ok(mm)
++            }
++
++            MemoryRestoreMode::Copy => {
++                let mut memory_file_path = url_to_path(source_url).map_err(Error::Restore)?;
++                memory_file_path.push(String::from(SNAPSHOT_FILENAME));
++
++                let mem_snapshot: MemoryManagerSnapshotData =
++                    snapshot.to_state().map_err(Error::Restore)?;
++
++                let mm = MemoryManager::new(
++                    vm,
++                    config,
++                    Some(prefault),
++                    phys_bits,
++                    #[cfg(feature = "tdx")]
++                    false,
++                    Some(&mem_snapshot),
++                    Default::default(),
++                )?;
++
+                 mm.lock()
+                     .unwrap()
+                     .fill_saved_regions(memory_file_path, &mem_snapshot.memory_ranges)?;
++
++                Ok(mm)
++            }
++        }
++    }
++
++    // Change - For file-backend MMAP restore
++    fn guest_memory_from_snapshot_file(
++        image_path: &Path,
++        image_regions: &[MemoryImageRegion],
++    ) -> Result<(GuestMemoryMmap, Vec<Arc<GuestRegionMmap>>), Error> {
++        let image_file = File::open(image_path).map_err(Error::SnapshotOpen)?;
++        let image_len = image_file.metadata().map_err(Error::SnapshotOpen)?.len();
++
++        if image_regions.is_empty() {
++            return Err(Error::NoGuestMemoryRegions);
++        }
++
++        // SAFETY:
++        // sysconf is an FFI call that does not access Rust-managed memory.
++        // Using _SC_PAGESIZE is safe. The return value is assumed to be
++        // a positive page size on supported systems.
++        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as u64 };
++
++        for r in image_regions {
++            if r.gpa % page_size != 0 {
++                return Err(Error::SnapshotImageUnalignedGpa);
++            }
++            if r.size == 0 || r.size % page_size != 0 {
++                return Err(Error::SnapshotImageUnalignedSize);
++            }
++            if r.file_offset % page_size != 0 {
++                return Err(Error::SnapshotImageUnalignedOffset);
+             }
++            if r.file_offset + r.size > image_len {
++                return Err(Error::SnapshotFileTooSmall);
++            }
++        }
++
++        let mut sorted = image_regions.to_vec();
++        sorted.sort_by_key(|r| r.gpa);
++
++        for w in sorted.windows(2) {
++            let a = &w[0];
++            let b = &w[1];
++            if a.gpa + a.size > b.gpa {
++                return Err(Error::OverlappingGuestMemoryRegions);
++            }
++        }
++
++        let mut guest_regions: Vec<Arc<GuestRegionMmap>> = Vec::new();
++
++        for r in &sorted {
++            let fo = FileOffset::new(
++                image_file.try_clone().map_err(Error::SnapshotOpen)?,
++                r.file_offset,
++            );
++
++            let mmap_region = MmapRegion::build(
++                Some(fo),
++                r.size as usize,
++                libc::PROT_READ | libc::PROT_WRITE,
++                libc::MAP_PRIVATE | libc::MAP_NORESERVE,
++            ).map_err(Error::GuestMemoryRegion)?;
++
++            let guest_region = GuestRegionMmap::new(mmap_region, GuestAddress(r.gpa)).ok_or_else(|| {
++                Error::GuestMemory(MmapError::InvalidGuestAddress(GuestAddress(r.gpa)))
++            })?;
+ 
+-            Ok(mm)
++            guest_regions.push(Arc::new(guest_region));
++
++            debug!(
++                "restore region: gpa=0x{:x}, size=0x{:x}, file_offset=0x{:x}",
++                r.gpa, r.size, r.file_offset
++            );
++        }
++
++        debug!("built {} guest regions from snapshot file", guest_regions.len());
++
++        let guest_memory = GuestMemoryMmap::from_arc_regions(guest_regions.clone())
++            .map_err(Error::GuestRegionCollection)?;
++
++        Ok((guest_memory, guest_regions))
++    }
++
++    // Change - For file-backend MMAP restore
++    fn validate_file_backend_restorability(
++        snapshot: &MemoryManagerSnapshotData,
++        _config: &MemoryConfig,
++    ) -> Result<(), Error> {
++        if snapshot.memory_image_regions.is_empty() {
++            return Err(Error::NoGuestMemoryRegions);
++        }
++
++        for r in &snapshot.memory_image_regions {
++            match r.kind {
++                MemoryImageRegionKind::Dram => {}
++                MemoryImageRegionKind::Hotplug => {}
++                MemoryImageRegionKind::VirtioMem => {
++                    return Err(Error::FileBackendWithVirtioMemUnsupported);
++                }
++                MemoryImageRegionKind::Shared => {
++                    return Err(Error::FileBackendWithSharedMemoryUnsupported);
++                }
++                MemoryImageRegionKind::HugeTlb => {
++                    return Err(Error::FileBackendWithHugepagesUnsupported);
++                }
++            }
++        }
++
++        Ok(())
++    }
++    
++    // Change - For file-backend based MMAP restore
++    fn restore_memory_zones_from_snapshot(
++        config: &MemoryConfig,
++        memory_regions: &[Arc<GuestRegionMmap>],
++        guest_ram_mappings: &[GuestRamMapping],
++    ) -> Result<MemoryZones, Error> {
++        let mut memory_zones: MemoryZones = HashMap::new();
++
++        // Change - For file-backend MMAP restore
++        // Fix the bug when CLI has no --memory-zones
++        if let Some(zones_cfg) = config.zones.as_ref() {
++            for zone_cfg in zones_cfg {
++                let backing_page_size = memory_zone_get_align_size(zone_cfg)?;
++                memory_zones.insert(
++                    zone_cfg.id.clone(),
++                    MemoryZone::new(
++                        zone_cfg.shared,
++                        zone_cfg.hugepages,
++                        backing_page_size,
++                        zone_cfg.mergeable,
++                    ),
++                );
++            }
+         } else {
+-            Err(Error::RestoreMissingSourceUrl)
++            // SAFETY:
++            // libc::sysconf is a C FFI call that does not dereference pointers or
++            // access Rust-managed memory. Calling it with _SC_PAGESIZE is safe and
++            // returns the system page size. The result is assumed to be positive on
++            // supported platforms.
++            let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as u64 };
++
++            debug!(
++                "no memory zones found in restore config; rebuilding zones from snapshot mappings"
++            );
++
++            for m in guest_ram_mappings {
++                if m.virtio_mem {
++                    return Err(Error::FileBackendWithVirtioMemUnsupported);
++                }
++
++                memory_zones
++                    .entry(m.zone_id.clone())
++                    .or_insert_with(|| MemoryZone::new(false, false, page_size, false));
++            }
++        }
++
++        for m in guest_ram_mappings {
++            if m.virtio_mem {
++                return Err(Error::FileBackendWithVirtioMemUnsupported);
++            }
++
++            let zone = memory_zones
++                .get_mut(&m.zone_id)
++                .ok_or(Error::MissingZoneIdentifier)?;
++
++            let region = memory_regions
++                .iter()
++                .find(|r| {
++                    r.start_addr().raw_value() == m.gpa && r.len() == m.size // Change - For external UFFD (lazy loading) restore
++                })
++                .ok_or(Error::MissingGuestRegionForMapping)?;
++
++            debug!(
++                "zone attach: zone_id={}, gpa=0x{:x}, size=0x{:x}",
++                m.zone_id, m.gpa, m.size
++            );
++
++            zone.regions.push(Arc::clone(region));
+         }
++
++        Ok(memory_zones)
++    }
++
++    // Change - For file-backend MMAP restore
++    fn register_guest_memory_regions_with_hypervisor(
++        vm: &Arc<dyn hypervisor::Vm>,
++        guest_memory: &GuestMemoryMmap,
++        guest_ram_mappings: &[GuestRamMapping],
++        log_dirty: bool,
++    ) -> Result<(), Error> {
++        for m in guest_ram_mappings {
++            let region = guest_memory
++                .find_region(GuestAddress(m.gpa))
++                .ok_or(Error::MissingGuestRegionForMapping)?;
++
++            if region.len() != m.size {
++                return Err(Error::RestoredRegionSizeMismatch);
++            }
++
++            let region_addr = region
++                .to_region_addr(GuestAddress(m.gpa))
++                .ok_or(Error::MissingGuestRegionForMapping)?;
++
++            let host_addr = region
++                .get_host_address(region_addr)
++                .map_err(Error::GuestMemoryAccess)?;
++
++            debug!(
++                "register memory slot: slot={}, gpa=0x{:x}, size=0x{:x}, host_addr={:p}, log_dirty={}",
++                m.slot,
++                m.gpa,
++                m.size,
++                host_addr,
++                log_dirty
++            );
++
++            // SAFETY:
++            // We pass a valid userspace memory region to the hypervisor. The `host_addr`
++            // is derived from a mapped GuestMemory region and remains valid for the
++            // lifetime of the VM. The size and guest physical address (`gpa`) correspond
++            // to the snapshot layout and are page-aligned. No aliasing or overlapping
++            // regions are introduced, and the memory is not freed while the VM is using it.
++            //
++            // host_addr points into a mmap'ed snapshot file that stays mapped for the
++            // entire VM lifetime.
++            unsafe {
++                vm.create_user_memory_region(
++                    m.slot,
++                    m.gpa,
++                    m.size as usize,
++                    host_addr,
++                    log_dirty,
++                    false,
++                )
++                .map_err(Error::CreateUserMemoryRegion)?;
++            }
++
++            if region.start_addr().raw_value() != m.gpa {
++                return Err(Error::RestoredRegionSizeMismatch);
++            }
++        }
++
++        Ok(())
++    }
++
++    // Change - For file-backend MMAP restore
++    #[allow(clippy::needless_pass_by_value)]
++    // Intentionally takes ownership to keep the API aligned with restore/setup flows
++    // and allow future storage/transfer of these objects without changing the signature.
++    pub fn build_memory_manager_from_restored_guest_memory(
++        vm: Arc<dyn hypervisor::Vm>,
++        config: &MemoryConfig,
++        guest_memory: GuestMemoryMmap,
++        memory_regions: Vec<Arc<GuestRegionMmap>>,
++        snapshot: &MemoryManagerSnapshotData,
++        prefault: bool,
++        phys_bits: u8,
++    ) -> Result<Arc<Mutex<MemoryManager>>, Error> {
++        debug!(
++            "from_restored_guest_memory: regions={}, mappings={}",
++            memory_regions.len(),
++            snapshot.guest_ram_mappings.len()
++        );
++
++        let boot_guest_memory = guest_memory.clone();
++        let guest_memory_atomic = GuestMemoryAtomic::new(guest_memory.clone());
++
++        let memory_zones = Self::restore_memory_zones_from_snapshot(
++            config,
++            &memory_regions,
++            &snapshot.guest_ram_mappings,
++        )?;
++
++        let allocator = Self::build_system_allocator_from_snapshot(snapshot, config, phys_bits)?;
++        let ram_allocator = Self::build_ram_allocator_from_snapshot(snapshot, config)?;
++
++        let mm = MemoryManager {
++            boot_guest_memory,
++            guest_memory: guest_memory_atomic,
++            next_memory_slot: Arc::new(AtomicU32::new(snapshot.next_memory_slot)),
++            memory_slot_free_list: Arc::new(Mutex::new(Vec::new())),
++            start_of_device_area: GuestAddress(snapshot.start_of_device_area),
++            end_of_device_area: Self::compute_end_of_device_area(config, phys_bits)?,
++            end_of_ram_area: Self::compute_end_of_ram_area(&guest_memory)?,
++            vm: Arc::clone(&vm),
++            hotplug_slots: snapshot.hotplug_slots.clone(),
++            selected_slot: snapshot.selected_slot,
++            mergeable: config.mergeable,
++            allocator: Arc::new(Mutex::new(allocator)),
++            hotplug_method: config.hotplug_method,
++            boot_ram: snapshot.boot_ram,
++            current_ram: snapshot.current_ram,
++            next_hotplug_slot: snapshot.next_hotplug_slot,
++            shared: config.shared,
++            hugepages: config.hugepages,
++            hugepage_size: config.hugepage_size,
++            prefault,
++            thp: config.thp,
++            user_provided_zones: config.zones.is_some(),
++            snapshot_memory_ranges: MemoryRangeTable::default(),
++            memory_zones,
++            log_dirty: false,
++            arch_mem_regions: snapshot.arch_mem_regions.clone(),
++            ram_allocator,
++            dynamic: Self::compute_dynamic_flag(config),
++            guest_ram_mappings: snapshot.guest_ram_mappings.clone(),
++            acpi_address: None,
++            uffd_runtime: None, // Change - For external UFFD (lazy loading) restore
++            #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
++            uefi_flash: None,
++        };
++
++        let mm = Arc::new(Mutex::new(mm));
++
++        {
++            let guard = mm.lock().unwrap();
++            Self::register_guest_memory_regions_with_hypervisor(
++                &guard.vm,
++                &guard.guest_memory.memory(),
++                &guard.guest_ram_mappings,
++                guard.log_dirty,
++            )?;
++        }
++
++        Ok(mm)
++    }
++
++    // Change - 1st help function for file-backend MMAP restore
++    fn build_system_allocator_from_snapshot(
++        _snapshot: &MemoryManagerSnapshotData,
++        _config: &MemoryConfig,
++        phys_bits: u8,
++    ) -> Result<SystemAllocator, Error> {
++
++        let mmio_address_space_size = mmio_address_space_size(phys_bits);
++        let start_of_platform_device_area =
++        GuestAddress(mmio_address_space_size - PLATFORM_DEVICE_AREA_SIZE);
++
++        SystemAllocator::new(
++            GuestAddress(0),
++            1 << 16,
++            start_of_platform_device_area,
++            PLATFORM_DEVICE_AREA_SIZE,
++            #[cfg(target_arch = "x86_64")]
++            &[GsiApic::new(
++                X86_64_IRQ_BASE,
++                ioapic::NUM_IOAPIC_PINS as u32 - X86_64_IRQ_BASE,
++            )],
++        ).ok_or(Error::CreateSystemAllocator)
++    }
++
++    // Change - 2nd help function for or file-backend MMAP restore
++    fn build_ram_allocator_from_snapshot(
++        snapshot: &MemoryManagerSnapshotData,
++        _config: &MemoryConfig,
++    ) -> Result<AddressAllocator, Error> {
++        AddressAllocator::new(
++            GuestAddress(0),
++            snapshot.start_of_device_area,
++        ).ok_or(Error::MemoryRangeAllocation)
++    }
++
++    // Change - 3rd help function for file-backend MMAP restore
++    fn compute_end_of_device_area(
++        _config: &MemoryConfig,
++        phys_bits: u8,
++    ) -> Result<GuestAddress, Error> {
++        let mmio_address_space_size = mmio_address_space_size(phys_bits);
++        let start_of_platform_device_area =
++        GuestAddress(mmio_address_space_size - PLATFORM_DEVICE_AREA_SIZE);
++
++        Ok(GuestAddress(
++            start_of_platform_device_area.0 + PLATFORM_DEVICE_AREA_SIZE - 1,
++        ))
++    }
++
++    // Change - 4th help function for file-backend MMAP restore
++    fn compute_end_of_ram_area(
++        guest_memory: &GuestMemoryMmap,
++    ) -> Result<GuestAddress, Error> {
++        let last = guest_memory
++            .iter()
++            .last()
++            .ok_or(Error::NoGuestMemoryRegions)?;
++        Ok(GuestAddress(last.start_addr().raw_value() + last.len() - 1))
++    }
++
++    // Change - 5th help function for file-backend MMAP restore
++    fn compute_dynamic_flag(config: &MemoryConfig) -> bool {
++        config.hotplug_size.is_some()
++    }
++
++    // Change - 1st helper function for external UFFD (lazy loading) restore
++    fn page_size_for_zone_id(&self, zone_id: &str) -> u64 {
++        self.memory_zones
++            .get(zone_id)
++            .map_or(4096, |z| z.backing_page_size)
++    }
++
++    // Change  - For external UFFD (lazy loading) restore
++    fn build_snapshot_manifest(&self) -> Result<SnapshotMemoryManifest, Error> {
++        let mut entries = Vec::new();
++        let mut running_offset = 0u64;
++
++        for range in self.snapshot_memory_ranges.regions() {
++            let gpa = range.gpa;
++            let size = range.length;
++            let ram = self.find_guest_ram_mapping(gpa, size)?;
++
++            let page_size = self.page_size_for_zone_id(&ram.zone_id);
++
++            let snapshot_offset = {
++                let off = running_offset;
++                running_offset += size;
++                Some(off)
++            };
++
++            entries.push(SnapshotMemoryManifestEntry {
++                gpa,
++                size,
++                snapshot_offset,
++                zone_id: ram.zone_id.clone(),
++                virtio_mem: ram.virtio_mem,
++                page_size,
++                data_source: SnapshotDataSource::SnapshotFile,
++            });
++        }
++
++        Ok(SnapshotMemoryManifest {
++            version: 1,
++            snapshot_file: SNAPSHOT_FILENAME.to_string(),
++            entries,
++        })
++    }
++
++    // change - 2nd help function for external UFFD (lazy loading) restore
++    fn find_guest_ram_mapping(
++        &self,
++        gpa: u64,
++        size: u64,
++    ) -> Result<&GuestRamMapping, Error> {
++        self.guest_ram_mappings
++            .iter()
++            .find(|m| m.gpa == gpa && m.size == size)
++            .ok_or(Error::MemoryRangeAllocation)
++    }
++
++    // Change - For external UFFD (lazy loading) restore
++    fn load_snapshot_manifest(
++        snapshot_dir: &Path,
++    ) -> Result<SnapshotMemoryManifest, Error> {
++        let path = snapshot_dir.join(SNAPSHOT_MANIFEST_FILENAME);
++        let file = File::open(path)
++            .map_err(Error::ExternalUffdManifestRead)?;
++        serde_json::from_reader(file)
++            .map_err(Error::ExternalUffdManifestParse)
++    }
++
++    // Change - For external UFFD (lazy loading) restore
++    fn validate_external_uffd_compatibility(&self) -> Result<(), Error> {
++        if self.shared || self.hugepages {
++            return Err(Error::UnsupportedExternalUffd);
++        }
++
++        if self.memory_zones.values().any(|z| z.shared || z.hugepages) {
++            return Err(Error::UnsupportedExternalUffd);
++        }
++
++        if self.guest_ram_mappings.iter().any(|m| m.virtio_mem) {
++            return Err(Error::UnsupportedExternalUffd);
++        }
++
++        Ok(())
+     }
+ 
+     fn memfd_create(name: &ffi::CStr, flags: u32) -> Result<RawFd, io::Error> {
+@@ -2577,10 +3442,27 @@ impl MemoryManager {
+         Ok(table)
+     }
+ 
+-    pub fn snapshot_data(&self) -> MemoryManagerSnapshotData {
+-        MemoryManagerSnapshotData {
++    // Change - For file-backend MMAP restore
++    pub fn snapshot_data(&self) -> Result<MemoryManagerSnapshotData, Error> {
++
++        let page_size = 
++            // SAFETY: sysconf is a libc call that does not dereference pointers or require
++            // any invariants for _SC_PAGESIZE. It is thread-safe and returns the system
++            // page size or -1 on error, which we handle via casting.
++            unsafe {
++            libc::sysconf(libc::_SC_PAGESIZE) as u64 
++        };
++
++        let memory_image_regions = self.build_direct_mapped_image_regions(page_size)?;
++
++        Ok(MemoryManagerSnapshotData {
+             memory_ranges: self.snapshot_memory_ranges.clone(),
+             guest_ram_mappings: self.guest_ram_mappings.clone(),
++
++            memory_image_format: MemoryImageFormat::DirectMappedV1,
++            memory_image_filename: SNAPSHOT_IMAGE_FILENAME.to_string(),
++            memory_image_regions,
++
+             start_of_device_area: self.start_of_device_area.0,
+             boot_ram: self.boot_ram,
+             current_ram: self.current_ram,
+@@ -2589,7 +3471,50 @@ impl MemoryManager {
+             next_memory_slot: self.next_memory_slot.load(Ordering::SeqCst),
+             selected_slot: self.selected_slot,
+             next_hotplug_slot: self.next_hotplug_slot,
++        })
++    }
++
++    // Change - For file-backend MMAP restore
++    fn build_direct_mapped_image_regions(
++        &self,
++        page_size: u64,
++    ) -> Result<Vec<MemoryImageRegion>, Error> {
++        let mut regions = Vec::new();
++        let mut next_offset = 0u64;
++
++        for m in &self.guest_ram_mappings {
++            let zone = self
++                .memory_zones
++                .get(&m.zone_id)
++                .ok_or(Error::MissingZoneIdentifier)?;
++
++            if m.virtio_mem {
++                return Err(Error::FileBackendWithVirtioMemUnsupported);
++            }
++            if zone.shared {
++                return Err(Error::FileBackendWithSharedMemoryUnsupported);
++            }
++            if zone.hugepages {
++                return Err(Error::FileBackendWithHugepagesUnsupported);
++            }
++
++            next_offset = align_up(next_offset, page_size);
++
++            regions.push(MemoryImageRegion {
++                gpa: m.gpa,
++                size: m.size,
++                file_offset: next_offset,
++                slot: m.slot,
++                zone_id: m.zone_id.clone(),
++                kind: MemoryImageRegionKind::Dram,
++                writable: true,
++                plugged: true,
++            });
++
++            next_offset += m.size;
+         }
++
++        Ok(regions)
+     }
+ 
+     pub fn memory_slot_fds(&self) -> HashMap<u32, RawFd> {
+@@ -3035,10 +3960,16 @@ impl Drop for MemoryManager {
+     }
+ }
+ 
++// Change - For file-backend MMAP restore
+ #[derive(Clone, Serialize, Deserialize)]
+ pub struct MemoryManagerSnapshotData {
+     memory_ranges: MemoryRangeTable,
+     guest_ram_mappings: Vec<GuestRamMapping>,
++
++    memory_image_format: MemoryImageFormat,
++    memory_image_filename: String,
++    memory_image_regions: Vec<MemoryImageRegion>,
++
+     start_of_device_area: u64,
+     boot_ram: u64,
+     current_ram: u64,
+@@ -3049,26 +3980,73 @@ pub struct MemoryManagerSnapshotData {
+     next_hotplug_slot: usize,
+ }
+ 
++// Change - For file-backend MMAP restore
++fn write_memory_image(
++    image_path: &Path,
++    image_regions: &[MemoryImageRegion],
++    guest_memory: &GuestMemoryMmap,
++) -> Result<(), Error> {
++    let mut file = OpenOptions::new()
++        .create(true)
++        .truncate(true)
++        .read(true)
++        .write(true)
++        .open(image_path)
++        .map_err(Error::SnapshotOpen)?;
++
++    let final_len = image_regions
++        .iter()
++        .map(|r| r.file_offset + r.size)
++        .max()
++        .unwrap_or(0);
++
++    file.set_len(final_len).map_err(Error::SnapshotOpen)?;
++
++    for r in image_regions {
++        file.seek(SeekFrom::Start(r.file_offset))
++            .map_err(Error::SnapshotOpen)?;
++
++        let mut written = 0u64;
++        while written < r.size {
++            let bytes = guest_memory
++                .write_volatile_to(
++                    GuestAddress(r.gpa + written),
++                    &mut file,
++                    (r.size - written) as usize,
++                )
++                .map_err(Error::SnapshotCopy)? as u64;
++
++            if bytes == 0 {
++                return Err(Error::SnapshotShortWrite);
++            }
++
++            written += bytes;
++        }
++    }
++
++    file.sync_all().map_err(Error::SnapshotOpen)?;
++    Ok(())
++}
++
+ impl Snapshottable for MemoryManager {
+     fn id(&self) -> String {
+         MEMORY_MANAGER_SNAPSHOT_ID.to_string()
+     }
+ 
++    // Change - For file-backend MMAP restore
+     fn snapshot(&mut self) -> result::Result<Snapshot, MigratableError> {
+         let memory_ranges = self.memory_range_table(true)?;
+ 
+-        // Store locally this list of ranges as it will be used through the
+-        // Transportable::send() implementation. The point is to avoid the
+-        // duplication of code regarding the creation of the path for each
+-        // region. The 'snapshot' step creates the list of memory regions,
+-        // including information about the need to copy a memory region or
+-        // not. This saves the 'send' step having to go through the same
+-        // process, and instead it can directly proceed with storing the
+-        // memory range content for the ranges requiring it.
+         self.snapshot_memory_ranges = memory_ranges;
+ 
++        let snapshot_data = self
++            .snapshot_data()
++            .map_err(|e| MigratableError::Snapshot(e.into()))?;
++
++  
++
+         Ok(Snapshot::from_data(SnapshotData::new_from_state(
+-            &self.snapshot_data(),
++            &snapshot_data,
+         )?))
+     }
+ }
+@@ -3151,6 +4129,11 @@ impl Transportable for MemoryManager {
+             return Ok(());
+         }
+ 
++        // let guest_memory = self.guest_memory.memory();
++
++        //
++        // 1) legacy path: write memory-ranges for Copy / OnDemand
++        //
+         let mut memory_file_path = url_to_path(destination_url)?;
+         memory_file_path.push(String::from(SNAPSHOT_FILENAME));
+ 
+@@ -3233,6 +4216,44 @@ impl Transportable for MemoryManager {
+         }
+ 
+         debug_assert_eq!(file_cursor, total_len);
++
++        // Change - For file-backend MMAP restore
++        //
++        // 2) new path: write memory.img for FileBackend
++        //
++        let snapshot_data = self
++            .snapshot_data()
++            .map_err(|e| MigratableError::MigrateSend(anyhow!(e)))?;
++
++        let mut image_path = url_to_path(destination_url)?;
++        image_path.push(snapshot_data.memory_image_filename.clone());
++
++        write_memory_image(
++            &image_path,
++            &snapshot_data.memory_image_regions,
++            &guest_memory,
++        )
++        .map_err(|e| MigratableError::MigrateSend(anyhow!(e)))?;
++
++        // Change - for external UFFD (lazy loading) restore
++        let manifest = self.build_snapshot_manifest().map_err(|e| MigratableError::MigrateSend(e.into()))?;
++
++        let manifest_path = memory_file_path
++            .parent()
++            .ok_or_else(|| {
++                MigratableError::MigrateSend(anyhow!("missing snapshot dir"))
++            })?
++            .join(SNAPSHOT_MANIFEST_FILENAME);
++        
++        info!(
++            "Writing snapshot manifest to {manifest_path:?}"
++        );
++        
++        let manifest_file = File::create(&manifest_path)
++            .map_err(|e| MigratableError::MigrateSend(e.into()))?;
++        serde_json::to_writer_pretty(manifest_file, &manifest)
++            .map_err(|e| MigratableError::MigrateSend(e.into()))?;
++
+         Ok(())
+     }
+ }
+diff --git a/vmm/src/snapshot_manifest.rs b/vmm/src/snapshot_manifest.rs
+new file mode 100644
+index 000000000..55be7350a
+--- /dev/null
++++ b/vmm/src/snapshot_manifest.rs
+@@ -0,0 +1,33 @@
++// Copyright 2026 The Kuasar Authors
++//
++// SPDX-License-Identifier: Apache-2.0
++
++// Change - for external UFFD (lazy loading) restore
++use serde::{Deserialize, Serialize};
++
++#[derive(Clone, Debug, Serialize, Deserialize)]
++pub struct SnapshotMemoryManifest {
++    pub version: u16,
++    pub snapshot_file: String,
++    pub entries: Vec<SnapshotMemoryManifestEntry>,
++}
++
++#[derive(Clone, Debug, Serialize, Deserialize)]
++pub struct SnapshotMemoryManifestEntry {
++    pub gpa: u64,
++    pub size: u64,
++    pub snapshot_offset: Option<u64>,
++    pub zone_id: String,
++    pub virtio_mem: bool,
++    pub page_size: u64,
++    pub data_source: SnapshotDataSource,
++}
++
++#[derive(Clone, Debug, Serialize, Deserialize)]
++pub enum SnapshotDataSource {
++    SnapshotFile,
++    ExternalFile {
++        path: String,
++        file_offset: u64,
++    },
++}
+diff --git a/vmm/src/uffd.rs b/vmm/src/uffd.rs
+index 8b4a4e980..12c225ac6 100644
+--- a/vmm/src/uffd.rs
++++ b/vmm/src/uffd.rs
+@@ -1,3 +1,5 @@
++// Copyright 2026 The Kuasar Authors
++//
+ // Copyright © 2026 Cloud Hypervisor Authors
+ //
+ // SPDX-License-Identifier: Apache-2.0
+@@ -19,6 +21,7 @@ use std::mem;
+ use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
+ 
+ use crate::userfaultfd;
++use log::debug;
+ 
+ #[repr(C)]
+ pub(crate) struct UffdioApi {
+@@ -51,7 +54,7 @@ pub(crate) struct UffdioCopy {
+ /// union is flattened into its pagefault fields here. The trailing
+ /// 8 bytes (`arg.pagefault.feat` + padding) are unused.
+ #[repr(C)]
+-pub(crate) struct UffdMsg {
++pub struct UffdMsg {
+     pub event: u8,
+     _reserved1: u8,
+     _reserved2: u16,
+@@ -113,6 +116,7 @@ pub(crate) fn create(required_features: u64) -> Result<OwnedFd, Error> {
+         features: required_features,
+         ioctls: 0,
+     };
++
+     // SAFETY: `api` is a valid, correctly-sized struct for this ioctl.
+     let ret = unsafe {
+         libc::ioctl(
+@@ -121,15 +125,29 @@ pub(crate) fn create(required_features: u64) -> Result<OwnedFd, Error> {
+             &mut api,
+         )
+     };
++
+     if ret < 0 {
+         return Err(Error::last_os_error());
+     }
+ 
++    // Change - For external UFFD (lazy loading) restore
++    if api.features & required_features != required_features {
++        return Err(std::io::Error::other(format!(
++            "missing required uffd features: requested=0x{required_features:x}, got=0x{:x}",
++            api.features
++        )));
++    }
++
+     Ok(fd)
+ }
+ 
+ /// Register a memory range for missing-page fault handling.
+ pub(crate) fn register(fd: BorrowedFd<'_>, addr: u64, len: u64) -> Result<u64, Error> {
++    // Change - For external UFFD (lazy loading) restore
++    debug!(
++        "[uffd] register: addr=0x{addr:x}, len=0x{len:x}, mode=MISSING"
++    );
++
+     let mut reg = UffdioRegister {
+         range_start: addr,
+         range_len: len,
+diff --git a/vmm/src/vm.rs b/vmm/src/vm.rs
+index 1c3baf865..ed461dd7f 100644
+--- a/vmm/src/vm.rs
++++ b/vmm/src/vm.rs
+@@ -1,3 +1,5 @@
++// Copyright 2026 The Kuasar Authors
++//
+ // Copyright © 2020, Oracle and/or its affiliates.
+ //
+ // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+@@ -576,6 +578,7 @@ impl Vm {
+         console_resize_pipe: Option<Arc<File>>,
+         original_termios: Arc<Mutex<Option<termios>>>,
+         snapshot: Option<&Snapshot>,
++        memory_restore_mode: Option<MemoryRestoreMode>,
+         #[cfg(feature = "igvm")] igvm_file: Option<IgvmFile>,
+     ) -> Result<Self> {
+         trace_scoped!("Vm::new_from_memory_manager");
+@@ -659,6 +662,7 @@ impl Vm {
+             console_resize_pipe.as_ref(),
+             &original_termios,
+             snapshot,
++            memory_restore_mode,
+             #[cfg(feature = "igvm")]
+             igvm_file,
+         )?;
+@@ -891,8 +895,13 @@ impl Vm {
+         console_resize_pipe: Option<&Arc<File>>,
+         original_termios: &Arc<Mutex<Option<termios>>>,
+         snapshot: Option<&Snapshot>,
+-        #[cfg(feature = "igvm")] igvm_file: Option<IgvmFile>,
++        memory_restore_mode: Option<MemoryRestoreMode>,
+     ) -> Result<Option<thread::JoinHandle<Result<EntryPoint>>>> {
++        info!(
++            "hypervisor_specific_init: snapshot_present={}, memory_restore_mode={:?}",
++            snapshot.is_some(),
++            memory_restore_mode
++        );
+         #[cfg(feature = "mshv")]
+         let is_mshv = matches!(
+             hypervisor.hypervisor_type(),
+@@ -942,13 +951,20 @@ impl Vm {
+                 original_termios,
+             )?;
+         }
++        
++        // Change - For file-backend MMAP restore
++        let skip_allocate_address_space = snapshot.is_some()
++            && matches!(memory_restore_mode, Some(MemoryRestoreMode::FileBackend));
+ 
+-        // Allocate address space for non-SEV-SNP guests
+-        memory_manager
+-            .lock()
+-            .unwrap()
+-            .allocate_address_space()
+-            .map_err(Error::MemoryManager)?;
++        if skip_allocate_address_space {
++            info!("Skipping allocate_address_space() for restored VM with filebackend");
++        } else {
++            memory_manager
++                .lock()
++                .unwrap()
++                .allocate_address_space()
++                .map_err(Error::MemoryManager)?;
++        }
+ 
+         // Load payload asynchronously
+         let load_payload_handle = if snapshot.is_none() {
+@@ -1335,7 +1351,7 @@ impl Vm {
+         snapshot: Option<&Snapshot>,
+         source_url: Option<&str>,
+         prefault: Option<bool>,
+-        memory_restore_mode: Option<MemoryRestoreMode>,
++        memory_restore_mode: Option<MemoryRestoreMode>, // Change - For external UFFD (lazy loading) restore
+     ) -> Result<Self> {
+         trace_scoped!("Vm::new");
+ 
+@@ -1427,6 +1443,7 @@ impl Vm {
+             console_resize_pipe,
+             original_termios,
+             snapshot,
++            memory_restore_mode,
+             #[cfg(feature = "igvm")]
+             igvm_file,
+         )
+@@ -3124,8 +3141,10 @@ impl Vm {
+         unimplemented!()
+     }
+ 
+-    pub fn memory_manager_data(&self) -> MemoryManagerSnapshotData {
+-        self.memory_manager.lock().unwrap().snapshot_data()
++    // Change - For file-backend MMAP restore
++    pub fn memory_manager_data(&self) -> Result<MemoryManagerSnapshotData> {
++        let mm = self.memory_manager.lock().unwrap();
++        mm.snapshot_data().map_err(Error::MemoryManager)
+     }
+ 
+     #[cfg(feature = "guest_debug")]
+diff --git a/vmm/src/vm_config.rs b/vmm/src/vm_config.rs
+index 6fefc8f06..c920c19de 100644
+--- a/vmm/src/vm_config.rs
++++ b/vmm/src/vm_config.rs
+@@ -1,3 +1,5 @@
++// Copyright 2026 The Kuasar Authors
++//
+ // Copyright © 2022 Intel Corporation
+ //
+ // SPDX-License-Identifier: Apache-2.0
+@@ -230,6 +232,8 @@ pub struct MemoryConfig {
+     pub zones: Option<Vec<MemoryZoneConfig>>,
+     #[serde(default = "default_memoryconfig_thp")]
+     pub thp: bool,
++    #[serde(default)]
++    pub external_uffd_socket: Option<PathBuf>, // change for external UFFD (lazy loading) restore
+ }
+ 
+ pub const DEFAULT_MEMORY_MB: u64 = 512;
+@@ -248,6 +252,7 @@ impl Default for MemoryConfig {
+             prefault: false,
+             zones: None,
+             thp: true,
++            external_uffd_socket: None, // change for external UFFD (lazy loading) restore
+         }
+     }
+ }
