@@ -16,6 +16,7 @@ limitations under the License.
 
 use std::{
     fmt::{Debug, Display, Formatter},
+    net::Ipv6Addr,
     os::unix::prelude::AsRawFd,
     path::Path,
 };
@@ -41,6 +42,10 @@ mod convert;
 pub mod link;
 mod netlink;
 pub mod route;
+
+pub(crate) fn is_ipv6_unicast_link_local(addr: &Ipv6Addr) -> bool {
+    addr.is_unicast_link_local()
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Network {

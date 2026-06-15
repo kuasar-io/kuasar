@@ -268,6 +268,12 @@ impl NetworkInterface {
                     if address.is_loopback() {
                         intf.r#type = LinkType::Loopback;
                     }
+                    // Skip IPv6 link-local addresses (fe80::/10): the kernel
+                    // auto-generates them from the MAC address and they must
+                    // not be manually configured inside the guest.
+                    if Self::should_skip_ip_address(&address) {
+                        continue;
+                    }
                     intf.ip_addresses.push(IpNet::new(address, mask_len));
                 }
             }
@@ -287,6 +293,13 @@ impl NetworkInterface {
             }
         }
         Ok(intf)
+    }
+
+    fn should_skip_ip_address(address: &std::net::IpAddr) -> bool {
+        matches!(
+            address,
+            std::net::IpAddr::V6(v6) if super::is_ipv6_unicast_link_local(v6)
+        )
     }
 
     pub async fn init_cni_interface(&mut self) -> Result<()> {
@@ -618,7 +631,27 @@ async fn bind_device_to_driver(driver: &str, bdf: &str) -> Result<()> {
 mod tests {
     use std::process::Command;
 
-    use crate::network::link::create_tap_device;
+    use crate::network::link::{create_tap_device, NetworkInterface};
+
+    #[test]
+    fn skip_ipv6_link_local_addresses() {
+        assert!(NetworkInterface::should_skip_ip_address(
+            &"fe80::1".parse().unwrap()
+        ));
+        assert!(NetworkInterface::should_skip_ip_address(
+            &"febf::1".parse().unwrap()
+        ));
+
+        assert!(!NetworkInterface::should_skip_ip_address(
+            &"fec0::1".parse().unwrap()
+        ));
+        assert!(!NetworkInterface::should_skip_ip_address(
+            &"2001:db8::1".parse().unwrap()
+        ));
+        assert!(!NetworkInterface::should_skip_ip_address(
+            &"192.0.2.1".parse().unwrap()
+        ));
+    }
 
     #[test]
     fn add_tap_device_with_long_name() {
