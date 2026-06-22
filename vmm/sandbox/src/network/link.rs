@@ -480,6 +480,46 @@ fn get_bdf_for_eth(if_name: &str) -> Result<String> {
     Ok(bdf.to_string())
 }
 
+/// Re-open an existing IFF_PERSIST tap device with the same flags as the original
+/// (IFF_TAP | IFF_NO_PI | IFF_MULTI_QUEUE | IFF_VNET_HDR), returning fresh OwnedFds.
+///
+/// Used for Continuation restore: the tap survives CH death via IFF_PERSIST, but CH's
+/// `Tap::open_named` may omit IFF_VNET_HDR, causing frame-format mismatch.  By re-opening
+/// through Kuasar (which controls the flags) and passing the FDs via `net_fds`, CH uses
+/// `from_tap_fds` with correctly-flagged descriptors.
+pub(crate) async fn reopen_tap_in_netns(
+    netns: &str,
+    tap_name: &str,
+    queue: u32,
+) -> Result<Vec<OwnedFd>> {
+    let name = tap_name.to_string();
+    let fds = run_in_new_netns(netns, move || create_tap_device(&name, queue)).await??;
+
+    // Re-UP the tap interface. When all FDs for an IFF_PERSIST tap are closed (e.g. because
+    // the original CH process was killed), some kernel versions call dev_close() which clears
+    // IFF_UP. Without IFF_UP, writes to the tap return EIO. Bringing the interface UP here
+    // is idempotent: if it is already UP, the netlink set-up call is a no-op.
+    let handle = create_netlink_handle(netns).await?;
+    let mut links = handle
+        .link()
+        .get()
+        .match_name(tap_name.to_string())
+        .execute();
+    if let Some(msg) = links.try_next().await.map_err(|e| anyhow!("{}", e))? {
+        handle
+            .link()
+            .set(msg.header.index)
+            .up()
+            .execute()
+            .await
+            .map_err(|e| anyhow!("failed to set {} up: {}", tap_name, e))?;
+    } else {
+        return Err(anyhow!("tap {} not found in netns {} after reopen", tap_name, netns).into());
+    }
+
+    Ok(fds)
+}
+
 async fn create_tap_in_netns(
     netns: &str,
     tap_name: &str,

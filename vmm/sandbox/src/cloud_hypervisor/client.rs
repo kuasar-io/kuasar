@@ -24,14 +24,19 @@ use std::{
 };
 
 use anyhow::anyhow;
-use api_client::{simple_api_command, simple_api_full_command_with_fds_and_response};
+use api_client::{
+    simple_api_command, simple_api_command_with_fds, simple_api_full_command_with_fds_and_response,
+};
 use containerd_sandbox::error::Result;
 use log::{debug, error, trace};
 use serde_json::json;
 use tokio::task::spawn_blocking;
 
 use crate::{
-    cloud_hypervisor::devices::{block::DiskConfig, AddDeviceResponse, RemoveDeviceRequest},
+    cloud_hypervisor::devices::{
+        block::{DiskConfig, ImageType},
+        AddDeviceResponse, RemoveDeviceRequest,
+    },
     device::DeviceInfo,
     sandbox::MemoryRestoreMode,
 };
@@ -81,6 +86,7 @@ impl ChClient {
                     vhost_user: false,
                     vhost_socket: None,
                     id: blk.id,
+                    image_type: Some(ImageType::Raw),
                 };
                 let request_body = serde_json::to_string(&disk_config)
                     .map_err(|e| anyhow!("failed to marshal {:?} to json, {}", disk_config, e))?;
@@ -146,17 +152,49 @@ impl ChClient {
         })
     }
 
+    /// Call `vm.restore`.
+    ///
+    /// `net_fds` is a list of `(device_id, tap_fds)` pairs.  When non-empty the device IDs
+    /// must match the `"id"` fields in the snapshot's `config.json` and the tap FDs are sent
+    /// to CH via SCM_RIGHTS so it can open the new pod's tap without needing FD inheritance.
+    /// This is used for WarmFork restore: state.json is kept intact (DRIVER_OK preserved) while
+    /// the FD references from the cold-start process are replaced with fresh ones.
     pub fn vm_restore(
         &mut self,
         source_url: &str,
         memory_restore_mode: &MemoryRestoreMode,
+        net_fds: Vec<(String, Vec<RawFd>)>,
     ) -> Result<()> {
         tokio::task::block_in_place(|| {
-            let body =
-                json!({ "source_url": source_url, "memory_restore_mode": memory_restore_mode })
-                    .to_string();
-            simple_api_command(&mut self.socket, "PUT", "restore", Some(&body))
+            let all_fds: Vec<RawFd> = net_fds
+                .iter()
+                .flat_map(|(_, fds)| fds.iter().copied())
+                .collect();
+
+            let mut body =
+                json!({ "source_url": source_url, "memory_restore_mode": memory_restore_mode });
+            if !net_fds.is_empty() {
+                let fds_json: Vec<serde_json::Value> = net_fds
+                    .iter()
+                    .map(|(id, fds)| json!({ "id": id, "num_fds": fds.len() }))
+                    .collect();
+                body["net_fds"] = serde_json::Value::Array(fds_json);
+            }
+            let body_str = body.to_string();
+
+            if all_fds.is_empty() {
+                simple_api_command(&mut self.socket, "PUT", "restore", Some(&body_str))
+                    .map_err(|e| anyhow!("vm.restore: {}", e).into())
+            } else {
+                simple_api_command_with_fds(
+                    &mut self.socket,
+                    "PUT",
+                    "restore",
+                    Some(&body_str),
+                    all_fds,
+                )
                 .map_err(|e| anyhow!("vm.restore: {}", e).into())
+            }
         })
     }
 

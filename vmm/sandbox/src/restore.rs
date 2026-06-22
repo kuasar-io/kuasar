@@ -43,8 +43,6 @@ use crate::vm::VM;
 pub(crate) enum RestorePhase {
     RestoreVm,
     InitClient,
-    /// Environment + WarmFork: hotplug tap devices into restored VM.
-    HotplugNetwork,
     /// WarmFork only: inject task parameters via guest agent task-injection API.
     InjectTask,
     /// Environment only: push sandbox config files (hostname, resolv.conf, hosts).
@@ -62,7 +60,6 @@ impl fmt::Display for RestorePhase {
         match self {
             Self::RestoreVm => write!(f, "restore_vm"),
             Self::InitClient => write!(f, "init_client"),
-            Self::HotplugNetwork => write!(f, "hotplug_network"),
             Self::InjectTask => write!(f, "inject_task"),
             Self::PushSandboxFiles => write!(f, "push_sandbox_files"),
             Self::SetupSandbox => write!(f, "setup_sandbox"),
@@ -137,7 +134,7 @@ mod tests {
     #[test]
     fn test_restore_phase_display() {
         assert_eq!(RestorePhase::RestoreVm.to_string(), "restore_vm");
-        assert_eq!(RestorePhase::HotplugNetwork.to_string(), "hotplug_network");
+        assert_eq!(RestorePhase::InjectTask.to_string(), "inject_task");
     }
 
     #[test]

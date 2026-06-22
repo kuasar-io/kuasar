@@ -1837,8 +1837,8 @@ mod tests {
         let key1 = TemplateKey::from_workload_identity(uid, 1);
         // Different generation → different pool key → no accidental reuse.
         assert_ne!(key0, key1, "generation must differentiate keys");
-        assert_eq!(key0.key, "my-pod-uid:0");
-        assert_eq!(key1.key, "my-pod-uid:1");
+        assert_eq!(key0.key, "my-pod-uid/g0");
+        assert_eq!(key1.key, "my-pod-uid/g1");
     }
 
     /// Continuation annotation constants must have the expected kuasar.io domain.
@@ -2064,7 +2064,7 @@ mod tests {
     #[test]
     fn test_template_key_from_workload_identity() {
         let key = TemplateKey::from_workload_identity("pod-uid-abc", 3);
-        assert_eq!(key.key, "pod-uid-abc:3");
+        assert_eq!(key.key, "pod-uid-abc/g3");
     }
 
     #[test]

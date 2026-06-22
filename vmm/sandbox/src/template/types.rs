@@ -85,8 +85,16 @@ impl SnapshotType {
 
     /// Whether restored instances get freshly hotplugged network namespaces
     /// (as opposed to preserving the snapshot's original network identity).
+    ///
+    /// WarmFork does NOT use hotplug: state.json is kept intact so the restored virtio-net
+    /// device resumes from DRIVER_OK with the same virtqueue DMA ring addresses the guest
+    /// driver expects.  A fresh hotplugged device starts in RESET — mismatched driver/device
+    /// states cause all packets to be silently dropped.  Instead, the new pod's tap FDs are
+    /// passed to CH's standard `vm.restore` `net_fds` parameter (keyed by the snapshot's
+    /// device IDs), which replaces the stale FDs from config.json before device state is
+    /// restored from state.json.
     pub fn requires_network_hotplug(&self) -> bool {
-        matches!(self, SnapshotType::Environment | SnapshotType::WarmFork)
+        matches!(self, SnapshotType::Environment)
     }
 }
 
@@ -95,7 +103,7 @@ impl SnapshotType {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct WorkloadIdentity {
     pub pod_uid: String,
-    pub generation: u32,
+    pub generation: u64,
 }
 
 /// Per-container metadata captured at snapshot time, used for cross-sandbox
@@ -169,10 +177,12 @@ impl TemplateKey {
     /// `kuasar.io/workload-generation`.  On the create side, callers supply `pod_uid` and
     /// `generation` via the admin API (`snapshot_type=continuation`).
     ///
-    /// Format: `"{pod_uid}:{generation}"`
-    pub fn from_workload_identity(pod_uid: &str, generation: u32) -> Self {
+    /// Format: `"{pod_uid}/g{generation}"` — the slash makes `store_dir.join(key)` produce the
+    /// canonical two-level path `{store_dir}/{pod_uid}/g{generation}/`, enabling O(1) stat-based
+    /// lookup while keeping the on-disk layout human-readable.
+    pub fn from_workload_identity(pod_uid: &str, generation: u64) -> Self {
         Self {
-            key: format!("{}:{}", pod_uid, generation),
+            key: format!("{}/g{}", pod_uid, generation),
         }
     }
 }
@@ -232,6 +242,11 @@ pub struct PooledTemplate {
     /// None for Environment and WarmFork types.
     #[serde(default)]
     pub workload_identity: Option<WorkloadIdentity>,
+    /// Network namespace path of the snapshotted sandbox.
+    /// Needed for Continuation restore to reopen IFF_PERSIST tap devices in the correct netns.
+    /// Empty for snapshots written before this field was added.
+    #[serde(default)]
+    pub netns: String,
     /// Snapshot-time resolved injection targets for WarmFork templates.
     /// Each entry carries the (container_name, CRI container_id, socket_path) tuple
     /// resolved against the running sandbox at snapshot time.  At restore time the
@@ -299,6 +314,7 @@ impl PooledTemplate {
             ready_protocol_version: None,
             workload_identity: None,
             warm_fork_targets: vec![],
+            netns: String::new(),
         }
     }
 }

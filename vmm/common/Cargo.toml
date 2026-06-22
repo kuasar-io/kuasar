@@ -16,6 +16,7 @@ backtrace = "0.3"
 log = { version = "0.4.17", features = ["std"] }
 ttrpc = { version = "0.7", features = ["async"] }
 protobuf = "3.2"
+tonic = { version = "0.7", features = ["transport"] }
 async-trait = "0.1"
 regex = "1.5.6"
 futures = { version = "0.3.21" }
@@ -31,7 +32,6 @@ opentelemetry-otlp = "0.13.0"
 
 [build-dependencies]
 ttrpc-codegen = { git = "https://github.com/kuasar-io/ttrpc-rust.git", branch = "v0.7.1-kuasar" }
-tonic-build = "0.7.2"
 
 [dev-dependencies]
 temp-dir = "0.1.11"

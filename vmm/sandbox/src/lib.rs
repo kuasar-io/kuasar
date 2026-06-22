@@ -34,6 +34,7 @@ pub mod cloud_hypervisor;
 pub mod config;
 pub mod kata_config;
 pub mod qemu;
+pub mod resolver;
 pub mod sandbox;
 pub mod service;
 pub mod stratovirt;

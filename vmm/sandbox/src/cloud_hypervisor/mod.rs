@@ -56,10 +56,14 @@ use crate::{
         devices::{
             block::Disk, vfio::VfioDevice, virtio_net::VirtioNetDevice, CloudHypervisorDevice,
         },
-        snapshot::{patch_snapshot_config, validate_snapshot_config},
+        snapshot::{
+            patch_snapshot_config, patch_snapshot_state, read_net_device_ids,
+            validate_snapshot_config,
+        },
     },
     device::{BusType, DeviceInfo},
     param::ToCmdLineParams,
+    template::SnapshotType,
     utils::{read_std, set_cmd_fd, set_cmd_netns, wait_channel, wait_pid, write_file_atomic},
     vm::{
         DiskImageEntry, DiskSnapshot, Pids, RestoreSource, SnapshotMeta, Snapshottable,
@@ -208,6 +212,10 @@ impl CloudHypervisorVM {
 
 #[async_trait]
 impl VM for CloudHypervisorVM {
+    fn set_netns(&mut self, netns: &str) {
+        self.netns = netns.to_string();
+    }
+
     #[instrument(skip_all)]
     async fn start(&mut self) -> Result<u32> {
         create_dir_all(&self.base_dir).await?;
@@ -269,6 +277,14 @@ impl VM for CloudHypervisorVM {
         Ok(pid.unwrap_or_default())
     }
 
+    async fn pause(&mut self) -> Result<()> {
+        self.get_client()?.vm_pause()
+    }
+
+    async fn resume(&mut self) -> Result<()> {
+        self.get_client()?.vm_resume()
+    }
+
     #[instrument(skip_all)]
     async fn stop(&mut self, force: bool) -> Result<()> {
         let signal = if force {
@@ -301,6 +317,16 @@ impl VM for CloudHypervisorVM {
                 signal::kill(Pid::from_raw(affiliated_pid as i32), signal).unwrap_or_default();
             }
         }
+
+        // Clear net device state accumulated from attach() calls so a subsequent restore() or
+        // start() starts with a clean slate.  pending_net_hotplug may hold raw fd numbers
+        // that are already closed (drained into the CH process via fds.drain() at start time);
+        // leaving them in place causes stale-fd EBADF when vm.restore() zips them with fresh
+        // tap fds from reopen_continuation_taps().  fds and the net entries in devices are
+        // cleared for the same reason — net device IDs follow the "intf-N" convention.
+        self.pending_net_hotplug.clear();
+        self.fds.clear();
+        self.devices.retain(|d| !d.id().starts_with("intf-"));
 
         Ok(())
     }
@@ -488,8 +514,9 @@ impl CloudHypervisorVM {
 
     async fn launch_for_restore(&mut self) -> Result<()> {
         create_dir_all(&self.base_dir).await?;
-        // Remove any stale socket left by a previous failed restore attempt.
+        // Remove stale sockets left by a previous CH process (killed CH does not unlink them).
         let _ = tokio::fs::remove_file(&self.config.api_socket).await;
+        let _ = tokio::fs::remove_file(self.vsock_path()).await;
         let child = {
             let mut cmd = tokio::process::Command::new(&self.config.path);
             cmd.arg("--api-socket").arg(&self.config.api_socket);
@@ -538,6 +565,7 @@ impl CloudHypervisorVM {
             return Ok(());
         }
         let pending = std::mem::take(&mut self.pending_net_hotplug);
+        let id = self.id.clone();
         // If any tap hotplug fails the caller (try_restore) calls rollback_vm() which
         // stops the entire VM process. Individual tap detach is therefore not required
         // on partial failure — the VM is torn down as a unit.
@@ -546,7 +574,7 @@ impl CloudHypervisorVM {
             client.vm_add_net(&info.id, &info.mac, info.num_queues, info.raw_fds.clone())?;
             info!(
                 "VM {}: hotplugged tap {} (mac={}, num_queues={})",
-                self.id, info.id, info.mac, info.num_queues
+                id, info.id, info.mac, info.num_queues
             );
         }
         Ok(())
@@ -683,12 +711,60 @@ impl Snapshottable for CloudHypervisorVM {
                 &src.work_dir.join("config.json"),
                 &src.overrides,
                 &restored_blocks.disk_remaps,
+                &src.snapshot_type,
             )
             .await
         );
 
         // 3. Symlink/pin immutable snapshot memory artifacts into the per-sandbox work dir.
         let prepared_memory = restore_try!(memory_backend::prepare_memory_backend(src).await);
+
+        // 3.5. Strip old net device entries from state.json so CH starts with a clean PCI
+        //      registry.  The new tap is hotplugged (step 5.5) while the VM is still paused,
+        //      which gives it the same (or the next available) PCI slot.  Without this step
+        //      the old device ID from the template would be in CH's registry, causing
+        //      vm.add-net to fail with IdentifierNotUnique.
+        //      The symlink placed by prepare_memory_backend is replaced with a patched copy so
+        //      the template's original state.json is never modified.
+        if src.snapshot_type.requires_network_hotplug() {
+            restore_try!(patch_snapshot_state(&src.work_dir).await);
+        }
+
+        // 3.7. For WarmFork/Continuation: read the net device IDs from the snapshot's config.json.
+        //
+        // Both WarmFork and Continuation keep state.json intact so the virtio-net device resumes
+        // from DRIVER_OK with the original DMA ring addresses.  config.json still references the
+        // snapshot's tap FDs, which are invalid in the new CH process.  CH's `vm.restore` `net_fds`
+        // parameter lets us supply fresh FDs keyed by the *snapshot* device ID so CH can use the
+        // correct tap.
+        //
+        // We read the IDs here (before launching CH) using the patched config.json in work_dir
+        // and zip them with the pending tap FDs recorded at `attach()` time.  The snapshot may
+        // have a different ifindex than the new pod (kernel re-assigns ifindices), so we must use
+        // the snapshot's IDs rather than those in `pending_net_hotplug`.
+        let net_fds: Vec<(String, Vec<RawFd>)> = if (src.snapshot_type == SnapshotType::WarmFork
+            || src.snapshot_type == SnapshotType::Continuation)
+            && !self.pending_net_hotplug.is_empty()
+        {
+            let config_ids =
+                restore_try!(read_net_device_ids(&src.work_dir.join("config.json")).await);
+            if config_ids.len() != self.pending_net_hotplug.len() {
+                warn!(
+                    "restore {}: net device count mismatch: config.json has {} device(s), \
+                     pending_net_hotplug has {} — zip will truncate to the shorter list",
+                    self.id,
+                    config_ids.len(),
+                    self.pending_net_hotplug.len()
+                );
+            }
+            config_ids
+                .into_iter()
+                .zip(self.pending_net_hotplug.iter())
+                .map(|(id, info)| (id, info.raw_fds.clone()))
+                .collect()
+        } else {
+            vec![]
+        };
 
         // 4. Start CH with only --api-socket; all VM config comes from the snapshot.
         restore_try!(self.launch_for_restore().await);
@@ -719,19 +795,49 @@ impl Snapshottable for CloudHypervisorVM {
 
         // 5. Trigger restore; CH loads config.json + state.json + memory-ranges from work_dir.
         // CH restores vCPUs in a paused state (snapshot was taken while paused).
-        // Call vm.resume immediately after so the guest starts executing.
-        let api_result: anyhow::Result<()> = async {
+        // For WarmFork/Continuation, `net_fds` carries the fresh tap FDs keyed by the snapshot's
+        // device IDs; CH replaces the stale FDs from config.json before restoring device state.
+        let restore_result: anyhow::Result<()> = async {
             let client = self.get_client()?;
             client
-                .vm_restore(&prepared_memory.source_url, &prepared_memory.mode)
+                .vm_restore(&prepared_memory.source_url, &prepared_memory.mode, net_fds)
                 .map_err(|e| anyhow!("vm.restore API: {}", e))?;
+            Ok(())
+        }
+        .await;
+        restore_try_with_kill!(restore_result, "vm.restore");
+
+        // 5.5. Hotplug tap devices while the VM is still paused, before vm.resume.
+        //
+        // With the device already registered in CH at resume time, the guest driver at the
+        // same PCI BDF finds a live device and re-attaches without triggering a surprise
+        // removal.  If we hotplugged *after* resume instead, there is a window where CH has
+        // no device at the old BDF: the guest reads 0xFFFFFFFF from PCI config space, starts
+        // an async surprise-removal, and the subsequent hotplug notification races with that
+        // removal — causing the new interface to never appear in the guest.
+        if src.snapshot_type.requires_network_hotplug() {
+            let hotplug_result: anyhow::Result<()> = self
+                .hotplug_pending_network()
+                .await
+                .map_err(|e| anyhow!("pre-resume network hotplug: {}", e));
+            restore_try_with_kill!(hotplug_result, "pre-resume network hotplug");
+            info!(
+                "restore {}: pre-resume network hotplug done in {}ms",
+                self.id,
+                t0.elapsed().as_millis()
+            );
+        }
+
+        // 6. Resume the VM; guest vCPUs start executing with the tap already in CH's registry.
+        let resume_result: anyhow::Result<()> = async {
+            let client = self.get_client()?;
             client
                 .vm_resume()
                 .map_err(|e| anyhow!("vm.resume after restore: {}", e))?;
             Ok(())
         }
         .await;
-        restore_try_with_kill!(api_result, "API failure");
+        restore_try_with_kill!(resume_result, "vm.resume");
         info!(
             "restore {}: vm.restore+resume done in {}ms",
             self.id,
@@ -910,7 +1016,6 @@ pub async fn check_reflink_support(
 #[cfg(test)]
 mod snapshot_tests {
     use super::*;
-    use crate::template::SnapshotType;
 
     /// Verify that wait_agent_ready times out promptly when no agent is listening.
     #[tokio::test]

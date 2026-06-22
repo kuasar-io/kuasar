@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use clap::Parser;
 use vmm_common::{signal, trace};
@@ -27,7 +27,7 @@ use vmm_sandboxer::{
     },
     config::Config,
     sandbox::KuasarSandboxer,
-    service::Server,
+    service::admin::Server,
     version,
 };
 
@@ -164,7 +164,16 @@ async fn main() {
         }
     }
 
-    // Spawn the service API server.
+    // Start gRPC snapshot service.
+    let grpc_h = Arc::new(sandboxer.grpc_handle(args.dir.clone()));
+    let grpc_sock = args.grpc_listen.clone();
+    tokio::spawn(async move {
+        if let Err(e) = vmm_sandboxer::service::grpc::serve(grpc_h, &grpc_sock).await {
+            log::error!("gRPC server error: {}", e);
+        }
+    });
+
+    // Keep the legacy admin socket running for existing callers.
     let admin_sock = args.admin_listen.clone();
     let service_h = sandboxer.service_handle(args.dir.clone());
     tokio::spawn(async move {

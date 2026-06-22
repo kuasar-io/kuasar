@@ -1,142 +1,116 @@
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
-use serde::Serialize;
-use serde_json::json;
-
-use crate::client::{call_admin, check_ok};
-
-/// Client for sandbox lifecycle operations.
-pub struct SandboxApi {
-    admin_sock: PathBuf,
-}
-
-/// Result of a successful `run` operation.
-#[derive(Debug, Serialize)]
-pub struct RunResult {
-    pub sandbox_id: String,
-    pub template_id: String,
-}
+use anyhow::{Context, Result};
+use tokio::net::UnixStream;
+use tonic::transport::{Channel, Endpoint, Uri};
+use tower::service_fn;
+use vmm_api::sandbox_grpc::{
+    sandbox_controller_client::SandboxControllerClient, GetSandboxRequest, ListSandboxesRequest,
+    PauseSandboxRequest, ResumeSandboxRequest, Sandbox, SnapshotMode,
+};
 
 /// Sandbox summary returned by `list` and `get`.
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
 pub struct SandboxInfo {
-    pub id: String,
+    pub pod_uid: String,
+    pub sandbox_id: String,
+    pub snapshot_name: String,
+    pub snapshot_mode: String,
+    pub created_at_secs: i64,
     pub status: String,
-    pub base_dir: String,
-    pub template_id: Option<String>,
-    pub template_snapshot_type: Option<String>,
-    /// Only present in `get` responses.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub lease_mode: Option<String>,
-    /// Only present in `get` responses.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub memory_restore_mode: Option<String>,
+}
+
+/// Client for sandbox instance lifecycle (gRPC `SandboxController`).
+pub struct SandboxApi {
+    sock: PathBuf,
 }
 
 impl SandboxApi {
-    pub fn new(admin_sock: impl Into<PathBuf>) -> Self {
+    pub fn new(sock: impl AsRef<Path>) -> Self {
         Self {
-            admin_sock: admin_sock.into(),
+            sock: sock.as_ref().to_owned(),
         }
     }
 
-    fn sock(&self) -> &Path {
-        &self.admin_sock
+    async fn connect(&self) -> Result<SandboxControllerClient<Channel>> {
+        let sock = self.sock.clone();
+        let channel = Endpoint::from_static("http://[::]:50051")
+            .connect_with_connector(service_fn(move |_: Uri| {
+                let path = sock.clone();
+                async move { UnixStream::connect(path).await }
+            }))
+            .await
+            .with_context(|| format!("connect to gRPC socket {:?}", self.sock))?;
+        Ok(SandboxControllerClient::new(channel))
     }
 
-    /// Create a sandbox slot and restore a WarmFork snapshot.
-    ///
-    /// `key` selects the latest template for that pool key.
-    /// `template_id` pins to a specific template by ID.
-    /// When both are provided they must match.
-    /// At least one of `key` or `template_id` must be `Some`.
-    pub async fn run_warm_fork(
-        &self,
-        key: Option<&str>,
-        template_id: Option<&str>,
-    ) -> Result<RunResult> {
-        let mut payload = json!({
-            "action": "sandbox-run",
-            "snapshot_type": "warm_fork",
-        });
-        if let Some(k) = key {
-            payload["template_key"] = k.into();
-        }
-        if let Some(tid) = template_id {
-            payload["template_id"] = tid.into();
-        }
-        let resp = call_admin(self.sock(), payload).await?;
-        let resp = check_ok(resp)?;
-        Ok(RunResult {
-            sandbox_id: resp["sandbox_id"].as_str().unwrap_or("").to_string(),
-            template_id: resp["template_id"].as_str().unwrap_or("").to_string(),
-        })
+    /// Checkpoint a running sandbox to disk and stop the CH process.
+    /// Network state (tap, TC rules) is preserved; call [`Self::resume`] to restore.
+    pub async fn pause(&self, sandbox_id: &str) -> Result<()> {
+        self.connect()
+            .await?
+            .pause_sandbox(PauseSandboxRequest {
+                sandbox_id: sandbox_id.to_string(),
+            })
+            .await
+            .map_err(|s| anyhow::anyhow!("{}", s))?;
+        Ok(())
     }
 
-    /// Create a sandbox slot and restore a Continuation snapshot by workload identity.
-    ///
-    /// The network identity must be migrated externally to the target node before calling this.
-    pub async fn run_continuation(&self, pod_uid: &str, generation: u32) -> Result<RunResult> {
-        let resp = call_admin(
-            self.sock(),
-            json!({
-                "action": "sandbox-run",
-                "snapshot_type": "continuation",
-                "pod_uid": pod_uid,
-                "generation": generation,
-            }),
-        )
-        .await?;
-        let resp = check_ok(resp)?;
-        Ok(RunResult {
-            sandbox_id: resp["sandbox_id"].as_str().unwrap_or("").to_string(),
-            template_id: resp["template_id"].as_str().unwrap_or("").to_string(),
-        })
+    /// Resume a previously paused sandbox VM.
+    pub async fn resume(&self, sandbox_id: &str) -> Result<()> {
+        self.connect()
+            .await?
+            .resume_sandbox(ResumeSandboxRequest {
+                sandbox_id: sandbox_id.to_string(),
+            })
+            .await
+            .map_err(|s| anyhow::anyhow!("{}", s))?;
+        Ok(())
     }
 
-    /// List all sandboxes known to the sandboxer.
+    /// List all sandbox instances on this node.
     pub async fn list(&self) -> Result<Vec<SandboxInfo>> {
-        let resp = call_admin(self.sock(), json!({"action": "sandbox-list"})).await?;
-        let resp = check_ok(resp)?;
-        let items = resp["sandboxes"]
-            .as_array()
-            .map(|arr| arr.iter().map(sandbox_info_from_value).collect())
-            .unwrap_or_default();
-        Ok(items)
+        let resp = self
+            .connect()
+            .await?
+            .list_sandboxes(ListSandboxesRequest {})
+            .await
+            .map_err(|s| anyhow::anyhow!("{}", s))?
+            .into_inner();
+        Ok(resp.sandboxes.into_iter().map(proto_to_info).collect())
     }
 
     /// Get details of a single sandbox by ID.
     pub async fn get(&self, sandbox_id: &str) -> Result<SandboxInfo> {
-        let resp = call_admin(
-            self.sock(),
-            json!({"action": "sandbox-get", "sandbox_id": sandbox_id}),
-        )
-        .await?;
-        let resp = check_ok(resp)?;
-        Ok(sandbox_info_from_value(&resp))
-    }
-
-    /// Stop a running sandbox, release its template lease, and delete all files.
-    pub async fn destroy(&self, sandbox_id: &str) -> Result<()> {
-        let resp = call_admin(
-            self.sock(),
-            json!({"action": "sandbox-destroy", "sandbox_id": sandbox_id}),
-        )
-        .await?;
-        check_ok(resp)?;
-        Ok(())
+        let resp = self
+            .connect()
+            .await?
+            .get_sandbox(GetSandboxRequest {
+                sandbox_id: sandbox_id.to_string(),
+            })
+            .await
+            .map_err(|s| anyhow::anyhow!("{}", s))?
+            .into_inner();
+        resp.sandbox
+            .map(proto_to_info)
+            .ok_or_else(|| anyhow::anyhow!("empty sandbox in response"))
     }
 }
 
-fn sandbox_info_from_value(v: &serde_json::Value) -> SandboxInfo {
+fn proto_to_info(sb: Sandbox) -> SandboxInfo {
+    let snapshot_mode =
+        match SnapshotMode::from_i32(sb.snapshot_mode).unwrap_or(SnapshotMode::Unspecified) {
+            SnapshotMode::WarmFork => "warm_fork",
+            SnapshotMode::Continuation => "continuation",
+            _ => "-",
+        };
     SandboxInfo {
-        id: v["id"].as_str().unwrap_or("").to_string(),
-        status: v["status"].as_str().unwrap_or("").to_string(),
-        base_dir: v["base_dir"].as_str().unwrap_or("").to_string(),
-        template_id: v["template_id"].as_str().map(str::to_string),
-        template_snapshot_type: v["template_snapshot_type"].as_str().map(str::to_string),
-        lease_mode: v["lease_mode"].as_str().map(str::to_string),
-        memory_restore_mode: v["memory_restore_mode"].as_str().map(str::to_string),
+        pod_uid: sb.pod_uid,
+        sandbox_id: sb.sandbox_id,
+        snapshot_name: sb.snapshot_name,
+        snapshot_mode: snapshot_mode.to_string(),
+        created_at_secs: sb.created_at_secs,
+        status: sb.status,
     }
 }

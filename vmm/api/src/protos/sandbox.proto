@@ -1,0 +1,44 @@
+syntax = "proto3";
+package kuasar.sandbox.v1;
+
+// Sandbox instance lifecycle: pause/resume/list/get sandbox instances.
+service SandboxController {
+    rpc PauseSandbox  (PauseSandboxRequest)   returns (PauseSandboxResponse);
+    rpc ResumeSandbox (ResumeSandboxRequest)  returns (ResumeSandboxResponse);
+    rpc ListSandboxes (ListSandboxesRequest)  returns (ListSandboxesResponse);
+    rpc GetSandbox    (GetSandboxRequest)     returns (GetSandboxResponse);
+}
+
+// Internal snapshot mode names used within kuasar.
+enum SnapshotMode {
+    UNSPECIFIED  = 0;
+    WARM_FORK    = 1;
+    CONTINUATION = 2;
+}
+
+// PauseSandbox: checkpoint a running sandbox to disk and stop the CH process.
+// The sandbox netns, tap, and TC rules are preserved; use ResumeSandbox to restore.
+message PauseSandboxRequest   { string sandbox_id = 1; }
+message PauseSandboxResponse  {}
+
+// ResumeSandbox: resume a previously paused sandbox VM.
+message ResumeSandboxRequest  { string sandbox_id = 1; }
+message ResumeSandboxResponse {}
+
+// ListSandboxes: list all sandbox instances managed by this node.
+message ListSandboxesRequest  {}
+message ListSandboxesResponse { repeated Sandbox sandboxes = 1; }
+
+// GetSandbox: get details of a specific sandbox instance.
+message GetSandboxRequest  { string sandbox_id = 1; }
+message GetSandboxResponse { Sandbox sandbox = 1; }
+
+message Sandbox {
+    string pod_uid             = 1;
+    string sandbox_id          = 2;
+    string snapshot_name       = 3;
+    SnapshotMode snapshot_mode = 4;
+    // Unix seconds since epoch.
+    int64 created_at_secs      = 5;
+    string status              = 6;  // "created", "running", "stopped"
+}

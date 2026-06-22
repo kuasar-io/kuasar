@@ -18,6 +18,7 @@ use containerd_shim::{
 };
 use futures::{future, TryStreamExt};
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
+use log::warn;
 use netlink_packet_route::{
     address::{AddressAttribute, AddressMessage},
     link::{LinkAttribute, LinkFlag, LinkMessage},
@@ -81,17 +82,38 @@ impl Handle {
 
     pub async fn update_interfaces(&mut self, intfs: Vec<Interface>) -> Result<()> {
         for intf in intfs {
-            // The reliable way to find link is using hardware address
-            // as filter. However, hardware filter might not be supported
-            // by netlink, we may have to dump link list and the find the
-            // target link. filter using name or family is supported, but
-            // we cannot use that to find target link.
-            // let's try if hardware address filter works. -_-
-            let link = self.find_link(LinkFilter::Address(&intf.hwAddr)).await?;
+            // Primary lookup: find by hardware (MAC) address.  This is the reliable path for
+            // cold-boot and hotplug cases where the guest interface already has the target MAC.
+            //
+            // Fallback: find by interface name.  Used in WarmFork restores where the interface
+            // was inherited from the template snapshot and still carries the template's MAC.
+            // In that case we also update the MAC to the target address so the guest advertises
+            // the correct L2 identity for the new sandbox.
+            let (link, needs_mac_update) =
+                match self.find_link(LinkFilter::Address(&intf.hwAddr)).await {
+                    Ok(link) => (link, false),
+                    Err(_) => {
+                        let link = self.find_link(LinkFilter::Name(&intf.name)).await?;
+                        (link, true)
+                    }
+                };
 
-            // Bring down interface if it is UP
+            // Bring down interface if it is UP (required before changing MAC or addresses).
             if link.is_up() {
                 self.enable_link(link.index(), false).await?;
+            }
+
+            // Update MAC when we found by name (WarmFork: overwrite template MAC with the new
+            // sandbox's MAC).  Must happen while the interface is DOWN.
+            if needs_mac_update {
+                let mac = parse_mac_address(&intf.hwAddr)?;
+                self.handle
+                    .link()
+                    .set(link.index())
+                    .address(mac.to_vec())
+                    .execute()
+                    .await
+                    .map_err(other_error!(e, "failed to set link address"))?;
             }
 
             // Delete all addresses associated with the link
@@ -148,6 +170,29 @@ impl Handle {
                 .execute()
                 .await
                 .map_err(other_error!(e, "failed to execute netlink request"))?;
+
+            // After a MAC change the kernel may leave the link DOWN despite the
+            // combined request above including the UP flag (the copied header's
+            // change_mask can interfere).  Issue an explicit UP to be sure.
+            if needs_mac_update {
+                self.enable_link(link.index(), true).await?;
+            }
+
+            // Announce the new IP→MAC mapping via Gratuitous ARP so the host bridge's
+            // neighbour table is refreshed immediately.  Without this, WarmFork restore
+            // leaves the host ARP entry INCOMPLETE: the host sends ARP requests but the
+            // guest never announced itself, so there is no reply until the first outbound
+            // packet triggers a normal ARP exchange.
+            let idx = link.index();
+            if let Ok(mac) = parse_mac_address(&intf.hwAddr) {
+                for ip_addr in &intf.IPAddresses {
+                    if let Ok(IpAddr::V4(ipv4)) = IpAddr::from_str(&ip_addr.address) {
+                        if !ipv4.is_loopback() {
+                            send_gratuitous_arp(idx, &mac, ipv4);
+                        }
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -619,6 +664,66 @@ impl Address {
                 }
             })
             .unwrap_or_default()
+    }
+}
+
+/// Send a Gratuitous ARP (GARP) for `ip` / `mac` on interface `if_index`.
+///
+/// A GARP tells every host on the local segment that `ip` is now reachable at `mac`,
+/// prompting them to refresh their ARP / neighbour tables.  This is necessary after
+/// WarmFork restore: the guest comes up with a new MAC (assigned via update_interfaces)
+/// but the host bridge's ARP cache has no entry for the new pod IP, so ARP requests
+/// from the host go unanswered (INCOMPLETE) until a GARP is received.
+///
+/// Uses a raw AF_PACKET socket; best-effort (failures are only logged, not fatal).
+fn send_gratuitous_arp(if_index: u32, mac: &[u8; 6], ip: Ipv4Addr) {
+    // 42-byte frame: Ethernet header (14) + ARP payload (28).
+    let mut frame = [0u8; 42];
+    // Ethernet: dst = broadcast, src = sender MAC, EtherType = ARP (0x0806).
+    frame[0..6].copy_from_slice(&[0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
+    frame[6..12].copy_from_slice(mac);
+    frame[12] = 0x08;
+    frame[13] = 0x06;
+    // ARP: HW=Ethernet(1), Proto=IPv4(0x0800), HW-len=6, Proto-len=4.
+    frame[14] = 0x00;
+    frame[15] = 0x01;
+    frame[16] = 0x08;
+    frame[17] = 0x00;
+    frame[18] = 6;
+    frame[19] = 4;
+    // ARP: opcode = Request (1); gratuitous = sender IP == target IP.
+    frame[20] = 0x00;
+    frame[21] = 0x01;
+    frame[22..28].copy_from_slice(mac);
+    frame[28..32].copy_from_slice(&ip.octets());
+    // target MAC = zeros (Request), target IP = sender IP.
+    frame[38..42].copy_from_slice(&ip.octets());
+
+    let sent = unsafe {
+        let proto = (libc::ETH_P_ARP as u16).to_be() as libc::c_int;
+        let sock = libc::socket(libc::AF_PACKET, libc::SOCK_RAW, proto);
+        if sock < 0 {
+            return;
+        }
+        let mut sll: libc::sockaddr_ll = std::mem::zeroed();
+        sll.sll_family = libc::AF_PACKET as u16;
+        sll.sll_protocol = (libc::ETH_P_ARP as u16).to_be();
+        sll.sll_ifindex = if_index as i32;
+        sll.sll_halen = 6;
+        sll.sll_addr[0..6].copy_from_slice(&[0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
+        let ret = libc::sendto(
+            sock,
+            frame.as_ptr() as *const libc::c_void,
+            frame.len(),
+            0,
+            &sll as *const libc::sockaddr_ll as *const libc::sockaddr,
+            std::mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t,
+        );
+        libc::close(sock);
+        ret
+    };
+    if sent < 0 {
+        warn!("gratuitous ARP for {}: sendto failed", ip);
     }
 }
 

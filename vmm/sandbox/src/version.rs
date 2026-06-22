@@ -18,6 +18,10 @@ pub mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
 }
 
+pub fn version_string() -> &'static str {
+    built_info::GIT_VERSION.unwrap_or("unknown")
+}
+
 pub fn print_version_info() {
     if let Some(v) = built_info::GIT_VERSION {
         match built_info::GIT_DIRTY {

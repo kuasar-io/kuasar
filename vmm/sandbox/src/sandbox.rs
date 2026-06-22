@@ -19,7 +19,7 @@ use std::{
     io::ErrorKind,
     path::{Path, PathBuf},
     sync::Arc,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use anyhow::anyhow;
@@ -65,7 +65,8 @@ use crate::{
         new_sandbox_client, new_sandbox_client_fail_fast, DEFAULT_CLIENT_CHECK_TIMEOUT,
     },
     container::KuasarContainer,
-    network::{Network, NetworkConfig},
+    device::{DeviceInfo, TapDeviceInfo},
+    network::{link::reopen_tap_in_netns, Network, NetworkConfig},
     restore::{RestorePhase, RestoreTransaction},
     storage::{
         device_graph::DeviceGraph,
@@ -74,7 +75,7 @@ use crate::{
     template::{
         new_template_id, ContinuationLease, ContinuationStore, CreateTemplateRequest,
         PooledTemplate, SnapshotType, TemplateKey, TemplateLease, TemplateMetrics, TemplatePool,
-        WorkloadIdentity, TEMPLATE_ID_ANNOTATION,
+        WorkloadIdentity,
     },
     utils::{get_dns_config, get_hostname, get_resources, get_sandbox_cgroup_parent_path},
     vm::{
@@ -98,15 +99,27 @@ pub struct KuasarSandboxer<F: VMFactory, H: Hooks<F::VM>> {
     pub(crate) template_pool: Option<Arc<TemplatePool>>,
     pub(crate) continuation_store: Option<Arc<ContinuationStore>>,
     restore_semaphore: Arc<Semaphore>,
+    restore_resolvers: Vec<Arc<dyn crate::resolver::RestoreIntentResolver>>,
+    /// Reverse index: pod_uid → sandbox_id.
+    /// Shared with `Handle` so both the containerd path and the gRPC/service
+    /// paths can keep it in sync. Rebuilt from persisted state on startup.
+    pod_uid_index: Arc<RwLock<HashMap<String, String>>>,
 }
 
 impl<F, H> KuasarSandboxer<F, H>
 where
-    F: VMFactory,
-    H: Hooks<F::VM>,
-    F::VM: VM + Sync + Send,
+    F: VMFactory + Sync + Send + 'static,
+    F::VM: VM + Snapshottable + Sync + Send + 'static,
+    H: Hooks<F::VM> + Sync + Send,
 {
     pub fn new(config: SandboxConfig, vmm_config: F::Config, hooks: H) -> Self {
+        let mut restore_resolvers: Vec<Arc<dyn crate::resolver::RestoreIntentResolver>> =
+            vec![Arc::new(crate::resolver::KuasarNativeResolver)];
+        if !config.snapshot.annotation_resolvers.is_empty() {
+            restore_resolvers.push(Arc::new(crate::resolver::MappingResolver::new(
+                config.snapshot.annotation_resolvers.clone(),
+            )));
+        }
         Self {
             factory: Arc::new(F::new(vmm_config)),
             hooks,
@@ -115,7 +128,49 @@ where
             template_pool: None,
             continuation_store: None,
             restore_semaphore: Arc::new(Semaphore::new(4)),
+            restore_resolvers,
+            pod_uid_index: Arc::new(Default::default()),
         }
+    }
+
+    /// Build a `GrpcHandle` for the ttrpc snapshot service.
+    ///
+    /// The handle borrows the same `Arc`-shared state as the sandboxer so the gRPC
+    /// service and containerd ttrpc service both see the same sandbox map and template pool.
+    pub fn grpc_handle(&self, dir: impl Into<PathBuf>) -> crate::service::grpc::GrpcHandle<F>
+    where
+        F::VM: crate::vm::Snapshottable,
+    {
+        crate::service::grpc::GrpcHandle {
+            inner: self.service_handle(dir),
+        }
+    }
+
+    /// Resolve a restore intent from a sandbox's pod annotations using the configured
+    /// resolver chain.
+    async fn resolve_restore_intent(
+        &self,
+        id: &str,
+    ) -> containerd_sandbox::error::Result<crate::resolver::RestoreIntent> {
+        let sandbox_mutex = self
+            .sandboxes
+            .read()
+            .await
+            .get(id)
+            .ok_or_else(|| containerd_sandbox::error::Error::NotFound(id.to_string()))?
+            .clone();
+        let sandbox = sandbox_mutex.lock().await;
+        let annotations = sandbox
+            .data
+            .config
+            .as_ref()
+            .map(|c| c.annotations.clone())
+            .unwrap_or_default();
+        drop(sandbox); // release lock before async resolver calls
+
+        crate::resolver::resolve_chain(&self.restore_resolvers, &annotations, &self.config.snapshot)
+            .await
+            .map_err(|e| anyhow!("resolve_restore_intent: {}", e).into())
     }
 
     /// Return pool metrics, if the pool has been initialized.
@@ -128,92 +183,6 @@ where
             sandbox.restore.lease_mode = Some(pool.lease_mode.clone());
             sandbox.restore.reflink_supported = Some(pool.reflink_supported);
         }
-    }
-
-    /// Parse snapshot-restore intent from the sandbox's pod annotations.
-    ///
-    /// Returns `Err` only for hard annotation errors (e.g. malformed generation when
-    /// `kuasar.io/pod-uid` is present). Returns `Ok` for all other cases, including
-    /// when no relevant annotations are present.
-    async fn parse_snapshot_intent(&self, id: &str) -> Result<SnapshotIntent> {
-        let sandbox_mutex = self
-            .sandboxes
-            .read()
-            .await
-            .get(id)
-            .ok_or_else(|| Error::NotFound(id.to_string()))?
-            .clone();
-        let sandbox = sandbox_mutex.lock().await;
-        let annotations = sandbox.data.config.as_ref().map(|c| &c.annotations);
-
-        let explicit_type = annotations
-            .and_then(|a| a.get(crate::template::SNAPSHOT_TYPE_ANNOTATION))
-            .map(|v| crate::template::SnapshotType::from_annotation(v))
-            .transpose()?;
-
-        let (template_id, template_key) = if matches!(
-            explicit_type,
-            Some(SnapshotType::Environment) | Some(SnapshotType::Continuation)
-        ) {
-            (None, None)
-        } else {
-            (
-                annotations.and_then(|a| a.get(TEMPLATE_ID_ANNOTATION).cloned()),
-                annotations.and_then(|a| a.get(crate::template::TEMPLATE_KEY_ANNOTATION).cloned()),
-            )
-        };
-
-        let cont_identity = if matches!(
-            explicit_type,
-            Some(SnapshotType::Environment) | Some(SnapshotType::WarmFork)
-        ) || !self.config.snapshot.enable_continuation_restore
-        {
-            None
-        } else if let Some(pod_uid) =
-            annotations.and_then(|a| a.get(crate::template::POD_UID_ANNOTATION))
-        {
-            let generation = match annotations
-                .and_then(|a| a.get(crate::template::WORKLOAD_GENERATION_ANNOTATION))
-            {
-                None => 0u32,
-                Some(s) => match s.parse::<u64>() {
-                    Ok(v) if v <= u32::MAX as u64 => v as u32,
-                    Ok(v) => {
-                        return Err(anyhow!(
-                            "sandbox {}: annotation {}={} exceeds u32::MAX; \
-                             refusing to start (cold-boot would lose Continuation state)",
-                            id,
-                            crate::template::WORKLOAD_GENERATION_ANNOTATION,
-                            v
-                        )
-                        .into());
-                    }
-                    Err(_) => {
-                        return Err(anyhow!(
-                            "sandbox {}: annotation {}={:?} is not a valid u32; \
-                             refusing to start (cold-boot would lose Continuation state)",
-                            id,
-                            crate::template::WORKLOAD_GENERATION_ANNOTATION,
-                            s
-                        )
-                        .into());
-                    }
-                },
-            };
-            Some(WorkloadIdentity {
-                pod_uid: pod_uid.clone(),
-                generation,
-            })
-        } else {
-            None
-        };
-
-        Ok(SnapshotIntent {
-            explicit_type,
-            cont_identity,
-            template_id,
-            template_key,
-        })
     }
 
     fn environment_key(&self) -> TemplateKey {
@@ -327,6 +296,28 @@ where
             start.elapsed().as_secs_f64()
         );
 
+        // Rebuild pod_uid → sandbox_id reverse index from the recovered sandboxes.
+        // When multiple sandboxes share the same pod_uid (abnormal but possible after a
+        // crash mid-replace), keep the one with the latest created_at.
+        let mut uid_to_id: HashMap<String, (String, SystemTime)> = HashMap::new();
+        for (sandbox_id, sb_mutex) in self.sandboxes.read().await.iter() {
+            let sb = sb_mutex.lock().await;
+            if let Some(uid) = sandbox_pod_uid(&sb) {
+                let created_at = sb.data.created_at.unwrap_or(SystemTime::UNIX_EPOCH);
+                let newer = uid_to_id
+                    .get(&uid)
+                    .map(|(_, t)| created_at > *t)
+                    .unwrap_or(true);
+                if newer {
+                    uid_to_id.insert(uid, (sandbox_id.clone(), created_at));
+                }
+            }
+        }
+        let mut index = self.pod_uid_index.write().await;
+        for (uid, (sandbox_id, _)) in uid_to_id {
+            index.insert(uid, sandbox_id);
+        }
+
         // GC consumed template directories that were orphaned by a crash during sandbox deletion.
         // Any consumed-marker directory not referenced by a recovered sandbox is a leak.
         if let Some(pool) = &self.template_pool {
@@ -386,6 +377,9 @@ where
 #[derive(Default, Serialize, Deserialize)]
 pub(crate) struct RestoreMetadata {
     pub(crate) template_id: Option<String>,
+    /// User-facing snapshot name (TemplateKey::key) used to restore this sandbox.
+    /// Corresponds to `SandboxInfo.snapshot_name` in the gRPC API.
+    pub(crate) template_key: Option<String>,
     /// SnapshotType of the template this sandbox was restored from.
     pub(crate) template_snapshot_type: Option<SnapshotType>,
     pub(crate) lease_mode: Option<TemplateLeaseMode>,
@@ -421,14 +415,6 @@ pub struct KuasarSandbox<V: VM> {
     pub(crate) storage_policy: ContainerStoragePolicy,
     #[serde(default)]
     pub(crate) restore: RestoreMetadata,
-}
-
-/// Parsed snapshot-restore intent from a sandbox's pod annotations.
-struct SnapshotIntent {
-    explicit_type: Option<SnapshotType>,
-    cont_identity: Option<WorkloadIdentity>,
-    template_id: Option<String>,
-    template_key: Option<String>,
 }
 
 #[async_trait]
@@ -486,6 +472,17 @@ where
         sandbox.setup_sandbox_files().await?;
         self.hooks.post_create(&mut sandbox).await?;
         sandbox.dump().await?;
+        if let Some(uid) = sandbox_pod_uid(&sandbox) {
+            let mut index = self.pod_uid_index.write().await;
+            if let Some(old_id) = index.insert(uid.clone(), id.to_string()) {
+                if old_id != id {
+                    warn!(
+                        "pod_uid_index: pod_uid={} was mapped to {}, now replaced by {}",
+                        uid, old_id, id
+                    );
+                }
+            }
+        }
         self.sandboxes
             .write()
             .await
@@ -499,113 +496,41 @@ where
             if self.config.snapshot.enable_warmfork_restore
                 || self.config.snapshot.enable_continuation_restore
             {
-                let intent = self.parse_snapshot_intent(id).await?;
+                let intent = self.resolve_restore_intent(id).await?;
 
-                match intent.explicit_type {
-                    Some(SnapshotType::Continuation) => {
-                        if !self.config.snapshot.enable_continuation_restore {
-                            return Err(anyhow!(
-                                "sandbox {}: explicit snapshot-type=continuation requires \
-                                 enable_continuation_restore=true",
-                                id
-                            )
-                            .into());
+                match intent {
+                    crate::resolver::RestoreIntent::WarmFork {
+                        key,
+                        template_id: Some(tid),
+                    } => {
+                        info!(
+                            "sandbox {}: trying WarmFork snapshot (template_id={}, key={})",
+                            id, tid, key.key
+                        );
+                        return self.start_with_template_id(id, &tid, Some(&key.key)).await;
+                    }
+                    crate::resolver::RestoreIntent::WarmFork {
+                        key,
+                        template_id: None,
+                    } => {
+                        info!("sandbox {}: trying WarmFork snapshot (key={})", id, key.key);
+                        let result = self.start_with_template_key(id, &key).await;
+                        match result {
+                            Ok(()) => return Ok(()),
+                            Err(e) => info!(
+                                "sandbox {}: WarmFork snapshot miss ({}), falling back to environment snapshot",
+                                id, e
+                            ),
                         }
-                        let identity = intent.cont_identity.ok_or_else(|| {
-                            anyhow!(
-                                "sandbox {}: explicit snapshot-type=continuation requires \
-                                 kuasar.io/pod-uid",
-                                id
-                            )
-                        })?;
+                    }
+                    crate::resolver::RestoreIntent::Continuation { identity } => {
                         info!(
                             "sandbox {}: trying Continuation snapshot ({}/g{})",
                             id, identity.pod_uid, identity.generation
                         );
                         return self.start_with_continuation_snapshot(id, &identity).await;
                     }
-                    Some(SnapshotType::WarmFork) => {
-                        if !self.config.snapshot.enable_warmfork_restore {
-                            return Err(anyhow!(
-                                "sandbox {}: explicit snapshot-type=warm-fork requires \
-                                 enable_warmfork_restore=true",
-                                id
-                            )
-                            .into());
-                        }
-                        return match (
-                            intent.template_id.as_deref(),
-                            intent.template_key.as_deref(),
-                        ) {
-                            (None, None) => Err(anyhow!(
-                                "sandbox {}: explicit snapshot-type=warm-fork requires \
-                                 kuasar.io/template-key or kuasar.io/template-id",
-                                id
-                            )
-                            .into()),
-                            (Some(tid), key) => {
-                                info!(
-                                    "sandbox {}: trying WarmFork snapshot (template_id={}{})",
-                                    id,
-                                    tid,
-                                    key.map(|k| format!(", key={}", k)).unwrap_or_default()
-                                );
-                                self.start_with_template_id(id, tid, key).await
-                            }
-                            (None, Some(key_str)) => {
-                                let user_key = TemplateKey::user(key_str);
-                                info!(
-                                    "sandbox {}: trying WarmFork snapshot (key={})",
-                                    id, user_key.key
-                                );
-                                self.start_with_template_key(id, &user_key).await
-                            }
-                        };
-                    }
-                    _ => {} // Environment or no explicit type: fall through to implicit detection
-                }
-
-                // Continuation: mandatory when pod-uid annotation is present.
-                if let Some(identity) = intent.cont_identity {
-                    info!(
-                        "sandbox {}: trying Continuation snapshot ({}/g{})",
-                        id, identity.pod_uid, identity.generation
-                    );
-                    return self.start_with_continuation_snapshot(id, &identity).await;
-                }
-
-                // WarmFork annotations present: try WarmFork, fall back to environment on miss.
-                if intent.template_id.is_some() || intent.template_key.is_some() {
-                    let result = match (
-                        intent.template_id.as_deref(),
-                        intent.template_key.as_deref(),
-                    ) {
-                        (Some(tid), key) => {
-                            info!(
-                                "sandbox {}: trying WarmFork snapshot (template_id={}{})",
-                                id,
-                                tid,
-                                key.map(|k| format!(", key={}", k)).unwrap_or_default()
-                            );
-                            self.start_with_template_id(id, tid, key).await
-                        }
-                        (None, Some(key_str)) => {
-                            let user_key = TemplateKey::user(key_str);
-                            info!(
-                                "sandbox {}: trying WarmFork snapshot (key={})",
-                                id, user_key.key
-                            );
-                            self.start_with_template_key(id, &user_key).await
-                        }
-                        (None, None) => unreachable!(),
-                    };
-                    match result {
-                        Ok(()) => return Ok(()),
-                        Err(e) => info!(
-                            "sandbox {}: WarmFork snapshot miss ({}), falling back to environment snapshot",
-                            id, e
-                        ),
-                    }
+                    crate::resolver::RestoreIntent::None => {} // fall through to environment / cold-start
                 }
             }
 
@@ -789,6 +714,7 @@ where
             }
         }
         self.sandboxes.write().await.remove(id);
+        self.pod_uid_index.write().await.retain(|_, sid| sid != id);
         Ok(())
     }
 }
@@ -848,13 +774,11 @@ where
 
         self.hooks.pre_start(&mut sandbox).await?;
 
-        // Continuation preserves the original Pod IP and network identity — the operator
-        // migrates the network externally before calling start().  Creating new CNI/tap
-        // resources here would waste kernel resources and could conflict with that external
-        // migration.  Only Environment and WarmFork need a freshly prepared netns.
-        if !sandbox.data.netns.is_empty()
-            && !matches!(params.snapshot_type, SnapshotType::Continuation)
-        {
+        // Prepare a fresh network in the sandbox netns for all snapshot types that go through
+        // this (containerd) entry point.  The gRPC kuasar-ctl entry point (restore_sandbox_warm_fork /
+        // restore_sandbox_continuation in service/sandbox.rs) calls prepare_network() itself
+        // before calling KuasarSandbox::start_from_snapshot directly, so it never reaches here.
+        if !sandbox.data.netns.is_empty() {
             if let Err(e) = sandbox.prepare_network().await {
                 sandbox.destroy_network().await;
                 return Err(e);
@@ -980,6 +904,13 @@ where
 
     #[instrument(skip_all)]
     fn status(&self) -> Result<SandboxStatus> {
+        // Paused internally means CH is dead + snapshot on disk. containerd maps
+        // Paused→NOTREADY and triggers a stop loop every ~15s. Report Running(0)
+        // so containerd sees READY and leaves the sandbox alone. Internal code reads
+        // self.status directly and still sees the real Paused state.
+        if matches!(self.status, SandboxStatus::Paused) {
+            return Ok(SandboxStatus::Running(0));
+        }
         Ok(self.status.clone())
     }
 
@@ -1094,13 +1025,8 @@ where
 
         match src.snapshot_type {
             SnapshotType::WarmFork => {
-                // Hotplug tap network devices into the restored VM before injecting the task.
-                txn.set_phase(RestorePhase::HotplugNetwork);
-                if let Err(e) = self.vm.hotplug_pending_network().await {
-                    txn.rollback_vm(&mut self.vm).await;
-                    return Err(txn.fail(e));
-                }
-
+                // Network hotplug was already performed inside vm.restore(), before vm.resume(),
+                // so the guest never saw a missing device at its PCI slot.  No hotplug step here.
                 self.storages = self.remap_restored_storage_artifacts(src);
                 self.restore.orphan_container_ids = src.orphan_container_ids.clone();
 
@@ -1132,16 +1058,6 @@ where
                 }
             }
             SnapshotType::Continuation => {
-                // Network identity transfer is an external concern: the operator or CNI layer
-                // must route the original Pod IP to this node before calling start().  Kuasar
-                // trusts that the transfer is complete.  Existing TCP connections are not
-                // preserved; workloads must tolerate reconnect errors on previously-open sockets.
-                //
-                // Kuasar does NOT hotplug a new network namespace (the process resumes with its
-                // original network identity).  Kuasar does NOT call setup_sandbox() (the guest
-                // environment is already configured).  Kuasar does NOT reseed entropy (process
-                // state is preserved exactly).
-                //
                 // Storage: disk images were transferred via MovedExclusive (rename) into this
                 // sandbox's base_dir.  Update cleanup_paths so delete() can clean them up.
                 self.storages = self.remap_restored_storage_artifacts(src);
@@ -1151,22 +1067,30 @@ where
                 self.restore.orphan_container_ids = src.orphan_container_ids.clone();
 
                 txn.set_phase(RestorePhase::TransferNetworkIdentity);
-                info!(
-                    "sandbox {}: Continuation restore: network identity transfer is external; \
-                     assuming original Pod IP is already routable on this node",
-                    self.id
-                );
-                // Sync the guest clock to correct skew introduced by snapshot/restore latency.
-                self.sync_clock().await;
+                if self.network.is_some() {
+                    // Rebuild-network path (containerd cross-node migration OR kuasar-ctl gRPC
+                    // with caller-provided netns): prepare_network() created a fresh veth + tap
+                    // in the new pod netns; CNI assigned a new IP.  Push the new interface
+                    // config and routes into the guest so the VM's eth0 matches the new pod's
+                    // network identity.
+                    if let Err(e) = self.refresh_instance_identity().await {
+                        txn.rollback_vm(&mut self.vm).await;
+                        return Err(txn.fail(e));
+                    }
+                } else {
+                    // kuasar-ctl path (same-node restore): original tap was reopened in the
+                    // preserved netns; the operator migrates the original Pod IP externally.
+                    // Kuasar trusts that the original IP is already routable on this node.
+                    info!(
+                        "sandbox {}: Continuation restore: no network refresh (original IP \
+                         preserved externally)",
+                        self.id
+                    );
+                    self.sync_clock().await;
+                }
             }
             SnapshotType::Environment => {
-                // Hotplug tap devices first so the guest can see them during setup_sandbox.
-                txn.set_phase(RestorePhase::HotplugNetwork);
-                if let Err(e) = self.vm.hotplug_pending_network().await {
-                    txn.rollback_vm(&mut self.vm).await;
-                    return Err(txn.fail(e));
-                }
-
+                // Network hotplug was already performed inside vm.restore(), before vm.resume().
                 if self.storage_policy.storage_backend == VIRTIO_BLK {
                     txn.set_phase(RestorePhase::PushSandboxFiles);
                     if let Err(e) = self.push_sandbox_files().await {
@@ -1246,6 +1170,7 @@ where
                 if !interfaces.is_empty() {
                     let mut req = UpdateInterfacesRequest::new();
                     req.interfaces = interfaces;
+
                     client
                         .update_interfaces(with_timeout(timeout_ns), &req)
                         .await
@@ -1419,10 +1344,10 @@ where
                 self.destroy_network().await;
                 return Ok(());
             }
-            _ => {
-                return Err(
-                    anyhow!("sandbox {} is in {:?} while stop", self.id, self.status).into(),
-                );
+            SandboxStatus::Paused => {
+                // CH process was already killed during pause_sandbox; vm.stop handles ESRCH
+                // gracefully.  Treat like Created so the rest of the cleanup runs.
+                force = true;
             }
         }
         let container_ids: Vec<String> = self.containers.keys().map(|k| k.to_string()).collect();
@@ -1438,8 +1363,16 @@ where
             }
         }
 
+        let was_paused = matches!(self.status, SandboxStatus::Paused);
         self.vm.stop(force).await?;
         self.destroy_network().await;
+        if was_paused {
+            // The monitor exited early when it saw Paused (expected CH death).
+            // Set Stopped here so the wait() RPC can unblock and containerd's
+            // stop_sandbox call completes cleanly.
+            self.status = SandboxStatus::Stopped(0, 0);
+            self.exit_signal.signal();
+        }
         Ok(())
     }
 
@@ -1882,6 +1815,10 @@ where
             queue: vcpu,
         };
         let network = Network::new(network_config).await?;
+        // Sync vm.netns so CH is launched inside the sandbox netns.  For the containerd path
+        // this is already correct (vm was created with the right netns); for the gRPC kuasar-ctl
+        // path the VM slot is created before the netns is known, so we update it here.
+        self.vm.set_netns(&self.data.netns);
         network.attach_to(self).await?;
         Ok(())
     }
@@ -1893,6 +1830,64 @@ where
         if let Some(mut network) = self.network.take() {
             network.destroy().await;
         }
+    }
+
+    /// Re-open existing IFF_PERSIST tap devices and register them as pending hotplug entries
+    /// so that `vm.restore` can pass fresh FDs to CH via `net_fds`.
+    ///
+    /// Called for Continuation restore: the tap devices survive CH process death but CH's
+    /// `Tap::open_named` may omit `IFF_VNET_HDR`, causing a frame-format mismatch that
+    /// breaks ARP in both directions.  Re-opening through Kuasar (with the correct flags)
+    /// and supplying the FDs via `net_fds` forces CH to use `from_tap_fds` instead.
+    pub(crate) async fn reopen_continuation_taps(
+        &mut self,
+        snapshot_config: &std::path::Path,
+    ) -> Result<()> {
+        let dev_configs =
+            crate::cloud_hypervisor::snapshot::read_net_device_configs(snapshot_config)
+                .await
+                .map_err(|e| Error::Other(anyhow!("read net device configs: {}", e)))?;
+        let netns = self.data.netns.clone();
+        // Propagate the netns to the VM so CH is launched inside the sandbox netns.
+        // Required when the VM was created without a netns (e.g. via the gRPC slot path)
+        // but the tap devices live in the original pod's preserved netns.
+        self.vm.set_netns(&netns);
+        for dev in dev_configs {
+            let link_index: u32 = dev
+                .id
+                .strip_prefix("intf-")
+                .and_then(|s| s.parse().ok())
+                .ok_or_else(|| {
+                    Error::Other(anyhow!(
+                        "continuation tap reopen: cannot parse link index from id '{}'",
+                        dev.id
+                    ))
+                })?;
+            let tap_name = format!("tap_kua_{}", link_index);
+            let num_fds = (dev.num_queues / 2).max(1);
+            let fds = reopen_tap_in_netns(&netns, &tap_name, num_fds)
+                .await
+                .map_err(|e| {
+                    Error::Other(anyhow!(
+                        "continuation tap reopen: failed to reopen {}: {}",
+                        tap_name,
+                        e
+                    ))
+                })?;
+            self.vm
+                .attach(DeviceInfo::Tap(TapDeviceInfo {
+                    id: dev.id,
+                    index: link_index,
+                    name: tap_name,
+                    mac_address: dev.mac,
+                    fds,
+                }))
+                .await
+                .map_err(|e| {
+                    Error::Other(anyhow!("continuation tap reopen: vm.attach failed: {}", e))
+                })?;
+        }
+        Ok(())
     }
 
     #[instrument(skip_all)]
@@ -1979,6 +1974,26 @@ fn parse_dnsoptions(servers: &[String], searches: &[String], options: &[String])
     }
 
     resolv_content
+}
+
+/// Extract the pod UID from a sandbox, trying CRI metadata first then the explicit label.
+/// Returns `None` for sandboxes with no associated pod UID (e.g. bare template slots without uid).
+pub(crate) fn sandbox_pod_uid<V: VM>(sb: &KuasarSandbox<V>) -> Option<String> {
+    if let Some(uid) = sb
+        .data
+        .config
+        .as_ref()
+        .and_then(|cfg| cfg.metadata.as_ref())
+        .map(|m| m.uid.as_str())
+        .filter(|u| !u.is_empty())
+    {
+        return Some(uid.to_string());
+    }
+    sb.data
+        .labels
+        .get(crate::template::POD_UID_ANNOTATION)
+        .filter(|u| !u.is_empty())
+        .cloned()
 }
 
 pub fn has_shared_pid_namespace(data: &SandboxData) -> bool {
@@ -2168,6 +2183,23 @@ impl<'de> Deserialize<'de> for MemoryRestoreMode {
     }
 }
 
+/// One configurable annotation-to-restore-intent mapping rule.
+///
+/// Used in `SnapshotConfig::annotation_resolvers` to support CRI-path integrations
+/// that use annotation keys outside `kuasar.io/*` without code changes.
+///
+/// TOML example:
+/// ```toml
+/// [[sandbox.snapshot.annotation_resolvers]]
+/// snapshot_key_annotation = "agentcube.volcano.sh/snapshot-key"
+/// ```
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AnnotationResolverConfig {
+    /// Pod annotation key whose value is the WarmFork template key.
+    pub snapshot_key_annotation: String,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SnapshotConfig {
@@ -2190,6 +2222,11 @@ pub struct SnapshotConfig {
     pub max_concurrent_restores: usize,
     pub fallback_to_fresh_boot: bool,
     pub default_memory_restore_mode: MemoryRestoreMode,
+    /// Configurable annotation-to-restore-intent mapping rules for CRI-path integrations
+    /// that use annotation keys outside `kuasar.io/*`.
+    /// Rules are evaluated in order; the first matching rule wins.
+    #[serde(default)]
+    pub annotation_resolvers: Vec<AnnotationResolverConfig>,
 }
 
 const DEFAULT_MAX_CONCURRENT_RESTORES: usize = 4;
@@ -2203,6 +2240,7 @@ impl Default for SnapshotConfig {
             max_concurrent_restores: DEFAULT_MAX_CONCURRENT_RESTORES,
             fallback_to_fresh_boot: true,
             default_memory_restore_mode: MemoryRestoreMode::Copy,
+            annotation_resolvers: Vec::new(),
         }
     }
 }
@@ -2297,6 +2335,14 @@ pub(crate) fn monitor<V: VM + 'static>(sandbox_mutex: Arc<Mutex<KuasarSandbox<V>
             rx.changed().await.unwrap_or_default();
             let (code, ts) = *rx.borrow();
             let mut sandbox = sandbox_mutex.lock().await;
+            if matches!(sandbox.status, SandboxStatus::Paused) {
+                info!(
+                    "sandbox {} VM exited while paused (expected after pause_sandbox); \
+                     skipping Stopped transition",
+                    sandbox.id
+                );
+                return;
+            }
             info!("monitor sandbox {} terminated", sandbox.id);
             sandbox.status = SandboxStatus::Stopped(code, ts);
             sandbox.exit_signal.signal();
@@ -2309,6 +2355,13 @@ pub(crate) fn monitor<V: VM + 'static>(sandbox_mutex: Arc<Mutex<KuasarSandbox<V>
                 .unwrap_or_default();
         } else {
             let mut sandbox = sandbox_mutex.lock().await;
+            if matches!(sandbox.status, SandboxStatus::Paused) {
+                info!(
+                    "sandbox {} VM already exited while paused; skipping Stopped transition",
+                    sandbox.id
+                );
+                return;
+            }
             info!("sandbox {} already terminated before monit it", sandbox.id);
             sandbox.status = SandboxStatus::Stopped(code, ts);
             sandbox.exit_signal.signal();
@@ -2649,6 +2702,7 @@ where
             continuation_store: self.continuation_store.clone(),
             snapshot_config: self.config.snapshot.clone(),
             sandbox_base_dir: dir.into(),
+            pod_uid_index: self.pod_uid_index.clone(),
         }
     }
 
@@ -2759,41 +2813,46 @@ where
         create_template_worker(Arc::clone(&self.factory), pool, req).await
     }
 
-    /// Try to restore a sandbox from the ContinuationStore.
-    ///
-    /// Acquires the entry for `identity`, validates snapshot files, then restores
-    /// the VM. Returns `Err` on store miss, missing files, or restore failure so
-    /// the caller can fall back to a cold-start.
+    /// Try to restore a sandbox from the ContinuationStore by workload identity.
     pub async fn start_with_continuation_snapshot(
         &self,
         id: &str,
         identity: &WorkloadIdentity,
     ) -> Result<()> {
-        let store = match &self.continuation_store {
-            Some(s) => s.clone(),
-            None => {
-                return Err(anyhow!(
-                    "sandbox {}: continuation store not initialized \
-                     (set enable_continuation_restore=true in config)",
-                    id
-                )
-                .into());
-            }
-        };
+        let store = self.continuation_store_or_err(id)?;
+        let label = format!("{}/g{}", identity.pod_uid, identity.generation);
+        let lease = store.acquire(identity).await.ok_or_else(|| {
+            anyhow!(
+                "sandbox {}: no continuation snapshot found for {}",
+                id,
+                label
+            )
+        })?;
+        self.restore_from_continuation_lease(id, lease, &label)
+            .await
+    }
 
-        let lease: ContinuationLease = match store.acquire(identity).await {
-            Some(l) => l,
-            None => {
-                return Err(anyhow!(
-                    "sandbox {}: no continuation snapshot found for {}/g{}",
-                    id,
-                    identity.pod_uid,
-                    identity.generation
-                )
-                .into());
-            }
-        };
+    fn continuation_store_or_err(&self, id: &str) -> Result<Arc<ContinuationStore>> {
+        self.continuation_store.clone().ok_or_else(|| {
+            anyhow!(
+                "sandbox {}: continuation store not initialized \
+                 (set enable_continuation_restore=true in config)",
+                id
+            )
+            .into()
+        })
+    }
 
+    /// Shared restore logic after a `ContinuationLease` has been acquired.
+    ///
+    /// `label` is a human-readable identifier used only in log messages
+    /// (e.g. `"uid-abc/g1"` or `"name='my-snap'"`).
+    async fn restore_from_continuation_lease(
+        &self,
+        id: &str,
+        lease: ContinuationLease,
+        label: &str,
+    ) -> Result<()> {
         let tmpl = lease.template()?.clone();
         let template_id = tmpl.id.clone();
 
@@ -2812,8 +2871,8 @@ where
             && tokio::fs::metadata(&tmpl.pmem_path).await.is_ok();
         if !snapshot_ok {
             warn!(
-                "sandbox {}: continuation snapshot files missing for {}/g{} (template {}), releasing",
-                id, identity.pod_uid, identity.generation, tmpl.id
+                "sandbox {}: continuation snapshot files missing for {} (template {}), releasing",
+                id, label, tmpl.id
             );
             if let Some(sb_mutex) = self.sandboxes.read().await.get(id).cloned() {
                 let mut sb = sb_mutex.lock().await;
@@ -2821,10 +2880,9 @@ where
             }
             lease.fail().await;
             return Err(anyhow!(
-                "sandbox {}: continuation snapshot files missing for {}/g{}",
+                "sandbox {}: continuation snapshot files missing for {}",
                 id,
-                identity.pod_uid,
-                identity.generation
+                label
             )
             .into());
         }
@@ -2838,8 +2896,8 @@ where
             .unwrap_or(false);
 
         info!(
-            "continuation store hit for sandbox {} ({}/g{}, template {}), restoring",
-            id, identity.pod_uid, identity.generation, template_id
+            "continuation store hit for sandbox {} ({}, template {}), restoring",
+            id, label, template_id
         );
 
         match self
@@ -2864,16 +2922,16 @@ where
             Ok(()) => {
                 let ms = restore_start.elapsed().as_millis() as u64;
                 info!(
-                    "sandbox {} restored from continuation snapshot {}/g{} (template {}) in {}ms",
-                    id, identity.pod_uid, identity.generation, template_id, ms
+                    "sandbox {} restored from continuation snapshot {} (template {}) in {}ms",
+                    id, label, template_id, ms
                 );
                 lease.complete().await;
                 Ok(())
             }
             Err(e) => {
                 warn!(
-                    "sandbox {}: continuation restore failed ({}), releasing snapshot",
-                    id, e
+                    "sandbox {}: continuation restore failed for {} ({}), releasing snapshot",
+                    id, label, e
                 );
                 lease.fail().await;
                 Err(e)
@@ -3356,7 +3414,10 @@ mod tests {
             device::{BusType, DeviceInfo},
             sandbox::{KuasarSandbox, KuasarSandboxer, RestoreMetadata, SandboxConfig},
             storage::device_graph::DeviceGraph,
-            vm::{ContainerStoragePolicy, Hooks, Pids, Recoverable, VMFactory, VcpuThreads, VM},
+            vm::{
+                ContainerStoragePolicy, Hooks, Pids, Recoverable, Snapshottable, VMFactory,
+                VcpuThreads, VM,
+            },
         };
 
         #[derive(Default, Serialize, Deserialize)]
@@ -3428,6 +3489,8 @@ mod tests {
                 Ok(())
             }
         }
+
+        impl Snapshottable for MockVM {}
 
         struct MockFactory;
 
@@ -3892,8 +3955,8 @@ mod tests {
                 generation: 2,
             };
             let key = TemplateKey::from_workload_identity(&wi.pod_uid, wi.generation);
-            assert_eq!(key.key, "abc-def:2");
-            assert_eq!(key.key, "abc-def:2");
+            assert_eq!(key.key, "abc-def/g2");
+            assert_eq!(key.key, "abc-def/g2");
         }
 
         /// Continuation pod annotations for restore lookup.
@@ -3921,27 +3984,22 @@ mod tests {
             let pod_uid = annotations
                 .get(crate::template::POD_UID_ANNOTATION)
                 .unwrap();
-            let restart: u32 = annotations
+            let restart: u64 = annotations
                 .get(crate::template::WORKLOAD_GENERATION_ANNOTATION)
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);
             let key = TemplateKey::from_workload_identity(pod_uid, restart);
-            assert_eq!(key.key, "pod-xyz:3");
+            assert_eq!(key.key, "pod-xyz/g3");
         }
 
         /// Missing generation annotation defaults to 0.
         #[test]
         fn test_cont_generation_defaults_to_zero_when_absent() {
             let annotations: HashMap<String, String> = HashMap::new();
-            // Absent annotation → parse returns None → default 0.
-            let restart: u32 =
+            let restart: u64 =
                 match annotations.get(crate::template::WORKLOAD_GENERATION_ANNOTATION) {
                     None => 0,
-                    Some(s) => s
-                        .parse::<u64>()
-                        .ok()
-                        .filter(|&v| v <= u32::MAX as u64)
-                        .unwrap_or(0) as u32,
+                    Some(s) => s.parse::<u64>().unwrap_or(0),
                 };
             assert_eq!(restart, 0);
         }
@@ -3951,12 +4009,10 @@ mod tests {
         /// silently discard the workload state the operator intended to continue.
         #[test]
         fn test_cont_generation_malformed_produces_hard_error() {
-            // Simulate the production parse: non-numeric → Err (hard failure).
             let counter_str = "not-a-number";
-            let result: Result<u32, String> = match counter_str.parse::<u64>() {
-                Ok(v) if v <= u32::MAX as u64 => Ok(v as u32),
-                Ok(v) => Err(format!("{} exceeds u32::MAX", v)),
-                Err(_) => Err(format!("{:?} is not a valid u32", counter_str)),
+            let result: Result<u64, String> = match counter_str.parse::<u64>() {
+                Ok(v) => Ok(v),
+                Err(_) => Err(format!("{:?} is not a valid u64", counter_str)),
             };
             assert!(
                 result.is_err(),
@@ -3964,19 +4020,15 @@ mod tests {
             );
         }
 
-        /// An out-of-range generation (> u32::MAX) must also produce a hard error.
+        /// u64::MAX is a valid generation (generation is now u64).
         #[test]
-        fn test_cont_generation_overflow_produces_hard_error() {
-            let counter_str = (u32::MAX as u64 + 1).to_string();
-            let result: Result<u32, String> = match counter_str.parse::<u64>() {
-                Ok(v) if v <= u32::MAX as u64 => Ok(v as u32),
-                Ok(v) => Err(format!("{} exceeds u32::MAX", v)),
-                Err(_) => Err(format!("{:?} is not a valid u32", counter_str)),
+        fn test_cont_generation_u64_max_is_valid() {
+            let counter_str = u64::MAX.to_string();
+            let result: Result<u64, String> = match counter_str.parse::<u64>() {
+                Ok(v) => Ok(v),
+                Err(_) => Err(format!("{:?} is not a valid u64", counter_str)),
             };
-            assert!(
-                result.is_err(),
-                "generation > u32::MAX must produce an error, not be truncated"
-            );
+            assert_eq!(result, Ok(u64::MAX));
         }
     }
 

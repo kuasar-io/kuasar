@@ -5013,6 +5013,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
+name = "vmm-api"
+version = "0.1.0"
+dependencies = [
+ "prost 0.10.4",
+ "tonic 0.7.2",
+ "tonic-build",
+]
+
+[[package]]
 name = "vmm-client"
 version = "0.1.0"
 dependencies = [
@@ -5020,6 +5029,10 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tonic 0.7.2",
+ "tower",
+ "vmm-api",
+ "vmm-common",
 ]
 
 [[package]]
@@ -5043,7 +5056,7 @@ dependencies = [
  "signal-hook-tokio",
  "temp-dir",
  "tokio",
- "tonic-build",
+ "tonic 0.7.2",
  "tracing",
  "tracing-log 0.2.0",
  "tracing-opentelemetry",
@@ -5091,11 +5104,15 @@ dependencies = [
  "temp-dir",
  "time",
  "tokio",
+ "tokio-stream",
  "toml 0.5.11",
+ "tonic 0.7.2",
+ "tower",
  "tracing",
  "ttrpc",
  "unshare",
  "uuid",
+ "vmm-api",
  "vmm-common",
 ]
 

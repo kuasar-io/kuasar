@@ -15,7 +15,13 @@ limitations under the License.
 */
 
 use sandbox_derive::CmdLineParams;
-use serde_derive::Serialize;
+use serde_derive::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ImageType {
+    Raw,
+    Qcow2,
+}
 
 #[derive(CmdLineParams, Debug, Clone)]
 pub struct Disk {
@@ -60,4 +66,10 @@ pub struct DiskConfig {
     pub vhost_user: bool,
     pub vhost_socket: Option<String>,
     pub id: String,
+    /// Explicitly declare the image format so Cloud Hypervisor does not
+    /// autodetect it.  Without this field CH defaults to ImageType::Unknown,
+    /// autodetects "raw", and disables sector-0 writes — causing ext4 to fail
+    /// when it tries to update the superblock on first mount.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_type: Option<ImageType>,
 }

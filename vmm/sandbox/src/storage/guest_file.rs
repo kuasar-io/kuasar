@@ -72,10 +72,17 @@ impl<'a> GuestFileInjector<'a> {
         let qparent = shell_quote(&parent);
         let qdest = shell_quote(dest_path);
         let mut req = ExecVMProcessRequest::new();
-        req.command = format!(
-            "mkdir -p {} && cat > {} && chmod {:o} {}",
-            qparent, qdest, mode, qdest
-        );
+        req.command = if content.is_empty() {
+            format!(
+                "mkdir -p {} && : > {} && chmod {:o} {}",
+                qparent, qdest, mode, qdest
+            )
+        } else {
+            format!(
+                "mkdir -p {} && cat > {} && chmod {:o} {}",
+                qparent, qdest, mode, qdest
+            )
+        };
         req.stdin = content;
         self.exec_request(req)
             .await

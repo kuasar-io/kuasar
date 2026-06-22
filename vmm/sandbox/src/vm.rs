@@ -152,6 +152,25 @@ pub trait VM: Serialize + Sync + Send {
     async fn vcpus(&self) -> Result<VcpuThreads>;
     fn pids(&self) -> Pids;
 
+    /// Pause VM vCPUs. The VMM process stays alive; network devices are untouched.
+    /// Default: returns an error (implementations that support pause override this).
+    async fn pause(&mut self) -> Result<()> {
+        Err(anyhow!("pause not supported for this VM type").into())
+    }
+
+    /// Resume a previously paused VM.
+    /// Default: returns an error (implementations that support resume override this).
+    async fn resume(&mut self) -> Result<()> {
+        Err(anyhow!("resume not supported for this VM type").into())
+    }
+
+    /// Update the network namespace path used when launching the VMM process.
+    ///
+    /// Called before restore when the sandbox netns is known but the VM was created without
+    /// one (e.g. via the gRPC service slot path that starts from SandboxData::default()).
+    /// Default: no-op for VM types that do not use a per-process netns.
+    fn set_netns(&mut self, _netns: &str) {}
+
     /// Hotplug tap network devices that were registered via `attach()` into a running
     /// (restored) VM. Called after `vm.restore()` + `vm.resume()` for `SnapshotType::Environment`
     /// restores so the guest can see its network interfaces before `setup_sandbox()` runs.

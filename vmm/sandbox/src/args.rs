@@ -57,6 +57,14 @@ pub struct Args {
         default_value = "/run/vmm-sandboxer-admin.sock"
     )]
     pub admin_listen: String,
+
+    /// Address for sandboxer's gRPC service
+    #[arg(
+        long,
+        value_name = "FILE",
+        default_value = "/run/vmm-sandboxer-service.sock"
+    )]
+    pub grpc_listen: String,
 }
 
 #[cfg(test)]
@@ -73,6 +81,7 @@ mod tests {
         assert_eq!(args.dir, "/run/kuasar-vmm");
         assert_eq!(args.listen, "/run/vmm-sandboxer.sock");
         assert_eq!(args.admin_listen, "/run/vmm-sandboxer-admin.sock");
+        assert_eq!(args.grpc_listen, "/run/vmm-sandboxer-service.sock");
         assert!(args.log_level.is_none());
     }
 }

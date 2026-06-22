@@ -34,15 +34,16 @@ limitations under the License.
 //! let status = TemplateApi::new(sock).pool_status().await?;
 //! println!("{}", serde_json::to_string_pretty(&status.0)?);
 //!
-//! let result = SandboxApi::new(sock)
-//!     .run_warm_fork(Some("my-pool-key"), None)
-//!     .await?;
-//! println!("sandbox {} started", result.sandbox_id);
+//! let sandboxes = SandboxApi::new(sock).list().await?;
+//! for sb in sandboxes {
+//!     println!("sandbox {}: {}", sb.sandbox_id, sb.status);
+//! }
 //! # Ok(())
 //! # }
 //! ```
 
 pub mod sandbox;
+pub mod snapshot;
 pub mod template;
 
 mod client;

@@ -1,0 +1,12 @@
+[package]
+name = "vmm-api"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+
+[dependencies]
+prost = "0.10"
+tonic = { version = "0.7", features = ["transport"] }
+
+[build-dependencies]
+tonic-build = "0.7.2"

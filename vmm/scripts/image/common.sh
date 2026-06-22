@@ -16,7 +16,7 @@
 make_vmm_task() {
     local repo_dir="$1"
 
-    yum install -y cmake make gcc-c++ wget
+    yum install -y cmake make gcc-c++ wget protobuf-compiler
 
     # update cert file under internal proxy scenario
     if [ -f "${cert_file_path}" ]; then

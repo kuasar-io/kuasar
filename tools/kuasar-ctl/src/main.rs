@@ -21,11 +21,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 use tokio::time::timeout as tokio_timeout;
-use vmm_client::{sandbox::SandboxApi, template::TemplateApi};
+use vmm_client::{sandbox::SandboxApi, snapshot::SnapshotApi, template::TemplateApi};
 
 mod sandbox;
 
 const DEFAULT_ADMIN_SOCK: &str = "/run/vmm-sandboxer-admin.sock";
+const DEFAULT_GRPC_SOCK: &str = "/run/vmm-sandboxer-service.sock";
 
 const EXIT_MARKER: &str = "__KSR_EXIT__";
 const INTERRUPTED_EXIT_CODE: i32 = 130;
@@ -40,6 +41,11 @@ struct Cli {
 
 #[derive(clap::Subcommand)]
 enum Commands {
+    /// Manage sandbox snapshots via the gRPC snapshot service
+    Snapshot {
+        #[command(subcommand)]
+        action: SnapshotAction,
+    },
     /// Execute a command in a Cloud Hypervisor guest via debug console (hvsock)
     Exec {
         /// Sandbox ID
@@ -54,12 +60,12 @@ enum Commands {
         #[arg(short = 't', long = "timeout")]
         timeout: Option<u64>,
     },
-    /// Manage VM template snapshots in the template pool
+    /// Inspect templates in the template pool
     Template {
         #[command(subcommand)]
         action: TemplateAction,
     },
-    /// Manage sandboxes via the admin socket
+    /// Manage sandbox instances via the gRPC snapshot service
     Sandbox {
         #[command(subcommand)]
         action: SandboxAction,
@@ -73,35 +79,6 @@ enum Commands {
 
 #[derive(clap::Subcommand)]
 enum TemplateAction {
-    /// Create a container snapshot template from a running sandbox.
-    ///
-    /// With --sandbox <id>: the running sandbox's VM is paused, snapshotted, and
-    /// immediately resumed so the original container keeps running.
-    ///
-    /// Note: bare-VM snapshots are managed automatically by the sandboxer and
-    /// cannot be created via this command.
-    Create {
-        /// Admin socket of the running vmm-sandboxer
-        #[arg(long, default_value = DEFAULT_ADMIN_SOCK)]
-        admin_sock: PathBuf,
-        /// Sandbox ID to snapshot
-        #[arg(long)]
-        sandbox_id: String,
-        /// Snapshot type: "warm_fork" (default) or "continuation"
-        #[arg(long, default_value = "warm_fork")]
-        snapshot_type: String,
-        /// Template pool key — required for warm_fork; ignored for continuation
-        /// (key is auto-derived from pod_uid). Pods with
-        /// `kuasar.io/template-key=<key>` will be matched to this template.
-        #[arg(long)]
-        key: Option<String>,
-        /// Pod UID — required for continuation (kubectl get pod -o jsonpath='{.metadata.uid}')
-        #[arg(long)]
-        pod_uid: Option<String>,
-        /// Workload generation — continuation only; defaults to 0
-        #[arg(long, default_value_t = 0)]
-        generation: u32,
-    },
     /// List available templates.
     List {
         /// Admin socket of the running vmm-sandboxer
@@ -128,91 +105,116 @@ enum PoolAction {
         admin_sock: PathBuf,
     },
     /// Force a pool refill for environment templates up to target_depth.
+    ///
+    /// WarmFork and Continuation snapshots are created via 'snapshot create'.
     Refill {
         /// Admin socket of the running vmm-sandboxer
         #[arg(long, default_value = DEFAULT_ADMIN_SOCK)]
         admin_sock: PathBuf,
-        /// Template kind to refill: only "environment" is supported (required)
-        #[arg(long)]
-        kind: String,
         /// Target pool depth after refill
         #[arg(long)]
         target_depth: usize,
     },
-    /// Remove a single template from the pool by ID.
+    /// Remove a single environment template from the pool by ID.
     ///
-    /// Both --kind and --template-id are required. --kind is a safety cross-check
-    /// against the template's actual type and prevents accidental deletion.
+    /// WarmFork and Continuation snapshots are removed via 'snapshot delete'.
     Gc {
         /// Admin socket of the running vmm-sandboxer
         #[arg(long, default_value = DEFAULT_ADMIN_SOCK)]
         admin_sock: PathBuf,
-        /// Template kind: "environment" or "warm_fork" (required)
-        #[arg(long)]
-        kind: String,
-        /// Template ID to remove (required)
+        /// Template ID to remove
         #[arg(long)]
         template_id: String,
     },
 }
 
 #[derive(clap::Subcommand)]
-enum SandboxAction {
-    /// List all sandboxes known to the sandboxer.
-    List {
-        /// Admin socket of the running vmm-sandboxer
-        #[arg(long, default_value = DEFAULT_ADMIN_SOCK)]
-        admin_sock: PathBuf,
+enum SnapshotAction {
+    /// Create a snapshot from a running pod.
+    Create {
+        /// gRPC socket of the snapshot service
+        #[arg(long, default_value = DEFAULT_GRPC_SOCK)]
+        grpc_sock: PathBuf,
+        /// Logical snapshot name (idempotency key).
+        /// Optional in continuation mode: omit to auto-derive from pod_uid + generation.
+        /// Required in warm_fork mode.
+        #[arg(long)]
+        name: Option<String>,
+        /// Kubernetes Pod UID of the running pod to snapshot
+        #[arg(long)]
+        pod_uid: String,
+        /// Snapshot mode: "warm_fork" (default) or "continuation"
+        #[arg(long, default_value = "warm_fork")]
+        mode: String,
+        /// Workload generation — continuation only (default 0)
+        #[arg(long)]
+        generation: Option<u64>,
     },
-    /// Get details of a specific sandbox.
+    /// Delete a snapshot by its snapshot ID.
+    Delete {
+        #[arg(long, default_value = DEFAULT_GRPC_SOCK)]
+        grpc_sock: PathBuf,
+        /// Snapshot name to delete
+        #[arg(long)]
+        snapshot_name: String,
+    },
+    /// List all snapshots, optionally filtered by mode.
+    List {
+        #[arg(long, default_value = DEFAULT_GRPC_SOCK)]
+        grpc_sock: PathBuf,
+        /// Filter by mode: "warm_fork" or "continuation" (omit for all)
+        #[arg(long)]
+        mode: Option<String>,
+    },
+    /// Get details of a specific snapshot by name.
     Get {
-        /// Admin socket of the running vmm-sandboxer
-        #[arg(long, default_value = DEFAULT_ADMIN_SOCK)]
-        admin_sock: PathBuf,
-        /// Sandbox ID to query
+        #[arg(long, default_value = DEFAULT_GRPC_SOCK)]
+        grpc_sock: PathBuf,
+        /// Snapshot name to query
+        #[arg(long)]
+        name: String,
+    },
+    /// Check the health of the snapshot service.
+    Probe {
+        #[arg(long, default_value = DEFAULT_GRPC_SOCK)]
+        grpc_sock: PathBuf,
+    },
+    /// Show plugin name and version.
+    Info {
+        #[arg(long, default_value = DEFAULT_GRPC_SOCK)]
+        grpc_sock: PathBuf,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum SandboxAction {
+    /// Checkpoint a running sandbox to disk and stop the CH process.
+    /// Network state (tap, TC rules, netns) is preserved; use 'resume' to restore.
+    Pause {
+        #[arg(long, default_value = DEFAULT_GRPC_SOCK)]
+        grpc_sock: PathBuf,
+        /// Sandbox ID to pause
         #[arg(long)]
         id: String,
     },
-    /// Run a new sandbox from a template snapshot (create slot + restore in one step).
-    ///
-    /// The sandboxer auto-creates the sandbox slot and restores the VM state from the template.
-    /// The assigned sandbox ID is printed to stdout on success.
-    ///
-    /// Valid combinations per snapshot type:
-    ///
-    ///   warm_fork    --template-key <key>            (latest template matching this key)
-    ///                --template-id <id>              (specific template by ID)
-    ///                --template-key <key> --template-id <id>  (both must match)
-    ///   continuation --pod-uid <uid> [--generation <n>]
-    Run {
-        /// Admin socket of the running vmm-sandboxer
-        #[arg(long, default_value = DEFAULT_ADMIN_SOCK)]
-        admin_sock: PathBuf,
-        /// Snapshot type: "warm_fork" or "continuation" (required)
+    /// Resume a previously paused sandbox VM.
+    Resume {
+        #[arg(long, default_value = DEFAULT_GRPC_SOCK)]
+        grpc_sock: PathBuf,
+        /// Sandbox ID to resume
         #[arg(long)]
-        snapshot_type: String,
-        /// warm_fork: pin to a specific template by ID (can be combined with --template-key).
-        #[arg(long)]
-        template_id: Option<String>,
-        /// warm_fork: pool key — restore the latest template matching this key
-        #[arg(long)]
-        template_key: Option<String>,
-        /// Continuation: pod UID (kubectl get pod -o jsonpath='{.metadata.uid}')
-        #[arg(long)]
-        pod_uid: Option<String>,
-        /// Continuation: workload generation (default 0)
-        #[arg(long)]
-        generation: Option<u32>,
+        id: String,
     },
-    /// Destroy a running sandbox: stop the VM, release the template lease, and delete all files.
-    ///
-    /// Works for sandboxes created by `sandbox run` as well as containerd-managed sandboxes
-    /// that need to be cleaned up via the admin socket.
-    Destroy {
-        /// Admin socket of the running vmm-sandboxer
-        #[arg(long, default_value = DEFAULT_ADMIN_SOCK)]
-        admin_sock: PathBuf,
-        /// Sandbox ID to destroy
+    /// List all sandbox instances on this node.
+    List {
+        #[arg(long, default_value = DEFAULT_GRPC_SOCK)]
+        grpc_sock: PathBuf,
+    },
+    /// Get details of a specific sandbox.
+    Get {
+        #[arg(long, default_value = DEFAULT_GRPC_SOCK)]
+        grpc_sock: PathBuf,
+        /// Sandbox ID to query
         #[arg(long)]
         id: String,
     },
@@ -240,139 +242,141 @@ async fn run() -> Result<i32> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Template {
+        Commands::Snapshot {
             action:
-                TemplateAction::Create {
-                    admin_sock,
-                    sandbox_id,
-                    snapshot_type,
-                    key,
+                SnapshotAction::Create {
+                    grpc_sock,
+                    name,
                     pod_uid,
+                    mode,
                     generation,
                 },
         } => {
-            match snapshot_type.as_str() {
-                "warm_fork" => {
-                    let k = key.ok_or_else(|| {
-                        anyhow!("--key is required for --snapshot-type warm_fork")
-                    })?;
-                    let info = TemplateApi::new(&admin_sock)
-                        .create_from_sandbox(&sandbox_id, &k)
-                        .await?;
-                    println!(
-                        "template {} created from sandbox {} (key={})",
-                        info.template_id, sandbox_id, info.key
-                    );
-                }
-                "continuation" => {
-                    let uid = pod_uid.ok_or_else(|| {
-                        anyhow!("--pod-uid is required for --snapshot-type continuation")
-                    })?;
-                    let info = TemplateApi::new(&admin_sock)
-                        .create_continuation_from_sandbox(&sandbox_id, &uid, generation)
-                        .await?;
-                    println!(
-                        "continuation template {} created from sandbox {} (pod_uid={}, generation={}, key={})",
-                        info.template_id, sandbox_id, uid, generation, info.key
-                    );
-                }
-                other => {
-                    return Err(anyhow!(
-                        "unknown --snapshot-type '{}'; use warm_fork or continuation",
-                        other
-                    ));
+            if mode == "warm_fork" && name.is_none() {
+                eprintln!("error: --name is required for warm_fork mode");
+                return Ok(1);
+            }
+            let info = SnapshotApi::new(&grpc_sock)
+                .create(name.as_deref().unwrap_or(""), &pod_uid, &mode, generation)
+                .await?;
+            println!(
+                "snapshot created: name={} pod_uid={} mode={}",
+                info.snapshot_name, info.pod_uid, info.mode
+            );
+            Ok(0)
+        }
+        Commands::Snapshot {
+            action:
+                SnapshotAction::Delete {
+                    grpc_sock,
+                    snapshot_name,
+                },
+        } => {
+            SnapshotApi::new(&grpc_sock).delete(&snapshot_name).await?;
+            println!("snapshot {} deleted", snapshot_name);
+            Ok(0)
+        }
+        Commands::Snapshot {
+            action: SnapshotAction::List { grpc_sock, mode },
+        } => {
+            let snapshots = SnapshotApi::new(&grpc_sock).list(mode.as_deref()).await?;
+            if snapshots.is_empty() {
+                println!("No resources found.");
+            } else {
+                println!("{:<44}  {:<36}  MODE", "NAME", "POD UID");
+                for s in &snapshots {
+                    println!("{:<44}  {:<36}  {}", s.snapshot_name, s.pod_uid, s.mode,);
                 }
             }
             Ok(0)
         }
-        Commands::Sandbox {
-            action: SandboxAction::List { admin_sock },
+        Commands::Snapshot {
+            action: SnapshotAction::Get { grpc_sock, name },
+        } => match SnapshotApi::new(&grpc_sock).get(&name).await? {
+            Some(s) => {
+                println!(
+                    "snapshot_name: {}\npod_uid: {}\nmode: {}",
+                    s.snapshot_name, s.pod_uid, s.mode
+                );
+                Ok(0)
+            }
+            None => {
+                eprintln!("snapshot '{}' not found", name);
+                Ok(1)
+            }
+        },
+        Commands::Snapshot {
+            action: SnapshotAction::Probe { grpc_sock },
         } => {
-            let sandboxes = SandboxApi::new(&admin_sock).list().await?;
+            let ready = SnapshotApi::new(&grpc_sock).probe().await?;
+            println!("ready: {}", ready);
+            Ok(if ready { 0 } else { 1 })
+        }
+        Commands::Snapshot {
+            action: SnapshotAction::Info { grpc_sock },
+        } => {
+            let info = SnapshotApi::new(&grpc_sock).info().await?;
+            println!("name: {}\nversion: {}", info.name, info.version);
+            Ok(0)
+        }
+        Commands::Sandbox {
+            action: SandboxAction::Pause { grpc_sock, id },
+        } => {
+            SandboxApi::new(&grpc_sock).pause(&id).await?;
+            println!("sandbox {} paused", id);
+            Ok(0)
+        }
+        Commands::Sandbox {
+            action: SandboxAction::Resume { grpc_sock, id },
+        } => {
+            SandboxApi::new(&grpc_sock).resume(&id).await?;
+            println!("sandbox {} resumed", id);
+            Ok(0)
+        }
+        Commands::Sandbox {
+            action: SandboxAction::List { grpc_sock },
+        } => {
+            let sandboxes = SandboxApi::new(&grpc_sock).list().await?;
             if sandboxes.is_empty() {
-                println!("no sandboxes");
+                println!("No resources found.");
             } else {
                 println!(
-                    "{:<64}  {:<10}  {:<13}  {:<32}",
-                    "SANDBOX ID", "STATUS", "SNAPSHOT TYPE", "TEMPLATE ID"
+                    "{:<36}  {:<64}  {:<10}  {:<13}  SNAPSHOT NAME",
+                    "POD UID", "SANDBOX ID", "STATUS", "SNAPSHOT MODE"
                 );
                 for sb in &sandboxes {
                     println!(
-                        "{:<64}  {:<10}  {:<13}  {}",
-                        sb.id,
+                        "{:<36}  {:<64}  {:<10}  {:<13}  {}",
+                        sb.pod_uid,
+                        sb.sandbox_id,
                         sb.status,
-                        sb.template_snapshot_type.as_deref().unwrap_or("-"),
-                        sb.template_id.as_deref().unwrap_or("-"),
+                        sb.snapshot_mode,
+                        if sb.snapshot_name.is_empty() {
+                            "-"
+                        } else {
+                            &sb.snapshot_name
+                        },
                     );
                 }
             }
             Ok(0)
         }
         Commands::Sandbox {
-            action: SandboxAction::Get { admin_sock, id },
+            action: SandboxAction::Get { grpc_sock, id },
         } => {
-            let sb = SandboxApi::new(&admin_sock).get(&id).await?;
-            println!("{}", serde_json::to_string_pretty(&sb)?);
-            Ok(0)
-        }
-        Commands::Sandbox {
-            action:
-                SandboxAction::Run {
-                    admin_sock,
-                    snapshot_type,
-                    template_id,
-                    template_key,
-                    pod_uid,
-                    generation,
+            let sb = SandboxApi::new(&grpc_sock).get(&id).await?;
+            println!(
+                "pod_uid: {}\nsandbox_id: {}\nstatus: {}\nsnapshot_mode: {}\nsnapshot_name: {}",
+                sb.pod_uid,
+                sb.sandbox_id,
+                sb.status,
+                sb.snapshot_mode,
+                if sb.snapshot_name.is_empty() {
+                    "-"
+                } else {
+                    &sb.snapshot_name
                 },
-        } => {
-            let result = match snapshot_type.as_str() {
-                "warm_fork" => {
-                    if pod_uid.is_some() || generation.is_some() {
-                        return Err(anyhow!(
-                            "snapshot_type=warm_fork does not accept --pod-uid or --generation"
-                        ));
-                    }
-                    if template_id.is_none() && template_key.is_none() {
-                        return Err(anyhow!(
-                            "snapshot_type=warm_fork requires at least one of \
-                             --template-id or --template-key"
-                        ));
-                    }
-                    SandboxApi::new(&admin_sock)
-                        .run_warm_fork(template_key.as_deref(), template_id.as_deref())
-                        .await?
-                }
-                "continuation" => {
-                    if template_id.is_some() || template_key.is_some() {
-                        return Err(anyhow!(
-                            "snapshot_type=continuation only accepts --pod-uid and --generation; \
-                             --template-id and --template-key are not valid for this type"
-                        ));
-                    }
-                    let uid = pod_uid.ok_or_else(|| {
-                        anyhow!("--pod-uid is required for --snapshot-type continuation")
-                    })?;
-                    let gen = generation.unwrap_or(0);
-                    SandboxApi::new(&admin_sock)
-                        .run_continuation(&uid, gen)
-                        .await?
-                }
-                other => {
-                    return Err(anyhow!(
-                        "unknown --snapshot-type '{}'; valid values: warm_fork, continuation",
-                        other
-                    ));
-                }
-            };
-            println!("{}", result.sandbox_id);
-            Ok(0)
-        }
-        Commands::Sandbox {
-            action: SandboxAction::Destroy { admin_sock, id },
-        } => {
-            SandboxApi::new(&admin_sock).destroy(&id).await?;
-            println!("sandbox {} destroyed", id);
+            );
             Ok(0)
         }
         Commands::Template {
@@ -423,16 +427,13 @@ async fn run() -> Result<i32> {
             action:
                 PoolAction::Refill {
                     admin_sock,
-                    kind,
                     target_depth,
                 },
         } => {
-            let r = TemplateApi::new(&admin_sock)
-                .refill(&kind, target_depth)
-                .await?;
+            let r = TemplateApi::new(&admin_sock).refill(target_depth).await?;
             println!(
-                "pool refill queued: kind={}, target_depth={}, in_flight={}",
-                r.kind, target_depth, r.in_flight
+                "pool refill queued: target_depth={}, in_flight={}",
+                target_depth, r.in_flight
             );
             Ok(0)
         }
@@ -440,16 +441,13 @@ async fn run() -> Result<i32> {
             action:
                 PoolAction::Gc {
                     admin_sock,
-                    kind,
                     template_id,
                 },
         } => {
-            let r = TemplateApi::new(&admin_sock)
-                .gc(&kind, &template_id)
-                .await?;
+            let r = TemplateApi::new(&admin_sock).gc(&template_id).await?;
             println!(
-                "pool gc: kind={}, template_id={}, removed={}, remaining={}",
-                r.kind, template_id, r.removed, r.remaining
+                "pool gc: template_id={}, removed={}, remaining={}",
+                template_id, r.removed, r.remaining
             );
             Ok(0)
         }
