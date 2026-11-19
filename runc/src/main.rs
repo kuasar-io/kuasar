@@ -225,7 +225,7 @@ pub fn safe_open_file<P: ?Sized + nix::NixPath>(
     mode: Mode,
 ) -> Result<OwnedFd, nix::Error> {
     let fd = nix::fcntl::open(path, oflag, mode)?;
-    // SAFETY: contruct a OwnedFd from RawFd, close fd when OwnedFd drop
+    // SAFETY: construct an OwnedFd from RawFd, close fd when OwnedFd drop
     Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 

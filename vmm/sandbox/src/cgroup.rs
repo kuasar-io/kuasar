@@ -275,7 +275,7 @@ mod tests {
         let sandbox_cgroup_path = get_sandbox_cgroup_parent_path(&sandbox_data);
         assert_eq!(sandbox_cgroup_path.is_none(), true);
 
-        // Case 2: sandbox.config is corrent, expect create sandbox cgroup successfully
+        // Case 2: sandbox.config is correct, expect create sandbox cgroup successfully
         let pod_sandbox_config = create_mock_pod_sandbox_config();
         sandbox_data.config = Some(pod_sandbox_config);
         let sandbox_cgroup_path = get_sandbox_cgroup_parent_path(&sandbox_data).unwrap();
