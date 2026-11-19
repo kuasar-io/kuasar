@@ -113,7 +113,7 @@ rm -f crictl-$VERSION-linux-arm64.tar.gz
 create the crictl config file in the `/etc/crictl.yaml`
 ```bash
 cat /etc/crictl.yaml
-# isulad container engine configuraton
+# isulad container engine configuration
 #runtime-endpoint: unix:///var/run/isulad.sock
 #image-endpoint: unix:///var/run/isulad.sock
 
